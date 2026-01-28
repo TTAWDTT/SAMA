@@ -2,12 +2,23 @@ export function setupChat(opts: {
   historyEl: HTMLDivElement;
   inputEl: HTMLInputElement;
   sendBtn: HTMLButtonElement;
+  hintEl?: HTMLDivElement;
+  statusEl?: HTMLDivElement;
 }) {
-  const { historyEl, inputEl, sendBtn } = opts;
+  const { historyEl, inputEl, sendBtn, hintEl, statusEl } = opts;
 
-  const add = (role: "user" | "bot", text: string) => {
+  const setStatus = (text: string) => {
+    if (!statusEl) return;
+    statusEl.textContent = text;
+  };
+
+  if (hintEl) {
+    hintEl.textContent = "回复会显示在角色旁的气泡中（不是在这个窗口里）。";
+  }
+
+  const addUser = (text: string) => {
     const el = document.createElement("div");
-    el.className = `msg ${role === "user" ? "user" : "bot"}`;
+    el.className = "msg user";
     el.textContent = text;
     historyEl.appendChild(el);
     historyEl.scrollTop = historyEl.scrollHeight;
@@ -17,18 +28,20 @@ export function setupChat(opts: {
     const msg = inputEl.value.trim();
     if (!msg) return;
     inputEl.value = "";
-    add("user", msg);
+    addUser(msg);
 
     sendBtn.disabled = true;
+    setStatus("发送中…");
     try {
-      const resp = await window.stageDesktop.chatInvoke(msg);
-      add("bot", resp.message);
+      await window.stageDesktop.chatInvoke(msg);
+      setStatus("已发送。SAMA 会用气泡回复。");
     } catch (err) {
-      add("bot", "我这边好像卡了一下…");
+      setStatus("发送失败：我这边好像卡了一下…");
       console.warn(err);
     } finally {
       sendBtn.disabled = false;
       inputEl.focus();
+      window.setTimeout(() => setStatus(""), 2200);
     }
   };
 
@@ -54,4 +67,3 @@ export function setupChat(opts: {
     }
   });
 }
-

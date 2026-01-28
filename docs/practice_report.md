@@ -39,9 +39,9 @@
 - **全局热键**：`Ctrl+Alt+P` 切换穿透、`Ctrl+Alt+C` 打开聊天（并额外提供 `Ctrl+Alt+O` 打开控制台）（`apps/stage-desktop/src/main/services/shortcuts.service.ts`）
 - **拖拽移动窗口**：renderer 发送 drag delta，main 更新窗口坐标（`apps/stage-desktop/src/renderer/pet/ui.ts` + `apps/stage-desktop/src/main/index.ts`）
 
-规范差异（解释）：
+设计取舍（解释）：
 
-- spec 中写了 pet.window `resizable false`，但项目为了“用户可调窗口大小”的可用性诉求已改为可缩放（并持久化尺寸），这属于**有意偏离**（`apps/stage-desktop/src/main/windows/pet.window.ts` + `apps/stage-desktop/src/main/index.ts`）。
+- 为满足“用户可调窗口大小”的可用性诉求，pet window 设置为可缩放（并持久化尺寸）（`apps/stage-desktop/src/main/windows/pet.window.ts` + `apps/stage-desktop/src/main/index.ts`）。
 
 ### 2.2 Behavior（Sensing + Core）
 
@@ -145,6 +145,62 @@
 
 - Controls 与 Pet 两个 renderer 在 preload 不可用时，会使用 `BroadcastChannel` 建立一条“降级通道”，用于传递 `PET_CONTROL`/`PET_STATE`/`PET_STATUS`/`PET_CONTROL_RESULT`。
 - 该兜底只覆盖“模型/动作导入与场景参数控制”等 renderer 内可完成的能力；涉及主进程能力（窗口穿透、窗口大小设置等）仍需要 preload IPC 正常。
+
+### 3.6 交互：右键旋转视角 + Shift 拖动平移角色
+
+**需求**
+
+- “自动居中”仍然成立（加载/缩放时自动重新 framing），同时允许用户在宠物窗口直接操作：
+  - 右键长按拖动：旋转视角（Orbit）
+  - Shift + 左键长按拖动：平移模型（调整角色在窗口内的位置）
+
+**实现**
+
+- 在 pet renderer 实现了一套轻量交互模式切换（窗口拖拽 / orbit / pan），并保持 click-through 关闭时才可操作：
+  - `apps/stage-desktop/src/renderer/pet/ui.ts`
+  - `apps/stage-desktop/src/renderer/pet/main.ts`
+- 相机 framing 与 orbit 解耦：framing 负责“自动居中/自适应”，orbit 负责“用户视角”，互不覆盖：
+  - `apps/stage-desktop/src/renderer/pet/scene.ts`
+
+### 3.7 气泡：从固定偏移升级为“跟随头部锚点”
+
+**问题**
+
+- 仅用固定 offset 的 caption window 很难保证“气泡在角色周围”，尤其在窗口缩放、模型偏移、视角旋转后。
+
+**实现**
+
+- caption window 改为覆盖 pet window（同 bounds），同时 pet renderer 周期性广播头部投影坐标（normalized 0..1）：
+  - 主进程同步 bounds：`apps/stage-desktop/src/main/index.ts`
+  - pet 侧计算 head bone 投影：`apps/stage-desktop/src/renderer/pet/scene.ts`
+  - pet 侧广播 anchor：`apps/stage-desktop/src/renderer/pet/main.ts`
+  - caption 侧接收并定位 bubble：`apps/stage-desktop/src/renderer/caption/main.ts`、`apps/stage-desktop/src/renderer/caption/caption.ts`
+
+### 3.8 对话：输入窗口与回复气泡分离
+
+**需求**
+
+- 用户有专门的输入框发送信息；SAMA 的回复以“角色周围气泡”呈现，而不是在输入窗口中刷 bot 消息。
+
+**实现**
+
+- Chat window 改为“输入为主”的 UI，只显示用户发送记录与发送状态提示：
+  - `apps/stage-desktop/src/renderer/chat/chat.ts`
+  - `apps/stage-desktop/src/renderer/chat/index.html`
+- core 在生成 chat reply 后，会额外发出一个 `ActionCommand`（bubble=reply），从而走统一的“气泡渲染链路”：
+  - `apps/stage-desktop/src/main/services/core.service.ts`
+
+### 3.9 内置 Idle VRMA（开箱即用的待机动作）
+
+**动机**
+
+- 很多 VRM 文件本身不带动画；仅靠程序 idle 虽然可用，但“标准待机”的质感不足。
+
+**实现**
+
+- 内置一个体积很小的 VRMA sample（以 base64 形式嵌入），当用户未指定 Idle 槽位、且 VRM 没有嵌入 idle clip 时自动加载：
+  - `apps/stage-desktop/src/renderer/pet/builtin_idle_vrma.ts`
+  - `apps/stage-desktop/src/renderer/pet/scene.ts`
 
 ---
 

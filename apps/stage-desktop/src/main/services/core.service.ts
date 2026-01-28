@@ -20,6 +20,31 @@ function pickApproachExpression(state: CompanionState, isNight: boolean): Action
   return isNight ? "TIRED" : "NEUTRAL";
 }
 
+function truncateByCodepoints(s: string, max: number) {
+  const arr = Array.from(String(s ?? "").trim());
+  if (arr.length <= max) return arr.join("");
+  return arr.slice(0, max).join("") + "…";
+}
+
+function normalizeBubbleText(s: string) {
+  return String(s ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function bubbleDurationForText(text: string) {
+  const n = Array.from(text).length;
+  // 3.2s base + per-char time, clamped to a reasonable range.
+  return Math.max(3200, Math.min(12_000, 3200 + n * 55));
+}
+
+function pickChatExpression(isNight: boolean, mood: number): ActionCommand["expression"] {
+  if (isNight) return "TIRED";
+  if (mood < 0.35) return "SAD";
+  return "SHY";
+}
+
 export class CoreService {
   #llm: LLMService;
   #memory: MemoryService;
@@ -286,7 +311,19 @@ export class CoreService {
     this.#chatHistory.push({ role: "assistant", content: reply });
     this.#chatHistory = this.#chatHistory.slice(-40);
 
+    // Chat reply is rendered as a bubble near the character (separate from the input UI).
+    const bubble = truncateByCodepoints(normalizeBubbleText(reply), 180);
+    const cmd: ActionCommand = {
+      type: "ACTION_COMMAND",
+      ts: Date.now(),
+      action: "IDLE",
+      expression: pickChatExpression(ctx.isNight, ctx.mood),
+      bubble,
+      durationMs: bubbleDurationForText(bubble)
+    };
+    this.#memory.logAction(cmd);
+    this.#onAction(cmd, { proactive: false });
+
     return { type: "CHAT_RESPONSE", ts: Date.now(), message: reply };
   }
 }
-

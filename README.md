@@ -7,7 +7,7 @@
 - VRM 动画增强：自动眨眼 / 空闲眼动（saccades）/ 简易“说话”口型 / 支持加载 `.vrma` 动作
 - Windows 传感：前台应用、切换频率、空闲时间、夜间标记
 - 核心状态机 + 行为策略（APPROACH/RETREAT/INVITE_CHAT）
-- 气泡（独立透明窗口跟随）+ 简易聊天窗口
+- 气泡（独立透明窗口覆盖桌宠窗口，跟随角色头部锚点）+ 简易输入窗口
 - LLM Provider：OpenAI / DeepSeek / AIStudio（可插拔 + fallback）
 
 ## 依赖
@@ -91,7 +91,9 @@ pnpm dev
 ### 窗口移动（拖拽）
 
 - 确保 click-through 处于关闭：托盘菜单切换，或快捷键 `Ctrl+Alt+P`
-- 正常情况下：在宠物窗口画面上按住拖动即可移动
+- 左键拖动：移动桌宠窗口
+- Shift + 左键拖动：移动角色在窗口内的位置（平移模型）
+- 右键拖动：旋转视角（Orbit）
 - 如果拖动不生效：可用右上角的“拖动窗口”小按钮（`-webkit-app-region: drag` 的兜底拖拽区域）
   - 控制台窗口会显示 `穿透：ON/OFF`，ON 时无法拖动（需要先关掉）
 
@@ -133,6 +135,11 @@ pnpm dev
 - 当宠物窗口在移动（拖拽 / APPROACH / RETREAT）时，会自动进入 **WALK**（走路）
 - 当窗口静止时，会自动进入 **IDLE**（待机）
 - 优先级：手动加载的 `.vrma` 动作（ACTION） > Walk/Idle 槽位 > 程序动画
+
+内置 Idle（兜底）：
+
+- 如果没有给 Idle 槽位指定 `.vrma`，且 VRM 内也没有可用的嵌入动画，会自动加载一个内置的“idle-like” VRMA（用于开箱即用）
+- 你仍然可以随时加载自己的 `.vrma` 并设为 Idle 来覆盖它
 
 如果你有 Airi/其他来源的 `.vrma`：
 
@@ -189,4 +196,6 @@ pnpm dev
 5. 控制台输出 sensing/state 日志
 6. 快速切换应用触发 APPROACH + bubble
 7. 点击宠物触发短暂 HAPPY
-8. Chat 窗口可发送并收到回复（LLM 或 fallback）
+8. Chat 输入窗口可发送消息，SAMA 会以气泡回复（LLM 或 fallback）
+
+> 说明：Chat 窗口现在是“输入为主”的窗口；SAMA 的回复会以气泡显示在角色旁（不会在 Chat 窗口里刷出一条 bot 消息）。

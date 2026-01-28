@@ -3,6 +3,7 @@ import type { VRM } from "@pixiv/three-vrm";
 import type { ActionCommand } from "@sama/shared";
 import { loadVrmFromBytes, updateExpressions } from "./vrm";
 import { createClipFromVrmAnimation, loadVrmAnimationFromBytes, reanchorPositionTracks } from "./vrma";
+import { getBuiltinIdleVrmaBytes } from "./builtin_idle_vrma";
 import type { IdleConfig, IdleController } from "./idle";
 import { createIdleController } from "./idle";
 import type { WalkConfig, WalkController } from "./walk";
@@ -47,6 +48,10 @@ export type PetScene = {
   getWalkConfig: () => WalkConfig | null;
   setModelTransform: (t: Partial<ModelTransform>) => void;
   getModelTransform: () => ModelTransform;
+  /** Rotate camera orbit around the avatar (right drag). */
+  orbitView?: (dx: number, dy: number) => void;
+  /** Pan the avatar inside the window (Shift + left drag). */
+  panModel?: (dx: number, dy: number) => void;
   setVrmAnimationConfig: (cfg: Partial<VrmAnimationConfig>) => void;
   getVrmAnimationConfig: () => VrmAnimationConfig;
   clearVrmAnimation: () => void;
@@ -57,6 +62,8 @@ export type PetScene = {
   setDragging: (dragging: boolean) => void;
   notifyDragDelta: (dx: number, dy: number) => void;
   getMotionState: () => MotionState;
+  /** Normalized (0..1) anchor position for caption bubbles. */
+  getBubbleAnchor?: () => { nx: number; ny: number } | null;
 };
 
 function safeNowMs() {
@@ -92,7 +99,41 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+
+  // View framing + user-adjustable orbit
+  const viewTarget = new THREE.Vector3(0, 1.25, 0);
+  let viewBaseDistance = 2.2;
+  let orbitYaw = 0;
+  let orbitPitch = 0;
+  const tmpSpherical = new THREE.Spherical();
+  const tmpCamOffset = new THREE.Vector3();
+  const tmpCamDir = new THREE.Vector3();
+  const tmpCamRight = new THREE.Vector3();
+  const tmpCamUp = new THREE.Vector3();
+  const tmpPan = new THREE.Vector3();
+  const tmpRaycaster = new THREE.Raycaster();
+  const tmpNdc = new THREE.Vector2();
+  const tmpPlane = new THREE.Plane();
+  const tmpRayHit = new THREE.Vector3();
+  const tmpBubbleWorld = new THREE.Vector3();
+  const tmpBubbleNdc = new THREE.Vector3();
+
+  const applyView = () => {
+    const radius = Math.max(0.35, Number(viewBaseDistance) || 0);
+    const pitch = THREE.MathUtils.clamp(Number(orbitPitch) || 0, -1.05, 1.05);
+    orbitPitch = pitch;
+
+    // three.js spherical: phi is polar angle from +Y (0..PI), theta is azimuth around Y.
+    const phi = THREE.MathUtils.clamp(Math.PI / 2 - pitch, 0.12, Math.PI - 0.12);
+    tmpSpherical.set(radius, phi, Number(orbitYaw) || 0);
+    tmpCamOffset.setFromSpherical(tmpSpherical);
+
+    camera.position.copy(viewTarget).add(tmpCamOffset);
+    camera.lookAt(viewTarget);
+  };
+
   camera.position.set(0, 1.25, 2.2);
+  applyView();
 
   const ambient = new THREE.AmbientLight(0xffffff, 0.6);
   const dir = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -134,6 +175,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   let vrmAnimationAction: any | null = null;
   let vrmAnimationIdle: any | null = null;
   let vrmAnimationWalk: any | null = null;
+  let builtinIdleVrma: any | null = null;
   let embeddedIdleClip: THREE.AnimationClip | null = null;
   let embeddedWalkClip: THREE.AnimationClip | null = null;
   let clipCache = new WeakMap<any, THREE.AnimationClip>();
@@ -197,7 +239,17 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     const rect = canvas.getBoundingClientRect();
     const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-    pointerTarget.set(nx * 0.5, eyeBaseY + ny * 0.25, 0.6);
+
+    tmpNdc.set(nx, ny);
+    tmpRaycaster.setFromCamera(tmpNdc, camera);
+    camera.getWorldDirection(tmpCamDir).normalize();
+    tmpPlane.setFromNormalAndCoplanarPoint(tmpCamDir, viewTarget);
+    if (tmpRaycaster.ray.intersectPlane(tmpPlane, tmpRayHit)) {
+      pointerTarget.copy(tmpRayHit);
+    } else {
+      pointerTarget.copy(viewTarget);
+      pointerTarget.y = eyeBaseY;
+    }
     fixationTarget.copy(pointerTarget);
     lastPointerMoveAt = safeNowMs();
   });
@@ -421,14 +473,51 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     lookTargetObj.position.y = eyeBaseY;
 
     // Frame the model in camera
-    const fovRad = THREE.MathUtils.degToRad(camera.fov);
-    const distance = Math.max(1.0, (scaledHeight * 0.55) / Math.tan(fovRad / 2));
-    camera.position.set(0, scaledHeight * 0.62, distance * 1.08);
-    camera.lookAt(0, scaledHeight * 0.62, 0);
+    viewTarget.set(0, scaledHeight * 0.62, 0);
+
+    const vFovRad = THREE.MathUtils.degToRad(camera.fov);
+    const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * camera.aspect);
+    const scaledWidth = Math.max(0.2, (size.x * scale) || 0.2);
+    const halfH = Math.max(0.1, scaledHeight / 2);
+    const halfW = Math.max(0.1, scaledWidth / 2);
+    const distH = halfH / Math.max(0.001, Math.tan(vFovRad / 2));
+    const distW = halfW / Math.max(0.001, Math.tan(hFovRad / 2));
+    viewBaseDistance = Math.max(1.0, Math.max(distH, distW) * 1.12);
+    applyView();
 
     baseModelPos.copy(vrm.scene.position);
     baseModelQuat.copy(vrm.scene.quaternion);
     applyModelTransform();
+  };
+
+  const computeBubbleAnchor = (): { nx: number; ny: number } | null => {
+    if (!vrm) return null;
+
+    const humanoid: any = (vrm as any).humanoid;
+    const headNode =
+      humanoid?.getNormalizedBoneNode?.("head") ??
+      humanoid?.getBoneNode?.("head") ??
+      humanoid?.normalizedHumanBones?.head?.node ??
+      null;
+
+    if (headNode && typeof headNode.getWorldPosition === "function") {
+      headNode.getWorldPosition(tmpBubbleWorld);
+      // Nudge slightly upward so the bubble sits above the head, not on the forehead.
+      tmpBubbleWorld.y += 0.08;
+    } else {
+      tmpBubbleWorld.copy(viewTarget);
+      tmpBubbleWorld.y += 0.2;
+    }
+
+    tmpBubbleNdc.copy(tmpBubbleWorld).project(camera);
+    const nx = (tmpBubbleNdc.x + 1) / 2;
+    const ny = (-tmpBubbleNdc.y + 1) / 2;
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
+
+    return {
+      nx: THREE.MathUtils.clamp(nx, 0.04, 0.96),
+      ny: THREE.MathUtils.clamp(ny, 0.04, 0.96)
+    };
   };
 
   const load = async (bytes: Uint8Array) => {
@@ -459,6 +548,22 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
     idle = createIdleController(vrm, idleConfigOverride);
     walk = createWalkController(vrm, walkConfigOverride);
+
+    // If the model has no embedded idle clip and the user hasn't assigned an idle VRMA yet,
+    // load a small built-in VRMA so "idle" feels standard out-of-the-box.
+    if (!vrmAnimationIdle && !embeddedIdleClip) {
+      try {
+        if (!builtinIdleVrma) {
+          builtinIdleVrma = await loadVrmAnimationFromBytes(getBuiltinIdleVrmaBytes());
+        }
+        if (builtinIdleVrma) {
+          vrmAnimationIdle = builtinIdleVrma;
+        }
+      } catch (err) {
+        console.warn("[vrma] builtin idle load failed:", err);
+      }
+    }
+
     fitCameraToModel();
     syncAnimationForMovement(safeNowMs(), false);
   };
@@ -603,7 +708,15 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       const ms = Math.max(120, Number(durationMs ?? 1200));
       talkingUntil = safeNowMs() + ms;
     },
-    refitCamera: () => fitCameraToModel(),
+    refitCamera: () => {
+      // Explicit user action (Controls "重置视角/居中") should reset the orbit and pan back to defaults.
+      orbitYaw = 0;
+      orbitPitch = 0;
+      modelTransform.offsetX = 0;
+      modelTransform.offsetY = 0;
+      modelTransform.offsetZ = 0;
+      fitCameraToModel();
+    },
     setIdleConfig: (cfg) => {
       idleConfigOverride = { ...idleConfigOverride, ...cfg };
       idle?.setConfig(cfg);
@@ -628,6 +741,40 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       else applyModelTransform();
     },
     getModelTransform: () => ({ ...modelTransform }),
+    orbitView: (dx, dy) => {
+      const sx = Number(dx) || 0;
+      const sy = Number(dy) || 0;
+      if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+
+      const sens = 0.005;
+      orbitYaw -= sx * sens;
+      // Invert vertical drag direction to match user expectation:
+      // dragging up should tilt the view upward (rather than down).
+      orbitPitch += sy * sens;
+      applyView();
+    },
+    panModel: (dx, dy) => {
+      if (!vrm) return;
+      const sx = Number(dx) || 0;
+      const sy = Number(dy) || 0;
+      if (!Number.isFinite(sx) || !Number.isFinite(sy)) return;
+
+      const radius = Math.max(0.35, camera.position.distanceTo(viewTarget));
+      const fovRad = THREE.MathUtils.degToRad(camera.fov);
+      const pxToWorld = (2 * radius * Math.tan(fovRad / 2)) / Math.max(1, canvas.clientHeight);
+
+      tmpCamRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      tmpCamUp.set(0, 1, 0).applyQuaternion(camera.quaternion);
+
+      tmpPan.set(0, 0, 0);
+      tmpPan.addScaledVector(tmpCamRight, sx * pxToWorld);
+      tmpPan.addScaledVector(tmpCamUp, -sy * pxToWorld);
+
+      modelTransform.offsetX = Math.max(-2, Math.min(2, (Number(modelTransform.offsetX) || 0) + tmpPan.x));
+      modelTransform.offsetY = Math.max(-2, Math.min(2, (Number(modelTransform.offsetY) || 0) + tmpPan.y));
+      modelTransform.offsetZ = Math.max(-2, Math.min(2, (Number(modelTransform.offsetZ) || 0) + tmpPan.z));
+      applyModelTransform();
+    },
     setVrmAnimationConfig: (cfg) => {
       if (cfg.enabled !== undefined) vrmAnimationConfig.enabled = Boolean(cfg.enabled);
       if (cfg.paused !== undefined) vrmAnimationConfig.paused = Boolean(cfg.paused);
@@ -687,6 +834,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       lastDragAt = safeNowMs();
       lastDragMag = Math.hypot(Number(dx) || 0, Number(dy) || 0);
     },
-    getMotionState: () => ({ locomotion, animation: activeAnimation })
+    getMotionState: () => ({ locomotion, animation: activeAnimation }),
+    getBubbleAnchor: () => computeBubbleAnchor()
   };
 }

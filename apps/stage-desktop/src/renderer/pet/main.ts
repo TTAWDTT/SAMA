@@ -1,6 +1,7 @@
 import type { ActionCommand, PetControlMessage, PetControlResult, PetStateMessage, PetStatusMessage } from "@sama/shared";
 import { createPetScene } from "./scene";
 import { attachPetInteractions } from "./ui";
+import type { ModelTransform } from "./scene";
 
 const hudEl = document.getElementById("hud");
 const hud = hudEl instanceof HTMLDivElement ? hudEl : null;
@@ -125,6 +126,19 @@ function formatErr(err: unknown) {
   }
 }
 
+const SETTINGS_KEY = "sama.pet.controls.v1";
+function persistModelTransform(t: Partial<ModelTransform>) {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as any) : null;
+    const next = parsed && parsed.version === 1 ? parsed : { version: 1 };
+    next.modelTransform = { ...(next.modelTransform ?? {}), ...t };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+}
+
 async function pickBytesViaFileInput(accept: string): Promise<Uint8Array> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
@@ -180,6 +194,43 @@ async function boot() {
   setHud("render: running");
   scene.start();
 
+  // Persist model transform updates caused by direct manipulation (Shift-drag pan).
+  let persistTimer: number | null = null;
+  const schedulePersist = () => {
+    if (persistTimer !== null) window.clearTimeout(persistTimer);
+    persistTimer = window.setTimeout(() => {
+      persistTimer = null;
+      const t = scene.getModelTransform();
+      persistModelTransform({ offsetX: t.offsetX, offsetY: t.offsetY, offsetZ: t.offsetZ });
+    }, 180);
+  };
+
+  // While a caption bubble is visible, keep sending the anchor so the caption window can follow the character head.
+  let anchorTimer: number | null = null;
+  let anchorUntilTs = 0;
+  const postCaptionAnchor = () => {
+    const a = scene.getBubbleAnchor?.();
+    if (!a) return;
+    try {
+      bc?.postMessage({ type: "CAPTION_ANCHOR", ts: Date.now(), nx: a.nx, ny: a.ny });
+    } catch {}
+  };
+  const startCaptionAnchorTracking = (durationMs: number) => {
+    const now = Date.now();
+    const ms = Math.max(400, Number(durationMs) || 0);
+    anchorUntilTs = Math.max(anchorUntilTs, now + ms);
+    postCaptionAnchor();
+    if (anchorTimer !== null) return;
+    anchorTimer = window.setInterval(() => {
+      if (Date.now() > anchorUntilTs) {
+        if (anchorTimer !== null) window.clearInterval(anchorTimer);
+        anchorTimer = null;
+        return;
+      }
+      postCaptionAnchor();
+    }, 80);
+  };
+
   const sendPetState = () => {
     const payload: PetStateMessage = {
       type: "PET_STATE",
@@ -200,6 +251,8 @@ async function boot() {
   const petStateTimer = window.setInterval(sendPetState, 250);
   window.addEventListener("beforeunload", () => {
     window.clearInterval(petStateTimer);
+    if (persistTimer !== null) window.clearTimeout(persistTimer);
+    if (anchorTimer !== null) window.clearInterval(anchorTimer);
     try {
       bc?.close();
     } catch {}
@@ -239,6 +292,8 @@ async function boot() {
 
       if (msg.action === "REFIT_CAMERA") {
         scene.refitCamera();
+        const t = scene.getModelTransform();
+        persistModelTransform({ offsetX: t.offsetX, offsetY: t.offsetY, offsetZ: t.offsetZ });
         sendPetStatus("info", "已重置视角");
         return;
       }
@@ -428,13 +483,23 @@ async function boot() {
       }
       api.sendDragDelta({ dx, dy });
     },
+    onOrbitDelta: (dx, dy) => {
+      scene.orbitView?.(dx, dy);
+    },
+    onPanDelta: (dx, dy) => {
+      scene.panModel?.(dx, dy);
+      schedulePersist();
+    },
     onDragState: (dragging) => scene.setDragging(dragging)
   });
 
   (window as any).stageDesktop?.onActionCommand?.((cmd: ActionCommand) => {
     scene.notifyAction(cmd);
     scene.setExpression(cmd.expression);
-    if (cmd.bubble) scene.speak(cmd.durationMs);
+    if (cmd.bubble) {
+      scene.speak(cmd.durationMs);
+      startCaptionAnchorTracking(cmd.durationMs);
+    }
   });
 
   (window as any).stageDesktop?.onClickThroughChanged?.((enabled: boolean) => {
@@ -443,7 +508,7 @@ async function boot() {
   });
 
   renderHud();
-  setBootStatus("拖拽导入：把 .vrm / .vrma 拖到窗口；或点“选择 VRM…”");
+  setBootStatus("拖拽导入：把 .vrm / .vrma 拖到窗口；右键拖动旋转视角；Shift+左键拖动移动角色");
   sendPetState();
 
   if (bootRoot) {

@@ -268,7 +268,7 @@ async function bootstrap() {
 
   const petWindow = createPetWindow({ preloadPath, initialSize: initialPetSize });
   petWindowRef = petWindow;
-  const captionWindow = createCaptionWindow({ preloadPath });
+  const captionWindow = createCaptionWindow({ preloadPath, width: initialPetSize.width, height: initialPetSize.height });
 
   const wirePreloadDiagnostics = (win: BrowserWindow, label: string) => {
     win.webContents.on("preload-error", (_evt, p, error) => {
@@ -288,6 +288,7 @@ async function bootstrap() {
   const initialBounds = petWindow.getBounds();
   const home = computeDefaultHome({ w: initialBounds.width, h: initialBounds.height });
   petWindow.setPosition(home.x, home.y);
+  captionWindow.setBounds(petWindow.getBounds());
   let homePosition: Point = { ...home };
 
   let clickThroughEnabled = false;
@@ -298,8 +299,7 @@ async function bootstrap() {
 
   const configPath = resolve(process.cwd(), "config.json");
   const config = readAppConfig(configPath);
-  const offsetX = Number(config.captionOffset?.x ?? 20);
-  const offsetY = Number(config.captionOffset?.y ?? -120);
+  // Caption window now overlays the pet window (same bounds) so the bubble can be anchored to the character.
 
   const openChat = () => {
     if (chatWindow && !chatWindow.isDestroyed()) {
@@ -456,8 +456,8 @@ async function bootstrap() {
   const followTimer = setInterval(() => {
     if (petWindow.isDestroyed() || captionWindow.isDestroyed()) return;
     if (!petWindow.isVisible()) return;
-    const [x, y] = petWindow.getPosition();
-    captionWindow.setPosition(x + offsetX, y + offsetY);
+    const b = petWindow.getBounds();
+    captionWindow.setBounds(b);
   }, 50);
 
   const persistPetWindowSize = () => {

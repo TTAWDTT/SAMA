@@ -14,3 +14,6 @@ out/
 
 # Local-only overrides (API keys, personal settings)
 apps/stage-desktop/config.local.json
+
+# Scratch space for local experiments
+.tmp/

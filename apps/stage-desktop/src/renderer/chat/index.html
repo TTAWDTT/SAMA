@@ -20,6 +20,12 @@
         flex-direction: column;
         height: 100%;
       }
+      #hint {
+        padding: 12px 14px 0 14px;
+        box-sizing: border-box;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 12px;
+      }
       #history {
         flex: 1;
         overflow: auto;
@@ -38,11 +44,6 @@
         margin-left: auto;
         background: rgba(99, 102, 241, 0.22);
         border: 1px solid rgba(99, 102, 241, 0.35);
-      }
-      .msg.bot {
-        margin-right: auto;
-        background: rgba(148, 163, 184, 0.12);
-        border: 1px solid rgba(148, 163, 184, 0.2);
       }
       #composer {
         display: flex;
@@ -71,17 +72,25 @@
         opacity: 0.6;
         cursor: not-allowed;
       }
+      #status {
+        padding: 0 14px 12px 14px;
+        box-sizing: border-box;
+        min-height: 18px;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 12px;
+      }
     </style>
   </head>
   <body>
     <div id="app">
+      <div id="hint"></div>
       <div id="history"></div>
       <div id="composer">
         <input id="input" placeholder="说点什么…" />
         <button id="send">发送</button>
       </div>
+      <div id="status"></div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
-
