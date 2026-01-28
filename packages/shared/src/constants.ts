@@ -15,5 +15,6 @@ export const IPC_CHANNELS = {
 export const IPC_HANDLES = {
   vrmGet: "handle:vrm-get",
   vrmPick: "handle:vrm-pick",
-  chatInvoke: "handle:chat-invoke"
+  chatInvoke: "handle:chat-invoke",
+  appInfoGet: "handle:app-info-get"
 } as const;

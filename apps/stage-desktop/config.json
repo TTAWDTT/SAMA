@@ -1,6 +1,7 @@
 {
   "socialApps": ["WeChat.exe", "QQ.exe", "Telegram.exe", "Discord.exe"],
   "captionOffset": { "x": 20, "y": -120 },
+  "vrm": { "locked": true, "path": "assets/vrm/white_hait.vrm" },
   "llm": {
     "provider": "auto",
     "openai": { "apiKey": "", "model": "gpt-4o-mini", "baseUrl": "https://api.openai.com/v1" },

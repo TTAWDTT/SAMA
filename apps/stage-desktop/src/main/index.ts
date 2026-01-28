@@ -106,7 +106,17 @@ function readAppConfig(configPath: string): AppConfig {
     };
   })();
 
-  return { socialApps, captionOffset, llm };
+  const vrm = (() => {
+    const baseVrm: any = base?.vrm ?? null;
+    const localVrm: any = local?.vrm ?? null;
+    if (!baseVrm && !localVrm) return undefined;
+    const lockedRaw = localVrm?.locked ?? baseVrm?.locked;
+    const locked = lockedRaw === undefined ? undefined : Boolean(lockedRaw);
+    const path = String(localVrm?.path ?? baseVrm?.path ?? "").trim();
+    return { locked, path };
+  })();
+
+  return { socialApps, captionOffset, llm, vrm };
 }
 
 function readPersistedPetWindowSize(statePath: string): PetWindowSize | null {
@@ -200,10 +210,14 @@ function animateMove(
 }
 
 let vrmPath: string | null = process.env.VRM_PATH ?? null;
+let vrmLocked = false;
 
 async function bootstrap() {
   await app.whenReady();
   app.setAppUserModelId("SAMA.VRMCompanion");
+
+  const configPath = resolve(process.cwd(), "config.json");
+  const config = readAppConfig(configPath);
 
   // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
   // but we keep this resolver defensive to avoid "preload API missing" in case of outDir mismatch.
@@ -221,13 +235,38 @@ async function bootstrap() {
   }
   const petWindowStatePath = join(app.getPath("userData"), "pet-window-state.json");
   const vrmPathStatePath = join(app.getPath("userData"), "vrm-path.json");
-  if (!vrmPath) {
-    const persisted = readPersistedVrmPath(vrmPathStatePath);
-    if (persisted) vrmPath = persisted;
-  }
-  if (vrmPath && !existsSync(vrmPath)) {
-    console.warn("[vrm] VRM_PATH not found, will require manual pick:", vrmPath);
-    vrmPath = null;
+
+  // Optional: lock VRM to a single configured model (no runtime switching via UI/drag).
+  const cfgVrmLocked = Boolean(config.vrm?.locked);
+  const cfgVrmPathRaw = String(config.vrm?.path ?? "").trim();
+  const cfgVrmPath = cfgVrmPathRaw ? resolve(dirname(configPath), cfgVrmPathRaw) : null;
+
+  if (cfgVrmLocked) {
+    vrmLocked = true;
+    if (cfgVrmPath && existsSync(cfgVrmPath)) {
+      vrmPath = cfgVrmPath;
+      console.log(`[vrm] locked: ${vrmPath}`);
+    } else {
+      vrmPath = null;
+      console.warn("[vrm] locked, but vrm.path missing or not found:", cfgVrmPathRaw);
+      try {
+        dialog.showErrorBox(
+          "SAMA VRM locked but missing",
+          `你启用了 VRM 锁定（config.local.json / config.json），但找不到模型文件。\n\nvrm.path=${cfgVrmPathRaw || "(empty)"}\nresolved=${
+            cfgVrmPath ?? "(null)"
+          }\n\n请把 vrm.path 指向一个存在的 .vrm 文件。`
+        );
+      } catch {}
+    }
+  } else {
+    if (!vrmPath) {
+      const persisted = readPersistedVrmPath(vrmPathStatePath);
+      if (persisted) vrmPath = persisted;
+    }
+    if (vrmPath && !existsSync(vrmPath)) {
+      console.warn("[vrm] VRM_PATH not found, will require manual pick:", vrmPath);
+      vrmPath = null;
+    }
   }
 
   const persistedPetSize = readPersistedPetWindowSize(petWindowStatePath);
@@ -241,6 +280,9 @@ async function bootstrap() {
   // "No handler registered for 'vrmGet'" which would make the window stay fully transparent.
   let petWindowRef: BrowserWindow | null = null;
   let cachedVrm: { path: string; bytes: Uint8Array } | null = null;
+
+  ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked }));
+
   ipcMain.handle(IPC_HANDLES.vrmGet, async (_evt) => {
     // IMPORTANT:
     // Do NOT trigger a blocking file picker here.
@@ -255,6 +297,15 @@ async function bootstrap() {
   });
 
   ipcMain.handle(IPC_HANDLES.vrmPick, async (evt) => {
+    if (vrmLocked) {
+      if (!vrmPath || !existsSync(vrmPath)) return new Uint8Array();
+      if (cachedVrm?.path === vrmPath) return cachedVrm.bytes;
+      const buf = readFileSync(vrmPath);
+      const bytes = new Uint8Array(buf);
+      cachedVrm = { path: vrmPath, bytes };
+      return bytes;
+    }
+
     const parent = ElectronBrowserWindow.fromWebContents(evt.sender) ?? petWindowRef;
     const picked = await pickVrmPathForced(parent, vrmPath);
     if (!picked) return new Uint8Array();
@@ -296,9 +347,6 @@ async function bootstrap() {
   let controlsWindow: import("electron").BrowserWindow | null = null;
   let lastPetState: PetStateMessage | null = null;
   let lastPetWindowState: PetWindowStateMessage | null = null;
-
-  const configPath = resolve(process.cwd(), "config.json");
-  const config = readAppConfig(configPath);
   // Caption window now overlays the pet window (same bounds) so the bubble can be anchored to the character.
 
   const openChat = () => {
@@ -414,6 +462,17 @@ async function bootstrap() {
     onAction: (cmd, meta) => {
       petWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
       captionWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
+
+      // Ensure caption bubble stays visible above the pet window on Windows.
+      // Some z-order edge cases can put two always-on-top windows in an unexpected stacking order.
+      if (cmd.bubble) {
+        try {
+          if (!captionWindow.isDestroyed()) {
+            captionWindow.showInactive();
+            captionWindow.moveTop();
+          }
+        } catch {}
+      }
 
       if (meta.proactive) {
         console.log(`[core] action=${cmd.action} expr=${cmd.expression} bubble=${cmd.bubble ?? ""}`);

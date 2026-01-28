@@ -33,7 +33,8 @@ const IPC_CHANNELS = {
 const IPC_HANDLES = {
   vrmGet: "handle:vrm-get",
   vrmPick: "handle:vrm-pick",
-  chatInvoke: "handle:chat-invoke"
+  chatInvoke: "handle:chat-invoke",
+  appInfoGet: "handle:app-info-get"
 } as const;
 
 export type StageDesktopAPI = {
@@ -43,6 +44,7 @@ export type StageDesktopAPI = {
   onClickThroughChanged: (cb: (enabled: boolean) => void) => Unsubscribe;
   getVrmBytes: () => Promise<Uint8Array>;
   pickVrmBytes: () => Promise<Uint8Array>;
+  getAppInfo: () => Promise<{ vrmLocked: boolean }>;
   chatInvoke: (message: string) => Promise<ChatResponse>;
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
@@ -70,6 +72,10 @@ const api: StageDesktopAPI = {
   sendDragDelta: (d) => ipcRenderer.send(IPC_CHANNELS.dragDelta, d),
   getVrmBytes: () => ipcRenderer.invoke(IPC_HANDLES.vrmGet),
   pickVrmBytes: () => ipcRenderer.invoke(IPC_HANDLES.vrmPick),
+  getAppInfo: async () => {
+    const raw = await ipcRenderer.invoke(IPC_HANDLES.appInfoGet);
+    return { vrmLocked: Boolean(raw?.vrmLocked) };
+  },
   chatInvoke: async (message: string) => {
     const req: ChatRequest = { type: "CHAT_REQUEST", ts: Date.now(), message };
     return ipcRenderer.invoke(IPC_HANDLES.chatInvoke, req);

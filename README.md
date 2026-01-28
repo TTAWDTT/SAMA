@@ -77,16 +77,29 @@ pnpm dev
 
 ### VRM 模型路径
 
-两种方式任选其一：
+当前仓库默认 **固定使用内置 VRM**（`apps/stage-desktop/assets/vrm/white_hait.vrm`），并禁用 UI/拖拽切换模型。
 
-- 环境变量：`VRM_PATH=C:\path\model.vrm`
-- 启动后在宠物窗口点击 `选择 VRM…`（或控制台点 `加载 VRM…`）弹出文件选择器
+如果你想换模型，有两种方式：
+
+- 仍然“固定”，但换成另一只：编辑 `apps/stage-desktop/config.local.json`（推荐）或 `apps/stage-desktop/config.json`：
+  - `vrm.locked=true`
+  - `vrm.path=...`
+- 解除固定，改为可切换：
+  - `vrm.locked=false`（然后就可以用 UI/拖拽/`VRM_PATH` 来切换）
 
 应用会把“最近一次选择的 VRM 路径”持久化到 `userData/vrm-path.json`，下次启动会自动加载（无需每次都选）。
 
 > 说明：这里刻意不在启动时强制弹出选择器，避免 always-on-top 窗口遮挡系统对话框导致“看起来卡住”。
 
-也支持 **拖拽导入**：把 `.vrm` 或 `.vrma` 直接拖到桌宠窗口即可加载。
+#### 固定 VRM（禁止切换）
+
+如果你希望软件 **固定使用某一个 VRM**（禁用 UI/拖拽切换模型，只允许导入 VRMA 动作），在 `apps/stage-desktop/config.local.json` 写：
+
+```json
+{ "vrm": { "locked": true, "path": "D:\\path\\model.vrm" } }
+```
+
+> 推荐放在 `config.local.json`（已在 `.gitignore` 中），避免把本机绝对路径提交到仓库。
 
 ### 窗口移动（拖拽）
 
@@ -136,10 +149,10 @@ pnpm dev
 - 当窗口静止时，会自动进入 **IDLE**（待机）
 - 优先级：手动加载的 `.vrma` 动作（ACTION） > Walk/Idle 槽位 > 程序动画
 
-内置 Idle（兜底）：
+默认 Idle（兜底）：
 
-- 如果没有给 Idle 槽位指定 `.vrma`，且 VRM 内也没有可用的嵌入动画，会自动加载一个内置的“idle-like” VRMA（用于开箱即用）
-- 你仍然可以随时加载自己的 `.vrma` 并设为 Idle 来覆盖它
+- 如果没有给 Idle 槽位指定 `.vrma`，且 VRM 内也没有可用的嵌入动画，SAMA 会使用 **程序待机**（呼吸/摆动 + “手臂自然下垂”姿态修正）作为默认 Idle
+- 你仍然可以随时加载自己的 `.vrma` 并设为 Idle 来覆盖程序待机（会更接近你模型/动作库的风格）
 
 如果你有 Airi/其他来源的 `.vrma`：
 
