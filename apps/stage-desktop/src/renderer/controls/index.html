@@ -7,13 +7,17 @@
     <style>
       :root {
         color-scheme: dark;
+        --bg0: #070a0f;
         --bg: rgba(10, 14, 18, 0.92);
         --bg-strong: rgba(10, 14, 18, 0.96);
         --border: rgba(255, 255, 255, 0.12);
         --border-soft: rgba(255, 255, 255, 0.08);
         --text: rgba(255, 255, 255, 0.92);
         --muted: rgba(255, 255, 255, 0.72);
-        --shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+        --muted2: rgba(255, 255, 255, 0.6);
+        --accent: rgba(139, 233, 253, 0.92);
+        --accent-soft: rgba(139, 233, 253, 0.18);
+        --shadow: 0 18px 70px rgba(0, 0, 0, 0.5);
         --radius: 14px;
       }
       html,
@@ -21,9 +25,13 @@
         width: 100%;
         height: 100%;
         margin: 0;
-        background: #0b0f14;
+        background: radial-gradient(1100px 520px at 18% -10%, rgba(139, 233, 253, 0.12), transparent 55%),
+          radial-gradient(980px 520px at 92% 10%, rgba(99, 102, 241, 0.12), transparent 55%),
+          linear-gradient(to bottom, var(--bg0), #0b0f14 55%, #090c12);
         color: var(--text);
         overflow: hidden;
+        font: 13px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
+          -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
       }
 
       #wrap {
@@ -36,29 +44,29 @@
         padding: 10px 12px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         background: linear-gradient(to bottom, rgba(10, 14, 18, 0.92), rgba(10, 14, 18, 0.6));
-        font: 12px/1.3 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
-          "Noto Sans", "Liberation Sans", sans-serif;
+        font: 12px/1.3 inherit;
         color: rgba(255, 255, 255, 0.9);
         display: none;
         white-space: pre-wrap;
       }
 
       #root {
-        padding: 12px;
+        padding: 14px 14px 18px 14px;
         overflow: auto;
+        max-width: 980px;
+        margin: 0 auto;
       }
 
       /* Panel styles (shared with pet) */
       .panel {
         pointer-events: auto;
         border-radius: var(--radius);
-        background: rgba(10, 14, 18, 0.72);
+        background: rgba(10, 14, 18, 0.7);
         border: 1px solid var(--border);
         box-shadow: var(--shadow);
         backdrop-filter: blur(10px);
         color: var(--text);
-        font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
-          "Noto Sans", "Liberation Sans", sans-serif;
+        font: inherit;
         overflow: hidden;
       }
       .panelHeader {
@@ -85,6 +93,11 @@
       }
       .panelToggle:hover {
         background: rgba(255, 255, 255, 0.12);
+      }
+      .panelToggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(139, 233, 253, 0.12);
+        border-color: rgba(139, 233, 253, 0.32);
       }
       .panelBody {
         display: grid;
@@ -137,16 +150,21 @@
       .dockBtn:hover {
         background: rgba(255, 255, 255, 0.12);
       }
+      .dockBtn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(139, 233, 253, 0.12);
+        border-color: rgba(139, 233, 253, 0.32);
+      }
       .dockBtn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
       }
       .dockBtnPrimary {
-        background: rgba(139, 233, 253, 0.16);
-        border-color: rgba(139, 233, 253, 0.28);
+        background: rgba(139, 233, 253, 0.14);
+        border-color: rgba(139, 233, 253, 0.3);
       }
       .dockBtnPrimary:hover {
-        background: rgba(139, 233, 253, 0.22);
+        background: rgba(139, 233, 253, 0.18);
       }
       .dockBtnPrimary:disabled {
         background: rgba(139, 233, 253, 0.1);
@@ -222,6 +240,11 @@
       .panelBtn:hover {
         background: rgba(255, 255, 255, 0.12);
       }
+      .panelBtn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(139, 233, 253, 0.12);
+        border-color: rgba(139, 233, 253, 0.32);
+      }
       .panelBtn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
@@ -243,4 +266,3 @@
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
-

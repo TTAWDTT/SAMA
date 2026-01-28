@@ -1,6 +1,6 @@
 export function setupChat(opts: {
   historyEl: HTMLDivElement;
-  inputEl: HTMLInputElement;
+  inputEl: HTMLTextAreaElement;
   sendBtn: HTMLButtonElement;
   hintEl?: HTMLDivElement;
   statusEl?: HTMLDivElement;
@@ -13,7 +13,8 @@ export function setupChat(opts: {
   };
 
   if (hintEl) {
-    hintEl.textContent = "回复会显示在角色旁的气泡中（不是在这个窗口里）。";
+    hintEl.textContent =
+      "这里是输入窗口；SAMA 的回复会显示在角色旁的气泡中（不是在这个窗口里）。\n如果没看到气泡：先确认你是从托盘/快捷键打开的窗口，而不是浏览器。";
   }
 
   const addUser = (text: string) => {
@@ -24,13 +25,27 @@ export function setupChat(opts: {
     historyEl.scrollTop = historyEl.scrollHeight;
   };
 
+  let sending = false;
+  const autosize = () => {
+    // Smooth textarea growth (clamped in CSS via max-height).
+    inputEl.style.height = "0px";
+    inputEl.style.height = `${Math.max(44, inputEl.scrollHeight)}px`;
+  };
+  const updateSendEnabled = () => {
+    const hasText = Boolean(inputEl.value.trim());
+    sendBtn.disabled = sending || !hasText;
+  };
+
   const send = async () => {
     const msg = inputEl.value.trim();
     if (!msg) return;
     inputEl.value = "";
+    autosize();
+    updateSendEnabled();
     addUser(msg);
 
-    sendBtn.disabled = true;
+    sending = true;
+    updateSendEnabled();
     setStatus("发送中…");
     try {
       await window.stageDesktop.chatInvoke(msg);
@@ -39,7 +54,8 @@ export function setupChat(opts: {
       setStatus("发送失败：我这边好像卡了一下…");
       console.warn(err);
     } finally {
-      sendBtn.disabled = false;
+      sending = false;
+      updateSendEnabled();
       inputEl.focus();
       window.setTimeout(() => setStatus(""), 2200);
     }
@@ -66,4 +82,14 @@ export function setupChat(opts: {
       void send();
     }
   });
+
+  inputEl.addEventListener("input", () => {
+    autosize();
+    updateSendEnabled();
+  });
+
+  // Initial
+  autosize();
+  updateSendEnabled();
+  inputEl.focus();
 }
