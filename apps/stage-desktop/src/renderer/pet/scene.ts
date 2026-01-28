@@ -3,7 +3,6 @@ import type { VRM } from "@pixiv/three-vrm";
 import type { ActionCommand } from "@sama/shared";
 import { loadVrmFromBytes, updateExpressions } from "./vrm";
 import { createClipFromVrmAnimation, loadVrmAnimationFromBytes, reanchorPositionTracks } from "./vrma";
-import { getBuiltinIdleVrmaBytes } from "./builtin_idle_vrma";
 import type { IdleConfig, IdleController } from "./idle";
 import { createIdleController } from "./idle";
 import type { WalkConfig, WalkController } from "./walk";
@@ -175,7 +174,6 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   let vrmAnimationAction: any | null = null;
   let vrmAnimationIdle: any | null = null;
   let vrmAnimationWalk: any | null = null;
-  let builtinIdleVrma: any | null = null;
   let embeddedIdleClip: THREE.AnimationClip | null = null;
   let embeddedWalkClip: THREE.AnimationClip | null = null;
   let clipCache = new WeakMap<any, THREE.AnimationClip>();
@@ -548,21 +546,6 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
     idle = createIdleController(vrm, idleConfigOverride);
     walk = createWalkController(vrm, walkConfigOverride);
-
-    // If the model has no embedded idle clip and the user hasn't assigned an idle VRMA yet,
-    // load a small built-in VRMA so "idle" feels standard out-of-the-box.
-    if (!vrmAnimationIdle && !embeddedIdleClip) {
-      try {
-        if (!builtinIdleVrma) {
-          builtinIdleVrma = await loadVrmAnimationFromBytes(getBuiltinIdleVrmaBytes());
-        }
-        if (builtinIdleVrma) {
-          vrmAnimationIdle = builtinIdleVrma;
-        }
-      } catch (err) {
-        console.warn("[vrma] builtin idle load failed:", err);
-      }
-    }
 
     fitCameraToModel();
     syncAnimationForMovement(safeNowMs(), false);

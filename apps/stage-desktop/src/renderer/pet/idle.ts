@@ -31,7 +31,7 @@ export const DEFAULT_IDLE_CONFIG: IdleConfig = {
   speed: 1,
   breathe: 0.55,
   sway: 0.35,
-  armsDown: 0.85,
+  armsDown: 0.9,
   elbowBend: 0.5,
   overlayOnAnimation: false
 };
@@ -185,22 +185,22 @@ export function createIdleController(vrm: VRM, initial?: Partial<IdleConfig>): I
       const poseW = strength * armsDown;
       if (poseW > 0) {
         // shoulders a bit down/in
-        tmpEuler.set(0, 0, 0.12);
+        tmpEuler.set(0, 0, 0.14);
         applyLocalRotation(bones.leftShoulder, tmpEuler, poseW, dt, 18);
-        tmpEuler.set(0, 0, -0.12);
+        tmpEuler.set(0, 0, -0.14);
         applyLocalRotation(bones.rightShoulder, tmpEuler, poseW, dt, 18);
 
         // Upper arms: rotate down (Z) and slightly forward (X)
-        tmpEuler.set(0.12, 0, 0.95);
+        tmpEuler.set(0.08, 0, 1.12);
         applyLocalRotation(bones.leftUpperArm, tmpEuler, poseW, dt, 18);
-        tmpEuler.set(0.12, 0, -0.95);
+        tmpEuler.set(0.08, 0, -1.12);
         applyLocalRotation(bones.rightUpperArm, tmpEuler, poseW, dt, 18);
 
         // Lower arms: small elbow bend
         const bend = poseW * elbowBend;
-        tmpEuler.set(-0.28, 0, 0.05);
+        tmpEuler.set(-0.32, 0, 0.05);
         applyLocalRotation(bones.leftLowerArm, tmpEuler, bend, dt, 18);
-        tmpEuler.set(-0.28, 0, -0.05);
+        tmpEuler.set(-0.32, 0, -0.05);
         applyLocalRotation(bones.rightLowerArm, tmpEuler, bend, dt, 18);
       }
     },
