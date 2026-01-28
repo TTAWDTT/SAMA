@@ -188,6 +188,8 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   let lastDragMag = 0;
   let actionMoveUntil = 0;
   let moveIntensity = 0;
+  let wasMoving = false;
+  let walkResetUntil = 0;
 
   // Procedural idle pose/motion (Airi-like fallback when no idle VRMA is provided)
   let idle: IdleController | null = null;
@@ -577,6 +579,11 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
       syncAnimationForMovement(now, moving);
 
+      // When a short movement stops, keep ticking the walk controller briefly at zero intensity
+      // so legs/hips can converge back to rest (prevents ending up "floating").
+      if (wasMoving && !moving) walkResetUntil = now + 900;
+      wasMoving = moving;
+
       if (mixer) {
         try {
           mixer.update(dt);
@@ -585,8 +592,12 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
       // Procedural locomotion when no VRMA/embedded clip is available.
       if (activeAnimation === "NONE") {
-        if (moving) walk?.apply(dt, t, { intensity: moveIntensity });
-        else idle?.apply(dt, t, { hasAnimation: false });
+        if (moving) {
+          walk?.apply(dt, t, { intensity: moveIntensity });
+        } else {
+          if (now < walkResetUntil) walk?.apply(dt, t, { intensity: 0 });
+          idle?.apply(dt, t, { hasAnimation: false });
+        }
       } else {
         // Overlay procedural idle only if user enables it (see idle.overlayOnAnimation).
         idle?.apply(dt, t, { hasAnimation: true });

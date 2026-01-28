@@ -135,16 +135,16 @@ export function createWalkController(vrm: VRM, initial?: Partial<WalkConfig>): W
 
   return {
     apply: (dt, t, opts) => {
-      if (!config.enabled) return;
-
       const intensity = clamp01(Number(opts?.intensity ?? 1));
-      if (intensity <= 0.001) return;
+      // When disabled or at zero intensity, we still tick so bones can smoothly return to rest
+      // (important when stopping after a brief walk).
+      const weight = config.enabled ? intensity : 0;
 
       const speed = Math.max(0.01, Number(config.speed) || 1);
-      const stride = clamp01(Number(config.stride) || 0) * intensity;
-      const armSwing = clamp01(Number(config.armSwing) || 0) * intensity;
-      const bounce = clamp01(Number(config.bounce) || 0) * intensity;
-      const lean = clamp01(Number(config.lean) || 0) * intensity;
+      const stride = clamp01(Number(config.stride) || 0) * weight;
+      const armSwing = clamp01(Number(config.armSwing) || 0) * weight;
+      const bounce = clamp01(Number(config.bounce) || 0) * weight;
+      const lean = clamp01(Number(config.lean) || 0) * weight;
 
       // A gentle, VRoid-like walking cadence.
       const time = t * speed;
@@ -156,17 +156,17 @@ export function createWalkController(vrm: VRM, initial?: Partial<WalkConfig>): W
 
       // Hips: slight yaw sway + vertical bob.
       tmpEuler.set(0, stride * s * 0.08, stride * s * 0.01);
-      applyLocalRotation(bones.hips, tmpEuler, intensity, dt, 16);
+      applyLocalRotation(bones.hips, tmpEuler, weight, dt, 16);
       tmpV1.set(0, bounce * Math.abs(s) * 0.018, 0);
-      applyLocalPosition(bones.hips, tmpV1, intensity, dt, 16);
+      applyLocalPosition(bones.hips, tmpV1, weight, dt, 16);
 
       // Spine / chest: forward lean and counter sway to keep balance.
       tmpEuler.set(lean * 0.08 + bounce * Math.abs(s) * 0.02, 0, -stride * s * 0.02);
-      applyLocalRotation(bones.spine, tmpEuler, intensity, dt, 16);
+      applyLocalRotation(bones.spine, tmpEuler, weight, dt, 16);
       tmpEuler.set(lean * 0.06, 0, -stride * s * 0.025);
-      applyLocalRotation(bones.chest, tmpEuler, intensity, dt, 16);
+      applyLocalRotation(bones.chest, tmpEuler, weight, dt, 16);
       tmpEuler.set(-lean * 0.02, 0, stride * s * 0.012);
-      applyLocalRotation(bones.head, tmpEuler, intensity, dt, 18);
+      applyLocalRotation(bones.head, tmpEuler, weight, dt, 18);
 
       // Legs
       // Left forward when s>0; right forward when s<0.
@@ -177,36 +177,36 @@ export function createWalkController(vrm: VRM, initial?: Partial<WalkConfig>): W
 
       // Upper legs pitch + slight outward roll for style.
       tmpEuler.set(stride * lForward * 0.75, 0, stride * 0.08);
-      applyLocalRotation(bones.leftUpperLeg, tmpEuler, intensity, dt, 20);
+      applyLocalRotation(bones.leftUpperLeg, tmpEuler, weight, dt, 20);
       tmpEuler.set(stride * rForward * 0.75, 0, -stride * 0.08);
-      applyLocalRotation(bones.rightUpperLeg, tmpEuler, intensity, dt, 20);
+      applyLocalRotation(bones.rightUpperLeg, tmpEuler, weight, dt, 20);
 
       // Knees: bend when the leg is behind, plus a tiny always-on bend to avoid locked knees.
       tmpEuler.set(stride * (0.18 + lKnee * 0.75), 0, 0);
-      applyLocalRotation(bones.leftLowerLeg, tmpEuler, intensity, dt, 20);
+      applyLocalRotation(bones.leftLowerLeg, tmpEuler, weight, dt, 20);
       tmpEuler.set(stride * (0.18 + rKnee * 0.75), 0, 0);
-      applyLocalRotation(bones.rightLowerLeg, tmpEuler, intensity, dt, 20);
+      applyLocalRotation(bones.rightLowerLeg, tmpEuler, weight, dt, 20);
 
       // Feet: keep them flatter, add a touch of toe lift on forward swing.
       tmpEuler.set(-stride * lForward * 0.12 + stride * lKnee * 0.12, 0, 0);
-      applyLocalRotation(bones.leftFoot, tmpEuler, intensity, dt, 22);
+      applyLocalRotation(bones.leftFoot, tmpEuler, weight, dt, 22);
       tmpEuler.set(-stride * rForward * 0.12 + stride * rKnee * 0.12, 0, 0);
-      applyLocalRotation(bones.rightFoot, tmpEuler, intensity, dt, 22);
+      applyLocalRotation(bones.rightFoot, tmpEuler, weight, dt, 22);
 
       // Arms swing opposite to legs.
       // Baseline arms-down, then add swing.
       const armBaseX = 0.12;
       const armBaseZ = 0.95;
       tmpEuler.set(armBaseX + armSwing * -lForward * 0.45, 0, armBaseZ + armSwing * s2 * 0.08);
-      applyLocalRotation(bones.leftUpperArm, tmpEuler, intensity, dt, 18);
+      applyLocalRotation(bones.leftUpperArm, tmpEuler, weight, dt, 18);
       tmpEuler.set(armBaseX + armSwing * -rForward * 0.45, 0, -armBaseZ - armSwing * s2 * 0.08);
-      applyLocalRotation(bones.rightUpperArm, tmpEuler, intensity, dt, 18);
+      applyLocalRotation(bones.rightUpperArm, tmpEuler, weight, dt, 18);
 
       // Lower arms: mild counter bend.
       tmpEuler.set(-0.18, 0, 0.03);
-      applyLocalRotation(bones.leftLowerArm, tmpEuler, intensity, dt, 18);
+      applyLocalRotation(bones.leftLowerArm, tmpEuler, weight, dt, 18);
       tmpEuler.set(-0.18, 0, -0.03);
-      applyLocalRotation(bones.rightLowerArm, tmpEuler, intensity, dt, 18);
+      applyLocalRotation(bones.rightLowerArm, tmpEuler, weight, dt, 18);
     },
     setConfig: (next) => {
       Object.assign(config, next);
