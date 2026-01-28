@@ -1,0 +1,10 @@
+{
+  "socialApps": ["WeChat.exe", "QQ.exe", "Telegram.exe", "Discord.exe"],
+  "captionOffset": { "x": 20, "y": -120 },
+  "llm": {
+    "provider": "auto",
+    "openai": { "apiKey": "", "model": "gpt-4o-mini", "baseUrl": "https://api.openai.com/v1" },
+    "deepseek": { "apiKey": "", "model": "deepseek-chat", "baseUrl": "https://api.deepseek.com/v1" },
+    "aistudio": { "apiKey": "", "model": "gemini-1.5-flash", "baseUrl": "" }
+  }
+}

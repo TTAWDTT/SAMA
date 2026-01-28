@@ -1,0 +1,692 @@
+import * as THREE from "three";
+import type { VRM } from "@pixiv/three-vrm";
+import type { ActionCommand } from "@sama/shared";
+import { loadVrmFromBytes, updateExpressions } from "./vrm";
+import { createClipFromVrmAnimation, loadVrmAnimationFromBytes, reanchorPositionTracks } from "./vrma";
+import type { IdleConfig, IdleController } from "./idle";
+import { createIdleController } from "./idle";
+import type { WalkConfig, WalkController } from "./walk";
+import { createWalkController } from "./walk";
+
+export type ModelTransform = {
+  scale: number;
+  yawDeg: number;
+  offsetX: number;
+  offsetY: number;
+  offsetZ: number;
+};
+
+export type VrmAnimationConfig = {
+  enabled: boolean;
+  paused: boolean;
+  speed: number;
+};
+
+export type MotionState = {
+  locomotion: "IDLE" | "WALK";
+  animation: "NONE" | "IDLE" | "WALK" | "ACTION";
+};
+
+export type VrmAnimationSlotsStatus = {
+  hasLastLoaded: boolean;
+  hasIdle: boolean;
+  hasWalk: boolean;
+  hasAction: boolean;
+};
+
+export type PetScene = {
+  start: () => void;
+  setExpression: (expr: ActionCommand["expression"]) => void;
+  loadVrmBytes: (bytes: Uint8Array) => Promise<void>;
+  loadVrmAnimationBytes: (bytes: Uint8Array) => Promise<boolean>;
+  speak: (durationMs?: number) => void;
+  refitCamera: () => void;
+  setIdleConfig: (cfg: Partial<IdleConfig>) => void;
+  getIdleConfig: () => IdleConfig | null;
+  setWalkConfig: (cfg: Partial<WalkConfig>) => void;
+  getWalkConfig: () => WalkConfig | null;
+  setModelTransform: (t: Partial<ModelTransform>) => void;
+  getModelTransform: () => ModelTransform;
+  setVrmAnimationConfig: (cfg: Partial<VrmAnimationConfig>) => void;
+  getVrmAnimationConfig: () => VrmAnimationConfig;
+  clearVrmAnimation: () => void;
+  setVrmAnimationSlotFromLast: (slot: "idle" | "walk") => boolean;
+  clearVrmAnimationSlot: (slot: "idle" | "walk") => void;
+  getVrmAnimationSlotsStatus: () => VrmAnimationSlotsStatus;
+  notifyAction: (cmd: ActionCommand) => void;
+  setDragging: (dragging: boolean) => void;
+  notifyDragDelta: (dx: number, dy: number) => void;
+  getMotionState: () => MotionState;
+};
+
+function safeNowMs() {
+  // prefer monotonic clock in renderer
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
+function computeVisibleBounds(root: THREE.Object3D) {
+  const box = new THREE.Box3();
+  const childBox = new THREE.Box3();
+
+  root.updateMatrixWorld(true);
+  root.traverse((obj: any) => {
+    if (!obj?.visible) return;
+    if (!obj.isMesh) return;
+    if (typeof obj.name === "string" && obj.name.startsWith("VRMC_springBone_collider")) return;
+    const geom = obj.geometry as THREE.BufferGeometry | undefined;
+    if (!geom) return;
+    if (!geom.boundingBox) geom.computeBoundingBox();
+    if (!geom.boundingBox) return;
+    childBox.copy(geom.boundingBox);
+    childBox.applyMatrix4(obj.matrixWorld);
+    box.union(childBox);
+  });
+
+  return box;
+}
+
+export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8Array): Promise<PetScene> {
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setClearColor(0x000000, 0);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
+  camera.position.set(0, 1.25, 2.2);
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(1, 2, 2);
+  scene.add(ambient, dir);
+
+  let vrm: VRM | null = null;
+  let fallback: THREE.Object3D | null = null;
+  const expressionWeights: Record<string, number> = {};
+  let expression: ActionCommand["expression"] = "NEUTRAL";
+  const pointerTarget = new THREE.Vector3(0, 1.35, 0.6);
+  const fixationTarget = new THREE.Vector3().copy(pointerTarget);
+  const lookTargetObj = new THREE.Object3D();
+  lookTargetObj.position.copy(pointerTarget);
+  scene.add(lookTargetObj);
+  let eyeBaseY = 1.35;
+  let lastPointerMoveAt = safeNowMs();
+
+  // Auto blink (Airi-like)
+  let isBlinking = false;
+  let blinkProgress = 0;
+  let timeSinceLastBlink = 0;
+  const BLINK_DURATION_SEC = 0.2;
+  const MIN_BLINK_INTERVAL_SEC = 1.0;
+  const MAX_BLINK_INTERVAL_SEC = 6.0;
+  let nextBlinkAfter = MIN_BLINK_INTERVAL_SEC + Math.random() * (MAX_BLINK_INTERVAL_SEC - MIN_BLINK_INTERVAL_SEC);
+
+  // Idle eye saccades (Airi-like)
+  let timeSinceLastSaccade = 0;
+  let nextSaccadeAfter = 0.35 + Math.random() * 1.8;
+
+  // Simple "talking" mouth animation (no TTS required)
+  let talkingUntil = 0;
+  let talkPhase = 0;
+  let mouthWeight = 0;
+
+  // VRM animation (.vrma) support (Airi-like)
+  let vrmAnimationLastLoaded: any | null = null;
+  let vrmAnimationAction: any | null = null;
+  let vrmAnimationIdle: any | null = null;
+  let vrmAnimationWalk: any | null = null;
+  let embeddedIdleClip: THREE.AnimationClip | null = null;
+  let embeddedWalkClip: THREE.AnimationClip | null = null;
+  let clipCache = new WeakMap<any, THREE.AnimationClip>();
+  let mixer: THREE.AnimationMixer | null = null;
+  let activeAction: THREE.AnimationAction | null = null;
+  let activeAnimation: MotionState["animation"] = "NONE";
+  let locomotion: MotionState["locomotion"] = "IDLE";
+
+  // Movement signals (to switch idle <-> walk)
+  let dragging = false;
+  let lastDragAt = 0;
+  let lastDragMag = 0;
+  let actionMoveUntil = 0;
+  let moveIntensity = 0;
+
+  // Procedural idle pose/motion (Airi-like fallback when no idle VRMA is provided)
+  let idle: IdleController | null = null;
+  let idleConfigOverride: Partial<IdleConfig> = {};
+  let walk: WalkController | null = null;
+  let walkConfigOverride: Partial<WalkConfig> = {};
+
+  const modelTransform: ModelTransform = {
+    scale: 1,
+    yawDeg: 0,
+    offsetX: 0,
+    offsetY: 0,
+    offsetZ: 0
+  };
+  const baseModelPos = new THREE.Vector3();
+  const baseModelQuat = new THREE.Quaternion();
+  const baseModelScale = new THREE.Vector3(1, 1, 1);
+  const tmpModelOffset = new THREE.Vector3();
+  const tmpYawQuat = new THREE.Quaternion();
+  const tmpModelScale = new THREE.Vector3();
+
+  const vrmAnimationConfig: VrmAnimationConfig = { enabled: true, paused: false, speed: 1 };
+
+  let pendingRefitRaf = 0;
+  const requestRefit = () => {
+    if (!vrm) return;
+    if (pendingRefitRaf) return;
+    pendingRefitRaf = requestAnimationFrame(() => {
+      pendingRefitRaf = 0;
+      fitCameraToModel();
+    });
+  };
+
+  function resize() {
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const { clientWidth, clientHeight } = canvas;
+    renderer.setSize(clientWidth, clientHeight, false);
+    camera.aspect = clientWidth / Math.max(1, clientHeight);
+    camera.updateProjectionMatrix();
+    requestRefit();
+  }
+
+  window.addEventListener("resize", resize);
+  resize();
+
+  canvas.addEventListener("pointermove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+    pointerTarget.set(nx * 0.5, eyeBaseY + ny * 0.25, 0.6);
+    fixationTarget.copy(pointerTarget);
+    lastPointerMoveAt = safeNowMs();
+  });
+
+  const mountFallback = () => {
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.25, 24, 24),
+      new THREE.MeshStandardMaterial({ color: 0x8be9fd, transparent: true, opacity: 0.85 })
+    );
+    mesh.position.set(0, 1.2, 0);
+    fallback = mesh;
+    scene.add(mesh);
+  };
+
+  const unmountCurrent = () => {
+    if (fallback) {
+      scene.remove(fallback);
+      fallback = null;
+    }
+    if (activeAction && mixer) {
+      try {
+        activeAction.stop();
+      } catch {}
+      activeAction = null;
+    }
+    if (mixer && vrm) {
+      try {
+        mixer.uncacheRoot(vrm.scene);
+      } catch {}
+    }
+    mixer = null;
+    idle = null;
+    walk = null;
+    embeddedIdleClip = null;
+    embeddedWalkClip = null;
+    clipCache = new WeakMap<any, THREE.AnimationClip>();
+    activeAnimation = "NONE";
+    locomotion = "IDLE";
+
+    dragging = false;
+    lastDragAt = 0;
+    lastDragMag = 0;
+    actionMoveUntil = 0;
+    moveIntensity = 0;
+    if (vrm) {
+      scene.remove(vrm.scene);
+      // VRMUtils.deepDispose exists in three-vrm v2+, but keep it optional
+      try {
+        (vrm as any).dispose?.();
+      } catch {}
+      vrm = null;
+    }
+  };
+
+  const applyModelTransform = () => {
+    if (!vrm) return;
+
+    const scale = Math.max(0.05, Number(modelTransform.scale) || 1);
+    tmpModelOffset.set(
+      Number(modelTransform.offsetX) || 0,
+      Number(modelTransform.offsetY) || 0,
+      Number(modelTransform.offsetZ) || 0
+    );
+    tmpYawQuat.setFromEuler(new THREE.Euler(0, THREE.MathUtils.degToRad(Number(modelTransform.yawDeg) || 0), 0));
+
+    vrm.scene.position.copy(baseModelPos).add(tmpModelOffset);
+    vrm.scene.quaternion.copy(baseModelQuat).multiply(tmpYawQuat);
+    tmpModelScale.copy(baseModelScale).multiplyScalar(scale);
+    vrm.scene.scale.copy(tmpModelScale);
+  };
+
+  function pickEmbeddedClip(kind: "idle" | "walk", clips: THREE.AnimationClip[]) {
+    const keywords =
+      kind === "idle" ? ["idle", "stand", "wait", "breath"] : ["walk", "run", "move", "locomotion"];
+    for (const clip of clips) {
+      const name = (clip?.name ?? "").toLowerCase();
+      if (!name) continue;
+      if (clip.duration < 0.1) continue;
+      if (keywords.some((k) => name.includes(k))) return clip;
+    }
+    return null;
+  }
+
+  const getClipFromVrmAnimation = (anim: any): THREE.AnimationClip | null => {
+    if (!vrm || !anim) return null;
+    const cached = clipCache.get(anim);
+    if (cached) return cached;
+
+    try {
+      const clip = createClipFromVrmAnimation(vrm, anim);
+      reanchorPositionTracks(clip, vrm);
+      clipCache.set(anim, clip);
+      return clip;
+    } catch (err) {
+      console.warn("[vrma] create clip failed:", err);
+      return null;
+    }
+  };
+
+  const applyAnimationConfig = (action: THREE.AnimationAction) => {
+    action.paused = Boolean(vrmAnimationConfig.paused);
+    const speed = Math.max(0, Number(vrmAnimationConfig.speed) || 1);
+    try {
+      action.setEffectiveTimeScale(speed);
+    } catch {
+      (action as any).timeScale = speed;
+    }
+  };
+
+  const setActiveClip = (kind: MotionState["animation"], clip: THREE.AnimationClip | null) => {
+    if (!vrm) return;
+
+    if (!vrmAnimationConfig.enabled || !clip) {
+      if (activeAction) {
+        try {
+          activeAction.stop();
+        } catch {}
+      }
+      activeAction = null;
+      activeAnimation = "NONE";
+      return;
+    }
+
+    if (!mixer) mixer = new THREE.AnimationMixer(vrm.scene);
+
+    const nextAction = mixer.clipAction(clip);
+    if (activeAction === nextAction && activeAnimation === kind) {
+      applyAnimationConfig(nextAction);
+      return;
+    }
+
+    nextAction.reset();
+    nextAction.enabled = true;
+    nextAction.setLoop(THREE.LoopRepeat, Infinity);
+    nextAction.play();
+    applyAnimationConfig(nextAction);
+
+    if (activeAction && activeAction !== nextAction) {
+      try {
+        activeAction.crossFadeTo(nextAction, 0.22, false);
+      } catch {
+        try {
+          activeAction.stop();
+        } catch {}
+      }
+    }
+
+    activeAction = nextAction;
+    activeAnimation = kind;
+  };
+
+  const syncAnimationForMovement = (nowMs: number, moving: boolean) => {
+    if (!vrmAnimationConfig.enabled) {
+      setActiveClip("NONE", null);
+      return;
+    }
+
+    // 1) Manual override action (explicitly loaded)
+    if (vrmAnimationAction) {
+      const clip = getClipFromVrmAnimation(vrmAnimationAction);
+      if (clip) {
+        setActiveClip("ACTION", clip);
+        return;
+      }
+    }
+
+    // 2) Locomotion loops (idle/walk) if user assigned them
+    if (moving) {
+      const vrma = vrmAnimationWalk ? getClipFromVrmAnimation(vrmAnimationWalk) : null;
+      if (vrma) {
+        setActiveClip("WALK", vrma);
+        return;
+      }
+      if (embeddedWalkClip) {
+        setActiveClip("WALK", embeddedWalkClip);
+        return;
+      }
+    } else {
+      const vrma = vrmAnimationIdle ? getClipFromVrmAnimation(vrmAnimationIdle) : null;
+      if (vrma) {
+        setActiveClip("IDLE", vrma);
+        return;
+      }
+      if (embeddedIdleClip) {
+        setActiveClip("IDLE", embeddedIdleClip);
+        return;
+      }
+    }
+
+    // 3) No clip available -> procedural only
+    setActiveClip("NONE", null);
+  };
+
+  const fitCameraToModel = () => {
+    if (!vrm) return;
+
+    // Fit against the base transform (exclude user offsets/yaw so repeated fits stay stable).
+    vrm.scene.position.copy(baseModelPos);
+    vrm.scene.quaternion.copy(baseModelQuat);
+    vrm.scene.scale.copy(baseModelScale);
+
+    const box = computeVisibleBounds(vrm.scene);
+    if (box.isEmpty()) return;
+
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // Place the model at the origin (XZ centered), with feet on y=0
+    vrm.scene.position.x += -center.x;
+    vrm.scene.position.z += -center.z;
+    vrm.scene.position.y += -box.min.y;
+
+    // Eye height heuristic
+    const scale = Math.max(0.05, Number(modelTransform.scale) || 1);
+    const scaledHeight = size.y * scale;
+    eyeBaseY = Math.max(0.6, scaledHeight * 0.78);
+    pointerTarget.y = eyeBaseY;
+    fixationTarget.y = eyeBaseY;
+    lookTargetObj.position.y = eyeBaseY;
+
+    // Frame the model in camera
+    const fovRad = THREE.MathUtils.degToRad(camera.fov);
+    const distance = Math.max(1.0, (scaledHeight * 0.55) / Math.tan(fovRad / 2));
+    camera.position.set(0, scaledHeight * 0.62, distance * 1.08);
+    camera.lookAt(0, scaledHeight * 0.62, 0);
+
+    baseModelPos.copy(vrm.scene.position);
+    baseModelQuat.copy(vrm.scene.quaternion);
+    applyModelTransform();
+  };
+
+  const load = async (bytes: Uint8Array) => {
+    unmountCurrent();
+    const next = await loadVrmFromBytes(bytes);
+    if (!next) {
+      mountFallback();
+      return;
+    }
+
+    vrm = next.vrm;
+    const embeddedClips = Array.isArray(next.animations) ? next.animations : [];
+    embeddedIdleClip = pickEmbeddedClip("idle", embeddedClips);
+    embeddedWalkClip = pickEmbeddedClip("walk", embeddedClips);
+    clipCache = new WeakMap<any, THREE.AnimationClip>();
+
+    (vrm.scene as any).traverse?.((obj: any) => {
+      if (obj.isMesh) obj.frustumCulled = false;
+    });
+    scene.add(vrm.scene);
+    if (vrm.lookAt) {
+      (vrm.lookAt as any).target = lookTargetObj;
+    }
+
+    baseModelPos.copy(vrm.scene.position);
+    baseModelQuat.copy(vrm.scene.quaternion);
+    baseModelScale.copy(vrm.scene.scale);
+
+    idle = createIdleController(vrm, idleConfigOverride);
+    walk = createWalkController(vrm, walkConfigOverride);
+    fitCameraToModel();
+    syncAnimationForMovement(safeNowMs(), false);
+  };
+
+  await load(vrmBytes);
+
+  const clock = new THREE.Clock();
+  let running = false;
+
+  function tick() {
+    if (!running) return;
+    requestAnimationFrame(tick);
+    const dt = clock.getDelta();
+    const t = clock.elapsedTime;
+
+    if (vrm) {
+      const now = safeNowMs();
+
+      // Movement detection: window moving (APPROACH/RETREAT) or user dragging -> switch to WALK.
+      const actionMoving = now < actionMoveUntil;
+      const dragRecent = dragging && now - lastDragAt < 140;
+      const moving = actionMoving || dragRecent;
+      locomotion = moving ? "WALK" : "IDLE";
+
+      const dragIntensity = dragRecent ? Math.min(1, lastDragMag / 22) : 0;
+      const targetIntensity = actionMoving ? 1 : dragIntensity;
+      moveIntensity = THREE.MathUtils.lerp(moveIntensity, targetIntensity, 1 - Math.exp(-14 * dt));
+
+      syncAnimationForMovement(now, moving);
+
+      if (mixer) {
+        try {
+          mixer.update(dt);
+        } catch {}
+      }
+
+      // Procedural locomotion when no VRMA/embedded clip is available.
+      if (activeAnimation === "NONE") {
+        if (moving) walk?.apply(dt, t, { intensity: moveIntensity });
+        else idle?.apply(dt, t, { hasAnimation: false });
+      } else {
+        // Overlay procedural idle only if user enables it (see idle.overlayOnAnimation).
+        idle?.apply(dt, t, { hasAnimation: true });
+      }
+
+      // Expressions and eye targets should be set BEFORE vrm.update() so the update applies them immediately.
+      updateExpressions(vrm, expressionWeights, expression as any);
+
+      // Auto blink
+      timeSinceLastBlink += dt;
+      if (!isBlinking && timeSinceLastBlink >= nextBlinkAfter) {
+        isBlinking = true;
+        blinkProgress = 0;
+      }
+      if (isBlinking) {
+        blinkProgress += dt / BLINK_DURATION_SEC;
+        const k = Math.min(1, Math.max(0, blinkProgress));
+        const blinkValue = Math.sin(Math.PI * k);
+        const em: any = (vrm as any).expressionManager;
+        em?.setValue?.("blink", blinkValue);
+        em?.setValue?.("blinkLeft", blinkValue);
+        em?.setValue?.("blinkRight", blinkValue);
+        if (blinkProgress >= 1) {
+          isBlinking = false;
+          timeSinceLastBlink = 0;
+          em?.setValue?.("blink", 0);
+          em?.setValue?.("blinkLeft", 0);
+          em?.setValue?.("blinkRight", 0);
+          nextBlinkAfter =
+            MIN_BLINK_INTERVAL_SEC + Math.random() * (MAX_BLINK_INTERVAL_SEC - MIN_BLINK_INTERVAL_SEC);
+        }
+      }
+
+      // Idle eye saccades: small random fixation shifts when pointer is not moving
+      const pointerIdle = now - lastPointerMoveAt > 700;
+      timeSinceLastSaccade += dt;
+      if (pointerIdle && timeSinceLastSaccade >= nextSaccadeAfter) {
+        fixationTarget.set(
+          pointerTarget.x + THREE.MathUtils.randFloat(-0.18, 0.18),
+          pointerTarget.y + THREE.MathUtils.randFloat(-0.12, 0.12),
+          pointerTarget.z
+        );
+        timeSinceLastSaccade = 0;
+        nextSaccadeAfter = 0.35 + Math.random() * 1.8;
+      } else if (!pointerIdle) {
+        fixationTarget.copy(pointerTarget);
+        timeSinceLastSaccade = 0;
+      }
+      const eyeLerp = 1 - Math.exp(-10 * dt);
+      lookTargetObj.position.lerp(fixationTarget, eyeLerp);
+
+      // Talking mouth (simple viseme-ish)
+      if (talkingUntil > now) {
+        talkPhase += dt * 14;
+        const target = (Math.sin(talkPhase) * 0.5 + 0.5) * 0.8;
+        mouthWeight = THREE.MathUtils.lerp(mouthWeight, target, 1 - Math.exp(-18 * dt));
+      } else {
+        mouthWeight = THREE.MathUtils.lerp(mouthWeight, 0, 1 - Math.exp(-12 * dt));
+      }
+      const em: any = (vrm as any).expressionManager;
+      em?.setValue?.("aa", mouthWeight);
+
+      // Update VRM internal springs / constraints
+      vrm.update(dt);
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  return {
+    start: () => {
+      if (running) return;
+      running = true;
+      tick();
+    },
+    setExpression: (expr) => {
+      expression = expr;
+    },
+    loadVrmBytes: load,
+    loadVrmAnimationBytes: async (bytes) => {
+      if (!bytes.byteLength) {
+        vrmAnimationLastLoaded = null;
+        vrmAnimationAction = null;
+        const now = safeNowMs();
+        syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+        return false;
+      }
+
+      try {
+        vrmAnimationLastLoaded = await loadVrmAnimationFromBytes(bytes);
+        vrmAnimationAction = vrmAnimationLastLoaded;
+      } catch (err) {
+        console.warn("[vrma] load failed:", err);
+        vrmAnimationLastLoaded = null;
+        vrmAnimationAction = null;
+      }
+      const now = safeNowMs();
+      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      return !!vrmAnimationLastLoaded;
+    },
+    speak: (durationMs) => {
+      const ms = Math.max(120, Number(durationMs ?? 1200));
+      talkingUntil = safeNowMs() + ms;
+    },
+    refitCamera: () => fitCameraToModel(),
+    setIdleConfig: (cfg) => {
+      idleConfigOverride = { ...idleConfigOverride, ...cfg };
+      idle?.setConfig(cfg);
+    },
+    getIdleConfig: () => idle?.getConfig() ?? null,
+    setWalkConfig: (cfg) => {
+      walkConfigOverride = { ...walkConfigOverride, ...cfg };
+      walk?.setConfig(cfg);
+    },
+    getWalkConfig: () => walk?.getConfig() ?? null,
+    setModelTransform: (t) => {
+      const prevScale = modelTransform.scale;
+
+      if (t.scale !== undefined) modelTransform.scale = Math.max(0.05, Number(t.scale) || 1);
+      if (t.yawDeg !== undefined) modelTransform.yawDeg = Math.max(-180, Math.min(180, Number(t.yawDeg) || 0));
+      if (t.offsetX !== undefined) modelTransform.offsetX = Math.max(-2, Math.min(2, Number(t.offsetX) || 0));
+      if (t.offsetY !== undefined) modelTransform.offsetY = Math.max(-2, Math.min(2, Number(t.offsetY) || 0));
+      if (t.offsetZ !== undefined) modelTransform.offsetZ = Math.max(-2, Math.min(2, Number(t.offsetZ) || 0));
+
+      // Scale affects camera framing and eye height heuristics. Refit to keep it comfortable.
+      if (vrm && modelTransform.scale !== prevScale) fitCameraToModel();
+      else applyModelTransform();
+    },
+    getModelTransform: () => ({ ...modelTransform }),
+    setVrmAnimationConfig: (cfg) => {
+      if (cfg.enabled !== undefined) vrmAnimationConfig.enabled = Boolean(cfg.enabled);
+      if (cfg.paused !== undefined) vrmAnimationConfig.paused = Boolean(cfg.paused);
+      if (cfg.speed !== undefined) vrmAnimationConfig.speed = Math.max(0, Number(cfg.speed) || 0);
+
+      if (!vrmAnimationConfig.enabled) {
+        setActiveClip("NONE", null);
+        return;
+      }
+
+      if (activeAction) applyAnimationConfig(activeAction);
+      const now = safeNowMs();
+      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+    },
+    getVrmAnimationConfig: () => ({ ...vrmAnimationConfig }),
+    clearVrmAnimation: () => {
+      // Stop the manual override action, but keep idle/walk slots.
+      vrmAnimationAction = null;
+      if (activeAnimation === "ACTION") setActiveClip("NONE", null);
+      const now = safeNowMs();
+      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+    },
+    setVrmAnimationSlotFromLast: (slot) => {
+      if (!vrmAnimationLastLoaded) return false;
+      if (slot === "idle") vrmAnimationIdle = vrmAnimationLastLoaded;
+      else vrmAnimationWalk = vrmAnimationLastLoaded;
+
+      // After promoting to a locomotion slot, exit manual override so auto-switch works.
+      vrmAnimationAction = null;
+      const now = safeNowMs();
+      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      return true;
+    },
+    clearVrmAnimationSlot: (slot) => {
+      if (slot === "idle") vrmAnimationIdle = null;
+      else vrmAnimationWalk = null;
+      const now = safeNowMs();
+      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+    },
+    getVrmAnimationSlotsStatus: () => ({
+      hasLastLoaded: !!vrmAnimationLastLoaded,
+      hasIdle: !!vrmAnimationIdle,
+      hasWalk: !!vrmAnimationWalk,
+      hasAction: !!vrmAnimationAction
+    }),
+    notifyAction: (cmd) => {
+      if (cmd.action === "APPROACH" || cmd.action === "RETREAT") {
+        const ms = Math.max(100, Number(cmd.durationMs ?? 1500));
+        actionMoveUntil = safeNowMs() + ms;
+      }
+    },
+    setDragging: (v) => {
+      dragging = Boolean(v);
+      if (!dragging) lastDragMag = 0;
+    },
+    notifyDragDelta: (dx, dy) => {
+      lastDragAt = safeNowMs();
+      lastDragMag = Math.hypot(Number(dx) || 0, Number(dy) || 0);
+    },
+    getMotionState: () => ({ locomotion, animation: activeAnimation })
+  };
+}

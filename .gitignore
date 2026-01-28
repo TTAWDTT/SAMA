@@ -1,0 +1,16 @@
+node_modules/
+dist/
+out/
+.vite/
+.electron/
+.DS_Store
+
+*.log
+*.db
+*.db-journal
+
+.env
+.env.*
+
+# Local-only overrides (API keys, personal settings)
+apps/stage-desktop/config.local.json

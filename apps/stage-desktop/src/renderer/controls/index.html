@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SAMA 控制台</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: rgba(10, 14, 18, 0.92);
+        --bg-strong: rgba(10, 14, 18, 0.96);
+        --border: rgba(255, 255, 255, 0.12);
+        --border-soft: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.72);
+        --shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+        --radius: 14px;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #0b0f14;
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      #wrap {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+
+      #banner {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(to bottom, rgba(10, 14, 18, 0.92), rgba(10, 14, 18, 0.6));
+        font: 12px/1.3 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Liberation Sans", sans-serif;
+        color: rgba(255, 255, 255, 0.9);
+        display: none;
+        white-space: pre-wrap;
+      }
+
+      #root {
+        padding: 12px;
+        overflow: auto;
+      }
+
+      /* Panel styles (shared with pet) */
+      .panel {
+        pointer-events: auto;
+        border-radius: var(--radius);
+        background: rgba(10, 14, 18, 0.72);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        color: var(--text);
+        font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Liberation Sans", sans-serif;
+        overflow: hidden;
+      }
+      .panelHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 12px 10px 12px;
+        background: rgba(10, 14, 18, 0.92);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .panelTitle {
+        font-weight: 800;
+        letter-spacing: 0.2px;
+      }
+      .panelToggle {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 10px;
+        padding: 6px 9px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .panelToggle:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .panelBody {
+        display: grid;
+        gap: 10px;
+        padding: 10px 12px 12px 12px;
+      }
+
+      .dockStatus {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .chipStrong {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .dockGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .dockSpan2 {
+        grid-column: 1 / -1;
+      }
+      .dockBtn {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 12px;
+        padding: 10px 10px;
+        font: inherit;
+        cursor: pointer;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .dockBtn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .dockBtn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .dockBtnPrimary {
+        background: rgba(139, 233, 253, 0.16);
+        border-color: rgba(139, 233, 253, 0.28);
+      }
+      .dockBtnPrimary:hover {
+        background: rgba(139, 233, 253, 0.22);
+      }
+      .dockBtnPrimary:disabled {
+        background: rgba(139, 233, 253, 0.1);
+      }
+
+      .details {
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+      .details > summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        padding: 10px 10px;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .details > summary::-webkit-details-marker {
+        display: none;
+      }
+      .details > summary::after {
+        content: "▾";
+        opacity: 0.8;
+      }
+      .details[open] > summary::after {
+        content: "▴";
+      }
+      .detailsBody {
+        padding: 8px 10px 10px 10px;
+        display: grid;
+        gap: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .panelRow {
+        display: grid;
+        grid-template-columns: 110px 1fr 56px;
+        gap: 8px;
+        align-items: center;
+      }
+      .panelRowLabel {
+        color: rgba(255, 255, 255, 0.82);
+      }
+      .panelRowValue {
+        text-align: right;
+        color: rgba(255, 255, 255, 0.75);
+        font-variant-numeric: tabular-nums;
+      }
+      .panelRow input[type="range"] {
+        width: 100%;
+      }
+
+      .panelButtons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .panelBtn {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 10px;
+        padding: 7px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .panelBtn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .panelBtn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .panelCheck {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="banner"></div>
+      <div id="root"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
+

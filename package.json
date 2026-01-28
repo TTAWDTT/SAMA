@@ -1,0 +1,26 @@
+{
+  "name": "sama",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @sama/shared build && pnpm --filter @sama/stage-desktop dev",
+    "build": "pnpm --filter @sama/shared build && pnpm --filter @sama/stage-desktop build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier -w ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@types/node": "^22.13.4",
+    "eslint": "^9.19.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.22.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["active-win", "better-sqlite3", "electron", "esbuild"]
+  }
+}

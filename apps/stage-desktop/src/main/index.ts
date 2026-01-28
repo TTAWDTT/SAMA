@@ -1,0 +1,610 @@
+import { app, dialog, ipcMain, screen } from "electron";
+import type { BrowserWindow } from "electron";
+import { BrowserWindow as ElectronBrowserWindow } from "electron";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { IPC_CHANNELS, IPC_HANDLES } from "@sama/shared";
+import { ChatRequestSchema, UserInteractionSchema } from "@sama/shared";
+import type {
+  ActionCommand,
+  ChatRequest,
+  PetControlMessage,
+  PetControlResult,
+  PetStateMessage,
+  PetStatusMessage,
+  PetWindowSize,
+  PetWindowStateMessage,
+  UserInteraction
+} from "@sama/shared";
+import type { AppConfig, DragDelta } from "./protocol/types";
+import { createCaptionWindow } from "./windows/caption.window";
+import { createChatWindow } from "./windows/chat.window";
+import { createControlsWindow } from "./windows/controls.window";
+import { PET_WINDOW_DEFAULT_SIZE, PET_WINDOW_MIN_SIZE, createPetWindow } from "./windows/pet.window";
+import { CoreService } from "./services/core.service";
+import { LLMService } from "./services/llm.service";
+import { MemoryService } from "./services/memory.service";
+import { SensingService } from "./services/sensing.service";
+import { ShortcutsService } from "./services/shortcuts.service";
+import { TrayService } from "./services/tray.service";
+
+function easeInOutQuad(t: number) {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function resolvePreloadPath() {
+  const tried: string[] = [];
+  const candidates: string[] = [
+    join(__dirname, "../preload/preload.js"),
+    join(__dirname, "../preload/preload.cjs"),
+    join(__dirname, "../preload/preload.mjs"),
+    join(process.cwd(), "out/preload/preload.js"),
+    join(process.cwd(), "dist/preload/preload.js")
+  ];
+
+  // `app.getAppPath()` is stable after `app.whenReady()`.
+  try {
+    const appPath = app.getAppPath();
+    candidates.push(join(appPath, "out/preload/preload.js"));
+    candidates.push(join(appPath, "dist/preload/preload.js"));
+  } catch {}
+
+  for (const p of candidates) {
+    tried.push(p);
+    if (existsSync(p)) return { path: p, tried };
+  }
+
+  return { path: candidates[0], tried };
+}
+
+function readAppConfig(configPath: string): AppConfig {
+  const defaults: AppConfig = {
+    socialApps: ["WeChat.exe", "QQ.exe", "Telegram.exe", "Discord.exe"],
+    captionOffset: { x: 20, y: -120 }
+  };
+
+  const base: any = (() => {
+    try {
+      const raw = readFileSync(configPath, "utf-8");
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  })();
+
+  const localPath = resolve(dirname(configPath), "config.local.json");
+  const local: any = (() => {
+    try {
+      if (!existsSync(localPath)) return {};
+      const raw = readFileSync(localPath, "utf-8");
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  })();
+
+  const socialApps = Array.isArray(local.socialApps)
+    ? local.socialApps
+    : Array.isArray(base.socialApps)
+      ? base.socialApps
+      : defaults.socialApps;
+
+  const captionOffset = {
+    x: Number(local?.captionOffset?.x ?? base?.captionOffset?.x ?? defaults.captionOffset?.x ?? 20),
+    y: Number(local?.captionOffset?.y ?? base?.captionOffset?.y ?? defaults.captionOffset?.y ?? -120)
+  };
+
+  const llm = (() => {
+    const baseLlm: any = base?.llm ?? null;
+    const localLlm: any = local?.llm ?? null;
+    if (!baseLlm && !localLlm) return undefined;
+    return {
+      provider: localLlm?.provider ?? baseLlm?.provider,
+      openai: { ...(baseLlm?.openai ?? {}), ...(localLlm?.openai ?? {}) },
+      deepseek: { ...(baseLlm?.deepseek ?? {}), ...(localLlm?.deepseek ?? {}) },
+      aistudio: { ...(baseLlm?.aistudio ?? {}), ...(localLlm?.aistudio ?? {}) }
+    };
+  })();
+
+  return { socialApps, captionOffset, llm };
+}
+
+function readPersistedPetWindowSize(statePath: string): PetWindowSize | null {
+  try {
+    const raw = readFileSync(statePath, "utf-8");
+    const parsed: any = JSON.parse(raw);
+    const w = Math.round(Number(parsed?.width ?? 0));
+    const h = Math.round(Number(parsed?.height ?? 0));
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
+    return { width: w, height: h };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedPetWindowSize(statePath: string, size: PetWindowSize) {
+  try {
+    writeFileSync(statePath, JSON.stringify({ width: size.width, height: size.height }, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[pet-window] failed to persist size:", err);
+  }
+}
+
+function readPersistedVrmPath(statePath: string): string | null {
+  try {
+    const raw = readFileSync(statePath, "utf-8");
+    const parsed: any = JSON.parse(raw);
+    const p = String(parsed?.path ?? "").trim();
+    if (!p) return null;
+    if (!existsSync(p)) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedVrmPath(statePath: string, vrmPath: string | null) {
+  try {
+    writeFileSync(statePath, JSON.stringify({ path: vrmPath ?? "" }, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[vrm] failed to persist vrm path:", err);
+  }
+}
+
+async function pickVrmPathForced(parent: BrowserWindow | null, current: string | null) {
+  const opts: Electron.OpenDialogOptions = {
+    title: "Select a .vrm model",
+    properties: ["openFile"],
+    filters: [{ name: "VRM", extensions: ["vrm"] }],
+    defaultPath: current ?? undefined
+  };
+  const res =
+    parent && !parent.isDestroyed() ? await dialog.showOpenDialog(parent, opts) : await dialog.showOpenDialog(opts);
+  if (res.canceled || res.filePaths.length === 0) return null;
+  return res.filePaths[0];
+}
+
+function computeDefaultHome(petSize: { w: number; h: number }) {
+  const display = screen.getPrimaryDisplay();
+  const wa = display.workArea;
+  const margin = 20;
+  return {
+    x: wa.x + wa.width - petSize.w - margin,
+    y: wa.y + wa.height - petSize.h - margin
+  };
+}
+
+type Point = { x: number; y: number };
+
+function animateMove(
+  getCurrent: () => Point,
+  setPos: (p: Point) => void,
+  target: Point,
+  durationMs: number,
+  cancelSignal: { canceled: boolean }
+) {
+  const start = getCurrent();
+  const startTs = Date.now();
+
+  const tick = () => {
+    if (cancelSignal.canceled) return;
+    const t = Math.min(1, (Date.now() - startTs) / Math.max(1, durationMs));
+    const k = easeInOutQuad(t);
+    const x = Math.round(start.x + (target.x - start.x) * k);
+    const y = Math.round(start.y + (target.y - start.y) * k);
+    setPos({ x, y });
+    if (t < 1) setTimeout(tick, 16);
+  };
+
+  tick();
+}
+
+let vrmPath: string | null = process.env.VRM_PATH ?? null;
+
+async function bootstrap() {
+  await app.whenReady();
+  app.setAppUserModelId("SAMA.VRMCompanion");
+
+  // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
+  // but we keep this resolver defensive to avoid "preload API missing" in case of outDir mismatch.
+  const preloadResolved = resolvePreloadPath();
+  const preloadPath = preloadResolved.path;
+  if (!existsSync(preloadPath)) {
+    console.warn("[main] preload script not found:", preloadPath);
+    console.warn("[main] tried:\n" + preloadResolved.tried.join("\n"));
+    dialog.showErrorBox(
+      "SAMA preload not found",
+      `preload 脚本不存在，Controls 将无法使用。\n\nExpected:\n${preloadPath}\n\nTried:\n${preloadResolved.tried.join(
+        "\n"
+      )}`
+    );
+  }
+  const petWindowStatePath = join(app.getPath("userData"), "pet-window-state.json");
+  const vrmPathStatePath = join(app.getPath("userData"), "vrm-path.json");
+  if (!vrmPath) {
+    const persisted = readPersistedVrmPath(vrmPathStatePath);
+    if (persisted) vrmPath = persisted;
+  }
+  if (vrmPath && !existsSync(vrmPath)) {
+    console.warn("[vrm] VRM_PATH not found, will require manual pick:", vrmPath);
+    vrmPath = null;
+  }
+
+  const persistedPetSize = readPersistedPetWindowSize(petWindowStatePath);
+  const initialPetSize: PetWindowSize = {
+    width: Math.max(PET_WINDOW_MIN_SIZE.width, persistedPetSize?.width ?? PET_WINDOW_DEFAULT_SIZE.width),
+    height: Math.max(PET_WINDOW_MIN_SIZE.height, persistedPetSize?.height ?? PET_WINDOW_DEFAULT_SIZE.height)
+  };
+
+  // `ipcRenderer.invoke(IPC_HANDLES.vrmGet)` is called very early by the pet renderer.
+  // Register this handler BEFORE any slow init work (SQLite, LLM, etc.) to avoid a race:
+  // "No handler registered for 'vrmGet'" which would make the window stay fully transparent.
+  let petWindowRef: BrowserWindow | null = null;
+  let cachedVrm: { path: string; bytes: Uint8Array } | null = null;
+  ipcMain.handle(IPC_HANDLES.vrmGet, async (_evt) => {
+    // IMPORTANT:
+    // Do NOT trigger a blocking file picker here.
+    // Some users reported startup "hangs" because the first-render awaits this handler and the dialog may be hidden
+    // behind an always-on-top window. Instead, return empty bytes when no path is configured.
+    if (!vrmPath || !existsSync(vrmPath)) return new Uint8Array();
+    if (cachedVrm?.path === vrmPath) return cachedVrm.bytes;
+    const buf = readFileSync(vrmPath);
+    const bytes = new Uint8Array(buf);
+    cachedVrm = { path: vrmPath, bytes };
+    return bytes;
+  });
+
+  ipcMain.handle(IPC_HANDLES.vrmPick, async (evt) => {
+    const parent = ElectronBrowserWindow.fromWebContents(evt.sender) ?? petWindowRef;
+    const picked = await pickVrmPathForced(parent, vrmPath);
+    if (!picked) return new Uint8Array();
+    vrmPath = picked;
+    writePersistedVrmPath(vrmPathStatePath, vrmPath);
+    const buf = readFileSync(vrmPath);
+    const bytes = new Uint8Array(buf);
+    cachedVrm = { path: vrmPath, bytes };
+    return bytes;
+  });
+
+  const petWindow = createPetWindow({ preloadPath, initialSize: initialPetSize });
+  petWindowRef = petWindow;
+  const captionWindow = createCaptionWindow({ preloadPath });
+
+  const wirePreloadDiagnostics = (win: BrowserWindow, label: string) => {
+    win.webContents.on("preload-error", (_evt, p, error) => {
+      console.error(`[preload-error][${label}] ${p}:`, error);
+      try {
+        dialog.showErrorBox(
+          `SAMA preload error (${label})`,
+          `preload 脚本执行失败，Controls / IPC 将不可用。\n\npreload: ${p}\nerror: ${error.message}`
+        );
+      } catch {}
+    });
+  };
+
+  wirePreloadDiagnostics(petWindow, "pet");
+  wirePreloadDiagnostics(captionWindow, "caption");
+
+  const initialBounds = petWindow.getBounds();
+  const home = computeDefaultHome({ w: initialBounds.width, h: initialBounds.height });
+  petWindow.setPosition(home.x, home.y);
+  let homePosition: Point = { ...home };
+
+  let clickThroughEnabled = false;
+  let chatWindow: import("electron").BrowserWindow | null = null;
+  let controlsWindow: import("electron").BrowserWindow | null = null;
+  let lastPetState: PetStateMessage | null = null;
+  let lastPetWindowState: PetWindowStateMessage | null = null;
+
+  const configPath = resolve(process.cwd(), "config.json");
+  const config = readAppConfig(configPath);
+  const offsetX = Number(config.captionOffset?.x ?? 20);
+  const offsetY = Number(config.captionOffset?.y ?? -120);
+
+  const openChat = () => {
+    if (chatWindow && !chatWindow.isDestroyed()) {
+      chatWindow.show();
+      chatWindow.focus();
+      return;
+    }
+    chatWindow = createChatWindow({ preloadPath });
+    chatWindow.on("closed", () => {
+      chatWindow = null;
+    });
+  };
+
+  const openControls = () => {
+    if (controlsWindow && !controlsWindow.isDestroyed()) {
+      controlsWindow.show();
+      controlsWindow.focus();
+      return;
+    }
+    controlsWindow = createControlsWindow({ preloadPath });
+    wirePreloadDiagnostics(controlsWindow, "controls");
+    controlsWindow.webContents.once("did-finish-load", () => {
+      if (lastPetState) controlsWindow?.webContents.send(IPC_CHANNELS.petState, lastPetState);
+      if (lastPetWindowState) controlsWindow?.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+    });
+    controlsWindow.on("closed", () => {
+      controlsWindow = null;
+    });
+  };
+
+  const setClickThrough = (enabled: boolean) => {
+    clickThroughEnabled = enabled;
+    petWindow.setIgnoreMouseEvents(enabled, { forward: true });
+    petWindow.webContents.send(IPC_CHANNELS.clickThroughChanged, enabled);
+  };
+
+  const toggleClickThrough = () => setClickThrough(!clickThroughEnabled);
+
+  const togglePetVisible = () => {
+    const visible = petWindow.isVisible();
+    if (visible) {
+      petWindow.hide();
+      captionWindow.hide();
+    } else {
+      petWindow.showInactive();
+      captionWindow.showInactive();
+    }
+  };
+
+  const memory = new MemoryService({ dbPath: join(app.getPath("userData"), "memory.db") });
+  await memory.init();
+
+  const llm = new LLMService({ config: config.llm ?? null });
+  console.log(`[llm] provider=${llm.providerName}`);
+
+  let moveCancel = { canceled: false };
+  const moveTo = (p: Point, durationMs: number) => {
+    moveCancel.canceled = true;
+    moveCancel = { canceled: false };
+    animateMove(
+      () => {
+        const [x, y] = petWindow.getPosition();
+        return { x, y };
+      },
+      (pos) => petWindow.setPosition(pos.x, pos.y),
+      p,
+      durationMs,
+      moveCancel
+    );
+  };
+
+  const computeApproachTarget = (): Point => {
+    const display = screen.getPrimaryDisplay();
+    const wa = display.workArea;
+    const center = { x: wa.x + wa.width / 2, y: wa.y + wa.height / 2 };
+    const dirX = center.x - homePosition.x;
+    const dirY = center.y - homePosition.y;
+    const len = Math.max(1, Math.hypot(dirX, dirY));
+    return {
+      x: Math.round(homePosition.x + (dirX / len) * 120),
+      y: Math.round(homePosition.y + (dirY / len) * 120)
+    };
+  };
+
+  let pendingIgnoreTimer: NodeJS.Timeout | null = null;
+  let pendingIgnore: { action: "APPROACH" | "INVITE_CHAT"; cmdTs: number } | null = null;
+
+  function disarmPendingIgnore() {
+    if (pendingIgnoreTimer) clearTimeout(pendingIgnoreTimer);
+    pendingIgnoreTimer = null;
+    pendingIgnore = null;
+  }
+
+  function armPendingIgnore(action: "APPROACH" | "INVITE_CHAT", cmdTs: number, durationMs: number) {
+    pendingIgnore = { action, cmdTs };
+    pendingIgnoreTimer = setTimeout(() => {
+      const p = pendingIgnore;
+      if (!p || p.cmdTs !== cmdTs) return;
+      disarmPendingIgnore();
+      core.handleUserInteraction({
+        type: "USER_INTERACTION",
+        ts: Date.now(),
+        event: "IGNORED_ACTION",
+        action
+      });
+    }, Math.max(200, durationMs));
+  }
+
+  const core = new CoreService({
+    llm,
+    memory,
+    onAction: (cmd, meta) => {
+      petWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
+      captionWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
+
+      if (meta.proactive) {
+        console.log(`[core] action=${cmd.action} expr=${cmd.expression} bubble=${cmd.bubble ?? ""}`);
+      }
+
+      // Ignore detection: if a proactive APPROACH/INVITE_CHAT gets no response within duration,
+      // emit IGNORED_ACTION back into the core.
+      if (meta.proactive && (cmd.action === "APPROACH" || cmd.action === "INVITE_CHAT")) {
+        disarmPendingIgnore();
+        armPendingIgnore(cmd.action, cmd.ts, cmd.durationMs || 3000);
+      } else if (cmd.action === "RETREAT") {
+        disarmPendingIgnore();
+      }
+
+      if (cmd.action === "APPROACH") moveTo(computeApproachTarget(), cmd.durationMs || 1500);
+      if (cmd.action === "RETREAT") moveTo(homePosition, cmd.durationMs || 1500);
+    }
+  });
+
+  const sensing = new SensingService({
+    configPath,
+    onUpdate: (u) => void core.handleSensorUpdate(u)
+  });
+  sensing.start();
+
+  const tray = new TrayService({
+    toggleClickThrough,
+    isClickThroughEnabled: () => clickThroughEnabled,
+    togglePetVisible,
+    isPetVisible: () => petWindow.isVisible(),
+    openControls,
+    openChat,
+    quit: () => app.quit()
+  });
+  tray.start();
+
+  const shortcuts = new ShortcutsService({ toggleClickThrough, openChat, openControls });
+  shortcuts.start();
+
+  const followTimer = setInterval(() => {
+    if (petWindow.isDestroyed() || captionWindow.isDestroyed()) return;
+    if (!petWindow.isVisible()) return;
+    const [x, y] = petWindow.getPosition();
+    captionWindow.setPosition(x + offsetX, y + offsetY);
+  }, 50);
+
+  const persistPetWindowSize = () => {
+    if (petWindow.isDestroyed()) return;
+    const b = petWindow.getBounds();
+    writePersistedPetWindowSize(petWindowStatePath, { width: b.width, height: b.height });
+  };
+
+  let pendingPersistTimer: NodeJS.Timeout | null = null;
+  const schedulePersistPetWindowSize = () => {
+    if (pendingPersistTimer) clearTimeout(pendingPersistTimer);
+    pendingPersistTimer = setTimeout(() => {
+      pendingPersistTimer = null;
+      persistPetWindowSize();
+    }, 350);
+  };
+
+  const emitPetWindowState = () => {
+    if (petWindow.isDestroyed()) return;
+    const b = petWindow.getBounds();
+    lastPetWindowState = { type: "PET_WINDOW_STATE", ts: Date.now(), size: { width: b.width, height: b.height } };
+    if (!controlsWindow || controlsWindow.isDestroyed()) return;
+    controlsWindow.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+  };
+
+  // initial state
+  emitPetWindowState();
+
+  // throttle resize updates
+  let pendingResizeTimer: NodeJS.Timeout | null = null;
+  petWindow.on("resize", () => {
+    if (pendingResizeTimer) clearTimeout(pendingResizeTimer);
+    pendingResizeTimer = setTimeout(() => {
+      pendingResizeTimer = null;
+      emitPetWindowState();
+    }, 80);
+
+    schedulePersistPetWindowSize();
+  });
+
+  // IPC wiring
+  ipcMain.on(IPC_CHANNELS.petControl, (_evt, payload: PetControlMessage) => {
+    if (petWindow.isDestroyed()) return;
+    if (payload && payload.type === "PET_CONTROL" && payload.action === "SET_PET_WINDOW_SIZE") {
+      try {
+        const cur = petWindow.getBounds();
+        const size: any = (payload as any).size ?? {};
+        const rawW = size.width;
+        const rawH = size.height;
+        const w = rawW === undefined ? cur.width : Math.round(Number(rawW));
+        const h = rawH === undefined ? cur.height : Math.round(Number(rawH));
+        if (!Number.isFinite(w) || !Number.isFinite(h)) throw new Error("invalid size");
+
+        const [minW, minH] = petWindow.getMinimumSize();
+        const nextW = Math.max(minW || 1, w);
+        const nextH = Math.max(minH || 1, h);
+        petWindow.setSize(nextW, nextH);
+        schedulePersistPetWindowSize();
+        emitPetWindowState();
+
+        if (payload.requestId && controlsWindow && !controlsWindow.isDestroyed()) {
+          const res: PetControlResult = {
+            type: "PET_CONTROL_RESULT",
+            ts: Date.now(),
+            requestId: payload.requestId,
+            ok: true
+          };
+          controlsWindow.webContents.send(IPC_CHANNELS.petControlResult, res);
+        }
+      } catch (err) {
+        if (payload.requestId && controlsWindow && !controlsWindow.isDestroyed()) {
+          const res: PetControlResult = {
+            type: "PET_CONTROL_RESULT",
+            ts: Date.now(),
+            requestId: payload.requestId,
+            ok: false,
+            message: err instanceof Error ? err.message : String(err)
+          };
+          controlsWindow.webContents.send(IPC_CHANNELS.petControlResult, res);
+        }
+      }
+      return;
+    }
+
+    petWindow.webContents.send(IPC_CHANNELS.petControl, payload);
+  });
+
+  ipcMain.on(IPC_CHANNELS.petControlResult, (_evt, payload: PetControlResult) => {
+    if (!controlsWindow || controlsWindow.isDestroyed()) return;
+    controlsWindow.webContents.send(IPC_CHANNELS.petControlResult, payload);
+  });
+
+  ipcMain.on(IPC_CHANNELS.petStatus, (_evt, payload: PetStatusMessage) => {
+    if (!controlsWindow || controlsWindow.isDestroyed()) return;
+    controlsWindow.webContents.send(IPC_CHANNELS.petStatus, payload);
+  });
+
+  ipcMain.on(IPC_CHANNELS.petState, (_evt, payload: PetStateMessage) => {
+    lastPetState = payload;
+    if (!controlsWindow || controlsWindow.isDestroyed()) return;
+    controlsWindow.webContents.send(IPC_CHANNELS.petState, payload);
+  });
+
+  ipcMain.on(IPC_CHANNELS.userInteraction, (_evt, payload: UserInteraction) => {
+    const parsed = UserInteractionSchema.safeParse(payload);
+    if (!parsed.success) return;
+    if (parsed.data.event === "CLICK_PET" || parsed.data.event === "OPEN_CHAT") {
+      disarmPendingIgnore();
+    }
+    core.handleUserInteraction(parsed.data);
+  });
+
+  ipcMain.on(IPC_CHANNELS.dragDelta, (_evt, delta: DragDelta) => {
+    const dx = Number((delta as any)?.dx ?? 0);
+    const dy = Number((delta as any)?.dy ?? 0);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+
+    const [x, y] = petWindow.getPosition();
+    petWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
+    const [nx, ny] = petWindow.getPosition();
+    homePosition = { x: nx, y: ny };
+  });
+
+  ipcMain.handle(IPC_HANDLES.chatInvoke, async (_evt, payload: ChatRequest) => {
+    const parsed = ChatRequestSchema.safeParse(payload);
+    if (!parsed.success) return { type: "CHAT_RESPONSE", ts: Date.now(), message: "消息格式不对…" };
+    return core.handleChat(parsed.data);
+  });
+
+  petWindow.on("closed", () => app.quit());
+
+  app.on("before-quit", () => {
+    clearInterval(followTimer);
+    if (pendingPersistTimer) clearTimeout(pendingPersistTimer);
+    pendingPersistTimer = null;
+    try {
+      persistPetWindowSize();
+    } catch {}
+    shortcuts.dispose();
+    tray.dispose();
+    sensing.dispose();
+  });
+
+  setClickThrough(false);
+  // The pet window is always-on-top and intentionally minimal.
+  // Open the Controls window by default so the app is immediately operable.
+  openControls();
+}
+
+void bootstrap();

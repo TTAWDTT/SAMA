@@ -1,0 +1,31 @@
+{
+    "workbench.colorCustomizations": {
+        "editorCursor.foreground": "#94E2D5",
+        "inputValidation.errorBorder": "#94E2D5",
+        "inputValidation.infoBorder": "#94E2D5",
+        "inputValidation.warningBorder": "#94E2D5",
+        "panelTitle.activeForeground": "#94E2D5",
+        "panelTitle.activeBorder": "#94E2D5",
+        "peekView.border": "#94E2D5",
+        "peekViewTitleLabel.foreground": "#94E2D5",
+        "tab.activeBorder": "#94E2D5",
+        "tab.activeBorderTop": "#94E2D5",
+        "tab.activeForeground": "#94E2D5",
+        "activityBarBadge.background": "#94E2D5",
+        "activityBar.activeBorder": "#94E2D5",
+        "activityBar.foreground": "#94E2D5",
+        "statusBarItem.remoteBackground": "#94E2D5",
+        "titleBar.activeForeground": "#94E2D5",
+        "titleBar.border": "#94E2D5",
+        "statusBar.border": "#94E2D5",
+        "statusBar.foreground": "#94E2D5",
+        "editor.selectionHighlightBorder": "#94E2D5",
+        "editor.selectionForeground": "#94E2D5",
+        "editor.findMatchBorder": "#94E2D5",
+        "editorMultiCursor.primary.foreground": "#94E2D5",
+        "editorMultiCursor.secondary.foreground": "#94E2D5",
+        "editorSuggestWidget.border": "#94E2D5",
+        "editorLineNumber.activeForeground": "#94E2D5"
+    },
+    "chatgpt.openOnStartup": true
+}

@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pet</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: rgba(10, 14, 18, 0.72);
+        --bg-strong: rgba(10, 14, 18, 0.86);
+        --border: rgba(255, 255, 255, 0.12);
+        --border-soft: rgba(255, 255, 255, 0.08);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.72);
+        --muted2: rgba(255, 255, 255, 0.6);
+        --shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+        --radius: 14px;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+      #canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+        cursor: grab;
+      }
+      #hud {
+        position: fixed;
+        left: 10px;
+        top: 10px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        background: rgba(18, 22, 28, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.9);
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        pointer-events: none;
+        user-select: none;
+        text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+        display: none; /* enabled via Debug toggle */
+      }
+
+      /* Fallback window drag handle (does not rely on preload IPC) */
+      #dragHandle {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        width: 86px;
+        height: 26px;
+        border-radius: 999px;
+        background: rgba(18, 22, 28, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.85);
+        font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 0.2px;
+        user-select: none;
+        pointer-events: auto;
+        cursor: move;
+        opacity: 0;
+        transition: opacity 120ms ease;
+        -webkit-app-region: drag;
+      }
+      body:hover #dragHandle {
+        opacity: 1;
+      }
+      #dragHandle:active {
+        opacity: 1;
+      }
+
+      #banner {
+        position: fixed;
+        left: 50%;
+        top: 10px;
+        transform: translateX(-50%);
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(18, 22, 28, 0.62);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: rgba(255, 255, 255, 0.92);
+        font: 12px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Liberation Sans", sans-serif;
+        pointer-events: none;
+        user-select: none;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        display: none;
+        white-space: pre-wrap;
+      }
+
+      #dropOverlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 8, 10, 0.22);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 120ms ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #dropOverlay[data-active="1"] {
+        opacity: 1;
+      }
+      #dropCard {
+        pointer-events: none;
+        border-radius: 18px;
+        background: rgba(10, 14, 18, 0.78);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 18px 70px rgba(0, 0, 0, 0.55);
+        padding: 14px 16px 12px 16px;
+        text-align: center;
+        width: min(340px, calc(100vw - 44px));
+        color: rgba(255, 255, 255, 0.92);
+        font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Liberation Sans", sans-serif;
+      }
+      #dropTitle {
+        font-weight: 800;
+        letter-spacing: 0.2px;
+        margin-bottom: 6px;
+      }
+      #dropHint {
+        color: rgba(255, 255, 255, 0.72);
+        font-size: 12px;
+      }
+
+      #boot {
+        position: fixed;
+        inset: 12px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        pointer-events: none;
+      }
+      #boot[data-hidden="1"] {
+        display: none;
+      }
+      #bootCard {
+        pointer-events: auto;
+        max-width: 320px;
+        padding: 12px 12px 10px 12px;
+        border-radius: var(--radius);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        color: var(--text);
+        font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue",
+          Arial, "Noto Sans", "Liberation Sans", sans-serif;
+        position: relative;
+        -webkit-app-region: no-drag;
+      }
+      #bootTitle {
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        margin-bottom: 6px;
+      }
+      #bootClose {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 26px;
+        height: 26px;
+        border-radius: 10px;
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.85);
+        cursor: pointer;
+        font: 16px/1 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Liberation Sans", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #bootClose:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      #bootStatus {
+        color: rgba(255, 255, 255, 0.78);
+        margin-bottom: 10px;
+        white-space: pre-wrap;
+      }
+      #bootActions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      #bootPick {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #bootPick:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      #bootPickAnim {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      #bootPickAnim:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      #bootHint {
+        margin-top: 8px;
+        color: rgba(255, 255, 255, 0.62);
+        font-size: 12px;
+      }
+
+      .panel {
+        pointer-events: auto;
+        border-radius: var(--radius);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        color: var(--text);
+        font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial,
+          "Noto Sans", "Liberation Sans", sans-serif;
+        max-height: calc(100vh - 20px);
+        overflow: auto;
+      }
+      .panelHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 12px 10px 12px;
+        position: sticky;
+        top: 0;
+        background: linear-gradient(to bottom, rgba(10, 14, 18, 0.92), rgba(10, 14, 18, 0.62));
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .panelTitle {
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .panelToggle {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 10px;
+        padding: 6px 9px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .panelToggle:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .panelBody {
+        display: grid;
+        gap: 8px;
+        padding: 10px 12px 12px 12px;
+      }
+
+      .dockStatus {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.86);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .chipStrong {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .dockGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .dockSpan2 {
+        grid-column: 1 / -1;
+      }
+      .dockBtn {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 12px;
+        padding: 10px 10px;
+        font: inherit;
+        cursor: pointer;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .dockBtn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .dockBtn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .dockBtnPrimary {
+        background: rgba(139, 233, 253, 0.16);
+        border-color: rgba(139, 233, 253, 0.28);
+      }
+      .dockBtnPrimary:hover {
+        background: rgba(139, 233, 253, 0.22);
+      }
+      .dockBtnPrimary:disabled {
+        background: rgba(139, 233, 253, 0.1);
+      }
+
+      .segmented {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        padding: 6px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .segBtn {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.88);
+        border-radius: 10px;
+        padding: 8px 8px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .segBtn[data-active="1"] {
+        background: rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+      .segBtn:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .segBtn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .details {
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+      .details > summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        padding: 10px 10px;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .details > summary::-webkit-details-marker {
+        display: none;
+      }
+      .details > summary::after {
+        content: "▾";
+        opacity: 0.8;
+      }
+      .details[open] > summary::after {
+        content: "▴";
+      }
+      .detailsBody {
+        padding: 8px 10px 10px 10px;
+        display: grid;
+        gap: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .panelSection {
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        padding-top: 8px;
+      }
+      .panelSectionTitle {
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.85);
+        margin-bottom: 6px;
+      }
+      .panelRow {
+        display: grid;
+        grid-template-columns: 110px 1fr 56px;
+        gap: 8px;
+        align-items: center;
+      }
+      .panelRowLabel {
+        color: rgba(255, 255, 255, 0.82);
+      }
+      .panelRowValue {
+        text-align: right;
+        color: rgba(255, 255, 255, 0.75);
+        font-variant-numeric: tabular-nums;
+      }
+      .panelRow input[type="range"] {
+        width: 100%;
+      }
+      .panelButtons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .panelBtn {
+        appearance: none;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.92);
+        border-radius: 10px;
+        padding: 7px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .panelBtn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .panelBtn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .panelCheck {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="banner"></div>
+    <div id="dropOverlay" data-active="0">
+      <div id="dropCard">
+        <div id="dropTitle">拖拽导入</div>
+        <div id="dropHint">.vrm = 模型 · .vrma = 动作（加载后可设为 Idle/Walk 槽位）</div>
+      </div>
+    </div>
+    <div id="dragHandle" title="Drag to move (requires click-through OFF)">拖动窗口</div>
+    <div id="boot">
+      <div id="bootCard">
+        <button id="bootClose" type="button" title="关闭提示">×</button>
+        <div id="bootTitle">SAMA</div>
+        <div id="bootStatus">正在启动…</div>
+        <div id="bootActions">
+          <button id="bootPick" type="button">选择 VRM…</button>
+          <button id="bootPickAnim" type="button">选择动作(vrma)…</button>
+        </div>
+        <div id="bootHint">支持拖拽导入 .vrm/.vrma；Click-through：Ctrl+Alt+P；或用 VRM_PATH=C:\path\model.vrm</div>
+      </div>
+    </div>
+    <div id="hud"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
