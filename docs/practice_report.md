@@ -190,17 +190,19 @@
 - core 在生成 chat reply 后，会额外发出一个 `ActionCommand`（bubble=reply），从而走统一的“气泡渲染链路”：
   - `apps/stage-desktop/src/main/services/core.service.ts`
 
-### 3.9 内置 Idle VRMA（开箱即用的待机动作）
+### 3.9 程序 Idle（更接近“手臂自然下垂”的标准待机）
 
 **动机**
 
-- 很多 VRM 文件本身不带动画；仅靠程序 idle 虽然可用，但“标准待机”的质感不足。
+- 很多 VRM 文件本身不带动画；如果直接保持初始展示姿势（常见是 T/A Pose），会显得很“僵硬”。
+- 与其强行塞一个未知风格的内置 VRMA，不如先把“默认待机姿势”做对：手臂自然下垂 + 呼吸/重心摆动。
 
 **实现**
 
-- 内置一个体积很小的 VRMA sample（以 base64 形式嵌入），当用户未指定 Idle 槽位、且 VRM 没有嵌入 idle clip 时自动加载：
-  - `apps/stage-desktop/src/renderer/pet/builtin_idle_vrma.ts`
+- pet renderer 内置一个程序 Idle 控制器：呼吸（胸/躯干）+ 摆动（重心）+ 姿态修正（手臂下垂/手肘微弯），作为默认 Idle 兜底：
+  - `apps/stage-desktop/src/renderer/pet/idle.ts`
   - `apps/stage-desktop/src/renderer/pet/scene.ts`
+- 用户仍可随时加载自己的 `.vrma` 并设为 Idle/Walk 槽位覆盖程序待机（更贴合模型/动作库风格）。
 
 ---
 
