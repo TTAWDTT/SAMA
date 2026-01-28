@@ -15,6 +15,8 @@ const canvas = canvasEl;
 
 const dropOverlayEl = document.getElementById("dropOverlay");
 const dropOverlay = dropOverlayEl instanceof HTMLDivElement ? dropOverlayEl : null;
+const dropHintEl = document.getElementById("dropHint");
+const dropHint = dropHintEl instanceof HTMLDivElement ? dropHintEl : null;
 
 const bootEl = document.getElementById("boot");
 const bootRoot = bootEl instanceof HTMLDivElement ? bootEl : null;
@@ -26,9 +28,12 @@ const bootPickAnimEl = document.getElementById("bootPickAnim");
 const bootPickAnim = bootPickAnimEl instanceof HTMLButtonElement ? bootPickAnimEl : null;
 const bootCloseEl = document.getElementById("bootClose");
 const bootClose = bootCloseEl instanceof HTMLButtonElement ? bootCloseEl : null;
+const bootHintEl = document.getElementById("bootHint");
+const bootHint = bootHintEl instanceof HTMLDivElement ? bootHintEl : null;
 
 const BC_NAME = "sama:pet-bus";
 const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(BC_NAME) : null;
+let lastCaptionReadyAt = 0;
 
 function setHud(s: string) {
   if (!hud) return;
@@ -194,6 +199,28 @@ async function boot() {
   setHud("render: running");
   scene.start();
 
+  // Read app flags (e.g., VRM locked). Do not block rendering if anything goes wrong.
+  const appInfo = await (async () => {
+    try {
+      return api && typeof api.getAppInfo === "function" ? await api.getAppInfo() : null;
+    } catch {
+      return null;
+    }
+  })();
+  const vrmLocked = Boolean(appInfo?.vrmLocked);
+
+  if (vrmLocked) {
+    // In locked mode, hide UI affordances that suggest you can switch VRM models.
+    if (bootPick) bootPick.style.display = "none";
+    if (bootHint) {
+      bootHint.textContent = "模型已锁定：支持拖拽/导入 .vrma 动作；Click-through：Ctrl+Alt+P；控制台：Ctrl+Alt+O";
+    }
+    if (dropHint) {
+      dropHint.textContent = ".vrma = 动作（加载后可设为 Idle/Walk 槽位）";
+    }
+    setBootStatus("模型已锁定（VRM 固定）。支持导入 VRMA 动作；拖拽/选择 VRM 将被忽略。");
+  }
+
   // Persist model transform updates caused by direct manipulation (Shift-drag pan).
   let persistTimer: number | null = null;
   const schedulePersist = () => {
@@ -262,6 +289,11 @@ async function boot() {
     if (!msg || msg.type !== "PET_CONTROL") return;
     try {
       if (msg.action === "LOAD_VRM_BYTES") {
+        if (vrmLocked) {
+          sendPetStatus("info", "模型已锁定：忽略 VRM 切换请求。");
+          sendPetControlResult(msg.requestId, false, "VRM 已锁定，无法切换模型");
+          return;
+        }
         setBootStatus("正在从控制台加载 VRM…");
         await scene.loadVrmBytes(msg.bytes);
         hudState.vrmLoaded = msg.bytes.byteLength > 0;
@@ -360,6 +392,10 @@ async function boot() {
     const bcHandler = (evt: MessageEvent) => {
       const msg: any = (evt as any).data;
       if (!msg || typeof msg !== "object") return;
+      if (msg.type === "CAPTION_READY") {
+        lastCaptionReadyAt = Date.now();
+        return;
+      }
       if (msg.type !== "PET_CONTROL") return;
       void handlePetControl(msg as PetControlMessage);
     };
@@ -431,6 +467,10 @@ async function boot() {
       const buf = await file.arrayBuffer();
       const bytes = new Uint8Array(buf);
       if (name.endsWith(".vrm")) {
+        if (vrmLocked) {
+          setBootStatus("模型已锁定：忽略拖拽导入 VRM。你仍可拖拽导入 VRMA 动作。");
+          return;
+        }
         setBootStatus(`正在导入 VRM：${file.name}`);
         await scene.loadVrmBytes(bytes);
         hudState.vrmLoaded = bytes.byteLength > 0;
@@ -500,6 +540,12 @@ async function boot() {
       scene.speak(cmd.durationMs);
       startCaptionAnchorTracking(cmd.durationMs);
     }
+
+    // Help the caption window recover from preload issues by broadcasting actions in renderer space.
+    // The caption renderer will only consume these messages when its preload API is missing.
+    try {
+      bc?.postMessage(cmd);
+    } catch {}
   });
 
   (window as any).stageDesktop?.onClickThroughChanged?.((enabled: boolean) => {
@@ -508,7 +554,11 @@ async function boot() {
   });
 
   renderHud();
-  setBootStatus("拖拽导入：把 .vrm / .vrma 拖到窗口；右键拖动旋转视角；Shift+左键拖动移动角色");
+  setBootStatus(
+    vrmLocked
+      ? "模型已锁定：仅支持导入 VRMA 动作；右键拖动旋转视角；Shift+左键拖动移动角色"
+      : "拖拽导入：把 .vrm / .vrma 拖到窗口；右键拖动旋转视角；Shift+左键拖动移动角色"
+  );
   sendPetState();
 
   if (bootRoot) {
@@ -528,6 +578,10 @@ async function boot() {
   if (bootPick) {
     bootPick.addEventListener("click", async () => {
       try {
+        if (vrmLocked) {
+          setBootStatus("模型已锁定：无法切换 VRM。");
+          return;
+        }
         setBootStatus("选择 VRM…");
         const api: any = (window as any).stageDesktop;
         const bytes =

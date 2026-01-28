@@ -305,6 +305,20 @@ export class CoreService {
       mood: this.#mood,
       history: this.#chatHistory
     };
+
+    // UX: show an immediate "thinking" bubble so users get feedback even if the LLM takes time.
+    // This also helps validate the bubble rendering pipeline end-to-end.
+    const thinking: ActionCommand = {
+      type: "ACTION_COMMAND",
+      ts: Date.now(),
+      action: "IDLE",
+      expression: ctx.isNight ? "TIRED" : "NEUTRAL",
+      bubble: "嗯…",
+      durationMs: 1200
+    };
+    this.#memory.logAction(thinking);
+    this.#onAction(thinking, { proactive: false });
+
     const reply = await this.#llm.chatReply(ctx, req.message);
 
     this.#chatHistory.push({ role: "user", content: req.message });

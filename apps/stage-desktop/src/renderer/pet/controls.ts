@@ -285,6 +285,8 @@ function makeTestAction(action: ActionCommand["action"], durationMs: number): Ac
 
 export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement; onInfo?: (msg: string) => void }) {
   const stored: StoredSettingsV1 = loadSettings() ?? { version: 1 };
+  const stageApi: any = (window as any).stageDesktop;
+  let vrmLockedUi = false;
 
   if (stored.modelTransform) opts.scene.setModelTransform(stored.modelTransform);
   if (stored.idleConfig) opts.scene.setIdleConfig(stored.idleConfig);
@@ -380,12 +382,27 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   btnRefit.type = "button";
   btnRefit.textContent = "重置视角";
 
+  const btnTestBubble = document.createElement("button");
+  btnTestBubble.className = "dockBtn";
+  btnTestBubble.type = "button";
+  btnTestBubble.textContent = "测试气泡";
+
   const btnTestWalk = document.createElement("button");
   btnTestWalk.className = "dockBtn dockSpan2";
   btnTestWalk.type = "button";
   btnTestWalk.textContent = "测试：走两步（不移动窗口）";
 
-  dock.append(btnLoadVrm, btnLoadVrma, btnSetIdle, btnSetWalk, btnStopAction, btnCenter, btnRefit, btnTestWalk);
+  dock.append(
+    btnLoadVrm,
+    btnLoadVrma,
+    btnSetIdle,
+    btnSetWalk,
+    btnStopAction,
+    btnCenter,
+    btnRefit,
+    btnTestBubble,
+    btnTestWalk
+  );
   body.appendChild(dock);
 
   const vrmaHelp = document.createElement("div");
@@ -394,6 +411,34 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   vrmaHelp.textContent =
     "提示：加载 VRMA 后，点「设为 Idle/Walk」即可自动切换。你也可以把 VRMA 保存到“动作库”里并用自定义名字管理。";
   body.appendChild(vrmaHelp);
+
+  // Sync VRM lock state from main (if supported by preload).
+  void (async () => {
+    try {
+      const info = stageApi && typeof stageApi.getAppInfo === "function" ? await stageApi.getAppInfo() : null;
+      vrmLockedUi = Boolean(info?.vrmLocked);
+      if (vrmLockedUi) {
+        btnLoadVrm.disabled = true;
+        btnLoadVrm.textContent = "VRM 已固定";
+      }
+    } catch {
+      // ignore
+    }
+  })();
+
+  btnTestBubble.addEventListener("click", () => {
+    void withBusy(btnTestBubble, async () => {
+      const api: any = (window as any).stageDesktop;
+      if (!api || typeof api.chatInvoke !== "function") {
+        opts.onInfo?.("preload API 不可用：无法发起测试对话（请从托盘打开 Controls）。");
+        return;
+      }
+
+      opts.onInfo?.("发送测试消息…（回复会显示在角色旁气泡）");
+      await api.chatInvoke("测试气泡");
+      opts.onInfo?.("测试完成：如果还看不到气泡，请检查是否是浏览器打开/或窗口被遮挡。");
+    });
+  });
 
   // Window size controls (pet display window)
   const windowDetails = createDetails("窗口大小（展示）", true);
@@ -506,7 +551,6 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   let aspect = 420 / 640;
   let syncingSize = false;
 
-  const stageApi: any = (window as any).stageDesktop;
   const sendWindowSize = (size: { width?: number; height?: number }) => {
     if (!stageApi || typeof stageApi.sendPetControl !== "function") {
       opts.onInfo?.("preload API 不可用：无法设置窗口大小。");
@@ -883,6 +927,10 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   }
 
   btnLoadVrm.addEventListener("click", () => {
+    if (vrmLockedUi) {
+      opts.onInfo?.("模型已锁定：无法切换 VRM。");
+      return;
+    }
     void withBusy(btnLoadVrm, async () => {
       opts.onInfo?.("选择 VRM…");
       const bytes = await pickVrmBytes({ onInfo: opts.onInfo });

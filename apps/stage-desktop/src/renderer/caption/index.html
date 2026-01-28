@@ -21,26 +21,59 @@
       }
       #bubble {
         position: absolute;
-        left: 50%;
-        top: 22%;
-        max-width: 320px;
+        left: 0;
+        top: 0;
+        max-width: min(360px, calc(100vw - 40px));
         padding: 10px 12px;
-        border-radius: 14px;
-        background: rgba(18, 22, 28, 0.72);
+        border-radius: 16px;
+        background: rgba(18, 22, 28, 0.74);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         color: rgba(255, 255, 255, 0.92);
-        font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue",
-          Arial, "Noto Sans", "Liberation Sans", sans-serif;
-        letter-spacing: 0.2px;
+        font: 14px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
+          -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+        letter-spacing: 0.15px;
         white-space: pre-wrap;
         word-break: break-word;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.38);
+        box-shadow: 0 14px 44px rgba(0, 0, 0, 0.44);
+        backdrop-filter: blur(10px);
         opacity: 0;
-        transform: translate(-50%, -100%) translateY(6px);
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, -100%) translateY(10px)
+          scale(0.985);
         transition: opacity 160ms ease, transform 160ms ease;
       }
+      #bubble::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        width: 12px;
+        height: 12px;
+        background: rgba(18, 22, 28, 0.74);
+        border-right: 1px solid rgba(255, 255, 255, 0.12);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        transform: translateX(-50%) rotate(45deg);
+        bottom: -7px;
+        opacity: 0.95;
+      }
+      #bubble[data-placement="bottom"]::after {
+        top: -7px;
+        bottom: auto;
+        border-right: none;
+        border-bottom: none;
+        border-left: 1px solid rgba(255, 255, 255, 0.12);
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      #bubble[data-placement="bottom"] {
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(-10px) scale(0.985);
+      }
+
       #bubble.show {
         opacity: 1;
-        transform: translate(-50%, -100%) translateY(0);
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, -100%) translateY(0) scale(1);
+      }
+      #bubble[data-placement="bottom"].show {
+        opacity: 1;
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(0) scale(1);
       }
     </style>
   </head>
