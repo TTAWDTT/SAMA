@@ -492,7 +492,10 @@ async function bootstrap() {
       // "探出小脑袋" mode: hug the bottom edge and only keep a small portion visible.
       // We intentionally keep this as a simple, predictable behavior (no left/right peek),
       // because the UX expectation is "stick to desktop bottom and show only head".
-      const visibleH = clamp(Math.round(winH * 0.32), 150, 260);
+      // Keep the visible area small so only the head/upper hair is shown.
+      // This intentionally caps the visible height so resizing the window taller
+      // doesn't accidentally reveal half the body.
+      const visibleH = clamp(Math.round(winH * 0.22), 100, 160);
 
       const x = clampX(peekHomePosition.x);
       const y = wa.y + wa.height - visibleH;
