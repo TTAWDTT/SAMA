@@ -95,6 +95,16 @@ function parseRememberNote(raw: string): string | null {
   return content ? content : null;
 }
 
+function parseSlashCommand(raw: string): { cmd: string; args: string } | null {
+  const s = String(raw ?? "").trim();
+  if (!s.startsWith("/")) return null;
+  const m = s.slice(1).match(/^([a-zA-Z_-]+)(?:\s+([\s\S]*))?$/);
+  if (!m?.[1]) return null;
+  const cmd = m[1].toLowerCase();
+  const args = String(m[2] ?? "").trim();
+  return { cmd, args };
+}
+
 function looksSensitiveText(s: string) {
   const t = String(s ?? "");
   if (!t) return false;
@@ -209,6 +219,7 @@ export class CoreService {
   async #maybeUpdateConversationSummary() {
     if (!this.#llm.enabled) return;
     if (!this.#memory.enabled) return;
+    if (!this.#memory.getAgentMemoryConfig().summaryEnabled) return;
 
     const now = Date.now();
     if (this.#summaryInFlight) return;
@@ -218,7 +229,8 @@ export class CoreService {
 
     this.#summaryInFlight = true;
     try {
-      const { summary: currentSummary, lastId } = this.#memory.getConversationSummary();
+      const { summary: currentSummary, summaryJson, lastId } = this.#memory.getConversationSummary();
+      const currentSeed = summaryJson ? JSON.stringify(summaryJson) : currentSummary;
 
       const rows =
         lastId > 0
@@ -237,15 +249,15 @@ export class CoreService {
       // Typical turn is 2 messages (user + assistant). If we have fewer, wait for more.
       if (newMessages.length < 2) return;
 
-      const updated = await this.#llm.summarizeConversation({ currentSummary, newMessages });
-      const next = String(updated ?? "").trim();
-      if (!next) return;
+      const updated = await this.#llm.summarizeConversation({ currentSummary: currentSeed, newMessages });
+      const nextText = String(updated?.summaryText ?? "").trim();
+      if (!nextText) return;
 
       // Never persist potentially sensitive content.
-      if (looksSensitiveText(next)) return;
+      if (looksSensitiveText(nextText)) return;
 
       const nextLastId = rows[rows.length - 1]?.id ?? lastId;
-      this.#memory.setConversationSummary(next, nextLastId);
+      this.#memory.setConversationSummary(nextText, updated?.summaryJson ?? null, nextLastId);
       this.#lastSummaryUpdateTs = now;
     } catch (err) {
       console.warn("[memory] short-term summary skipped:", err);
@@ -469,9 +481,131 @@ export class CoreService {
       this.#memory.logChatMessage({ ts: req.ts, role: "user", content: req.message });
     } catch {}
 
+    // Agent commands (memory introspection / maintenance).
+    const slash = parseSlashCommand(req.message);
+    if (slash) {
+      const replyTs = Date.now();
+
+      const respond = (message: string) => {
+        this.#chatHistory.push({ role: "user", content: req.message });
+        this.#chatHistory.push({ role: "assistant", content: message });
+        this.#chatHistory = this.#chatHistory.slice(-40);
+        try {
+          this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: message });
+        } catch {}
+        return { type: "CHAT_RESPONSE" as const, ts: replyTs, message };
+      };
+
+      const cfg = this.#memory.getAgentMemoryConfig();
+
+      if (slash.cmd === "summary" || slash.cmd === "sum") {
+        const a = slash.args.toLowerCase();
+        if (a === "clear" || a === "reset") {
+          if (!this.#memory.enabled) return respond("本地记忆未启用（SQLite 不可用），无法清空短期摘要。");
+          this.#memory.clearConversationSummary();
+          return respond("已清空短期摘要（working memory）。");
+        }
+
+        const s = this.#memory.getConversationSummary().summary;
+        return respond(s ? `短期摘要（working memory）：\n\n${s}` : "（暂无短期摘要）");
+      }
+
+      if (slash.cmd === "memory" || slash.cmd === "mem") {
+        const a = slash.args.trim();
+        const lower = a.toLowerCase();
+        if (lower.startsWith("search ")) {
+          const q = a.slice("search ".length).trim();
+          const prompt = this.#memory.getMemoryPromptForQuery(q, cfg.injectLimit || 12);
+          return respond(prompt ? `相关长期记忆：\n\n${prompt}` : "（未找到相关长期记忆）");
+        }
+
+        if (lower === "clear all") {
+          if (!this.#memory.enabled) return respond("本地记忆未启用（SQLite 不可用），无法清空。");
+          this.#memory.clearMemoryNotes();
+          this.#memory.clearMemoryFacts();
+          return respond("已清空长期记忆（facts + notes）。");
+        }
+        if (lower === "clear notes") {
+          if (!this.#memory.enabled) return respond("本地记忆未启用（SQLite 不可用），无法清空。");
+          this.#memory.clearMemoryNotes();
+          return respond("已清空长期记忆 notes。");
+        }
+        if (lower === "clear facts") {
+          if (!this.#memory.enabled) return respond("本地记忆未启用（SQLite 不可用），无法清空。");
+          this.#memory.clearMemoryFacts();
+          return respond("已清空长期记忆 facts。");
+        }
+
+        const facts = this.#memory.listMemoryFacts(10);
+        const notes = this.#memory.listMemoryNotes(10);
+        const lines: string[] = [];
+        lines.push(`长期记忆状态：${this.#memory.enabled ? "Enabled" : "Off"}`);
+        if (facts.length) {
+          lines.push("\n【Facts】");
+          for (const f of facts) lines.push(`- #${f.id} ${f.key}: ${f.value}`);
+        } else {
+          lines.push("\n【Facts】\n- （空）");
+        }
+        if (notes.length) {
+          lines.push("\n【Notes】");
+          for (const n of notes) lines.push(`- #${n.id} (${n.kind}) ${n.content}`);
+        } else {
+          lines.push("\n【Notes】\n- （空）");
+        }
+        lines.push("\n用法：/summary | /summary clear | /memory search <query> | /memory clear notes|facts|all | /forget note <id> | /forget fact <id>");
+        return respond(lines.join("\n").trim());
+      }
+
+      if (slash.cmd === "forget" || slash.cmd === "del") {
+        const parts = slash.args.trim().split(/\s+/g);
+        const kind = String(parts[0] ?? "").toLowerCase();
+        const id = Math.floor(Number(parts[1] ?? 0) || 0);
+        if (!this.#memory.enabled) return respond("本地记忆未启用（SQLite 不可用），无法删除。");
+        if (!id) return respond("用法：/forget note <id> 或 /forget fact <id>");
+
+        if (kind === "note" || kind === "notes") {
+          const ok = this.#memory.deleteMemoryNoteById(id);
+          return respond(ok ? `已忘掉 note #${id}` : `未找到 note #${id}（或删除失败）`);
+        }
+        if (kind === "fact" || kind === "facts") {
+          const ok = this.#memory.deleteMemoryFactById(id);
+          return respond(ok ? `已忘掉 fact #${id}` : `未找到 fact #${id}（或删除失败）`);
+        }
+        return respond("用法：/forget note <id> 或 /forget fact <id>");
+      }
+    }
+
     // Long-term memory (manual): let users explicitly store durable notes.
     const remember = parseRememberNote(req.message);
     if (remember) {
+      if (looksSensitiveText(remember)) {
+        const reply = "出于安全考虑，我不会把看起来像密码/API Key/token 的内容写入长期记忆。";
+        const replyTs = Date.now();
+
+        this.#chatHistory.push({ role: "user", content: req.message });
+        this.#chatHistory.push({ role: "assistant", content: reply });
+        this.#chatHistory = this.#chatHistory.slice(-40);
+
+        try {
+          this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: reply });
+        } catch {}
+
+        const bubble = truncateByCodepoints(normalizeBubbleText(pickBubbleTextFromReply(reply)), 180);
+        const cmd: ActionCommand = {
+          type: "ACTION_COMMAND",
+          ts: replyTs,
+          action: "IDLE",
+          expression: pickChatExpression(this.isNight, this.#mood),
+          bubbleKind: "text",
+          bubble,
+          durationMs: bubbleDurationForText(bubble)
+        };
+        this.#memory.logAction(cmd);
+        this.#onAction(cmd, { proactive: false });
+
+        return { type: "CHAT_RESPONSE", ts: replyTs, message: reply };
+      }
+
       const ok = this.#memory.upsertMemoryNote({ kind: "note", content: remember, ts: req.ts });
       const reply = ok
         ? `好，我记住了：${remember}`
@@ -503,8 +637,63 @@ export class CoreService {
     }
 
     const memCfg = this.#memory.getAgentMemoryConfig();
-    const memoryPrompt =
-      memCfg.injectLimit > 0 ? this.#memory.getMemoryPromptForQuery(req.message, memCfg.injectLimit) : "";
+    let memoryPrompt = "";
+    if (memCfg.injectLimit > 0) {
+      const limit = memCfg.injectLimit;
+
+      const candidateFactsAll = this.#memory.getRelevantMemoryFacts(req.message, Math.min(30, limit * 3));
+      const candidateNotesAll = this.#memory.getRelevantMemoryNotes(req.message, Math.min(80, limit * 5));
+
+      // Safety: never send sensitive text to the model via memory injection (or rerank prompt).
+      const candidateFacts = candidateFactsAll.filter((f) => !looksSensitiveText(f.key) && !looksSensitiveText(f.value));
+      const candidateNotes = candidateNotesAll.filter((n) => !looksSensitiveText(n.content));
+
+      const factBudget = Math.min(10, Math.max(2, Math.round(limit * 0.35)));
+      const noteBudget = Math.max(0, limit - factBudget);
+
+      // Fast baseline: keyword relevance (already sorted by our scorer).
+      memoryPrompt = this.#memory.formatMemoryPrompt({
+        facts: candidateFacts.slice(0, factBudget),
+        notes: candidateNotes.slice(0, noteBudget)
+      });
+
+      // Best-practice: optional LLM re-rank for higher precision.
+      // This costs an extra LLM call but significantly reduces "random" memory injection.
+      if (memCfg.llmRerank && this.#llm.enabled && this.#memory.enabled) {
+        try {
+          // Only rerank when we actually have something to choose from.
+          if (candidateFacts.length + candidateNotes.length > limit) {
+            const ranked = await this.#llm.rerankMemory({
+              query: req.message,
+              limit,
+              facts: candidateFacts.map((f) => ({ id: f.id, kind: f.kind, key: f.key, value: f.value })),
+              notes: candidateNotes.map((n) => ({ id: n.id, kind: n.kind, content: n.content }))
+            });
+
+            if (ranked) {
+              const selectedFacts = ranked.factIds
+                .map((id) => candidateFacts.find((f) => f.id === id))
+                .filter(Boolean) as typeof candidateFacts;
+              const selectedNotes = ranked.noteIds
+                .map((id) => candidateNotes.find((n) => n.id === id))
+                .filter(Boolean) as typeof candidateNotes;
+
+              // Hard cap to injectLimit.
+              const combined = [
+                ...selectedFacts.map((x) => ({ t: "f" as const, x })),
+                ...selectedNotes.map((x) => ({ t: "n" as const, x }))
+              ];
+              const clipped = combined.slice(0, limit);
+              const facts = clipped.filter((c) => c.t === "f").map((c) => c.x);
+              const notes = clipped.filter((c) => c.t === "n").map((c) => c.x);
+              memoryPrompt = this.#memory.formatMemoryPrompt({ facts, notes });
+            }
+          }
+        } catch (err) {
+          console.warn("[memory] rerank skipped:", err);
+        }
+      }
+    }
     const summary = this.#memory.getConversationSummary().summary;
 
     const ctx = {
@@ -574,7 +763,63 @@ export class CoreService {
 
       for (const it of items) {
         try {
-          this.#memory.upsertMemoryNote({ kind: it.kind, content: it.content, ts: replyTs });
+          const allowedFactKeys = new Set([
+            "user.name",
+            "user.language",
+            "user.response_style",
+            "project.name",
+            "project.repo",
+            "project.stack"
+          ]);
+
+          let key = String((it as any)?.key ?? "").trim();
+          let value = String((it as any)?.value ?? "").trim();
+          let content = String((it as any)?.content ?? "").trim();
+
+          // Some extractors (rule-based or LLM) might output a "fact" as plain content.
+          // Normalize common stable patterns into keyed facts so they overwrite cleanly.
+          if (!key && !value && content) {
+            const mName = content.match(/^用户名字[:：]\s*(.+)$/);
+            if (mName?.[1]) {
+              key = "user.name";
+              value = String(mName[1]).trim();
+              content = "";
+            }
+            const mLang = content.match(/^语言[:：]\s*(.+)$/);
+            if (!key && mLang?.[1]) {
+              key = "user.language";
+              value = String(mLang[1]).trim();
+              content = "";
+            }
+            const mStyle = content.match(/^(?:回复风格|回答风格|表达风格)[:：]\s*(.+)$/);
+            if (!key && mStyle?.[1]) {
+              key = "user.response_style";
+              value = String(mStyle[1]).trim();
+              content = "";
+            }
+          }
+
+          if (key && value) {
+            // Guardrail: only accept a small allowlist of keys so the DB doesn't get polluted.
+            if (allowedFactKeys.has(key)) {
+              this.#memory.upsertMemoryFact({ kind: it.kind, key, value, ts: replyTs });
+            } else {
+              this.#memory.upsertMemoryNote({ kind: it.kind, content: `${key}: ${value}`, ts: replyTs });
+            }
+          } else if (content) {
+            // Simple conflict resolution for like/dislike preferences.
+            const like = content.match(/^喜欢[:：]\s*(.+)$/);
+            const dislike = content.match(/^不喜欢[:：]\s*(.+)$/);
+            if (like?.[1]) {
+              const target = like[1].trim();
+              if (target) this.#memory.deleteMemoryNoteByKindAndContent("preference", `不喜欢：${target}`);
+            } else if (dislike?.[1]) {
+              const target = dislike[1].trim();
+              if (target) this.#memory.deleteMemoryNoteByKindAndContent("preference", `喜欢：${target}`);
+            }
+
+            this.#memory.upsertMemoryNote({ kind: it.kind, content, ts: replyTs });
+          }
         } catch {}
       }
     })();

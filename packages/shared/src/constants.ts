@@ -32,6 +32,13 @@ export const IPC_HANDLES = {
   memoryNoteAdd: "handle:memory-note-add",
   memoryNoteDelete: "handle:memory-note-delete",
   memoryNoteUpdate: "handle:memory-note-update",
+  memoryFactsList: "handle:memory-facts-list",
+  memoryFactUpsert: "handle:memory-fact-upsert",
+  memoryFactDelete: "handle:memory-fact-delete",
+  memoryFactUpdate: "handle:memory-fact-update",
+  memorySummaryGet: "handle:memory-summary-get",
+  memorySummaryClear: "handle:memory-summary-clear",
   memoryClearChat: "handle:memory-clear-chat",
-  memoryClearNotes: "handle:memory-clear-notes"
+  memoryClearNotes: "handle:memory-clear-notes",
+  memoryClearFacts: "handle:memory-clear-facts"
 } as const;

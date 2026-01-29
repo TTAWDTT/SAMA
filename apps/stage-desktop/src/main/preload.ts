@@ -51,8 +51,15 @@ const IPC_HANDLES = {
   memoryNoteAdd: "handle:memory-note-add",
   memoryNoteDelete: "handle:memory-note-delete",
   memoryNoteUpdate: "handle:memory-note-update",
+  memoryFactsList: "handle:memory-facts-list",
+  memoryFactUpsert: "handle:memory-fact-upsert",
+  memoryFactDelete: "handle:memory-fact-delete",
+  memoryFactUpdate: "handle:memory-fact-update",
+  memorySummaryGet: "handle:memory-summary-get",
+  memorySummaryClear: "handle:memory-summary-clear",
   memoryClearChat: "handle:memory-clear-chat",
-  memoryClearNotes: "handle:memory-clear-notes"
+  memoryClearNotes: "handle:memory-clear-notes",
+  memoryClearFacts: "handle:memory-clear-facts"
 } as const;
 
 export type StageDesktopAPI = {
@@ -74,22 +81,55 @@ export type StageDesktopAPI = {
     provider: string;
   }>;
   setLlmConfig: (config: LLMConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
-  getMemoryStats: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number }>;
+  getMemoryStats: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number; factCount: number }>;
   getMemoryConfig: () => Promise<{
     enabled: boolean;
-    config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" };
+    config: {
+      injectLimit: number;
+      autoRemember: boolean;
+      autoMode: "rules" | "llm";
+      summaryEnabled: boolean;
+      llmRerank: boolean;
+    };
   }>;
   setMemoryConfig: (
-    partial: Partial<{ injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" }>
-  ) => Promise<{ ok: boolean; config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } }>;
+    partial: Partial<{
+      injectLimit: number;
+      autoRemember: boolean;
+      autoMode: "rules" | "llm";
+      summaryEnabled: boolean;
+      llmRerank: boolean;
+    }>
+  ) => Promise<{
+    ok: boolean;
+    config: {
+      injectLimit: number;
+      autoRemember: boolean;
+      autoMode: "rules" | "llm";
+      summaryEnabled: boolean;
+      llmRerank: boolean;
+    };
+  }>;
   listMemoryNotes: (
     limit: number
   ) => Promise<{ enabled: boolean; notes: { id: number; kind: string; content: string; updatedTs: number }[] }>;
   addMemoryNote: (content: string) => Promise<{ ok: boolean }>;
   deleteMemoryNote: (id: number) => Promise<{ ok: boolean }>;
   updateMemoryNote: (id: number, content: string) => Promise<{ ok: boolean }>;
+
+  listMemoryFacts: (
+    limit: number
+  ) => Promise<{ enabled: boolean; facts: { id: number; kind: string; key: string; value: string; updatedTs: number }[] }>;
+  upsertMemoryFact: (fact: { key: string; kind: string; value: string }) => Promise<{ ok: boolean }>;
+  deleteMemoryFact: (id: number) => Promise<{ ok: boolean }>;
+  updateMemoryFact: (id: number, value: string) => Promise<{ ok: boolean }>;
+
+  getMemorySummary: () => Promise<{ enabled: boolean; summary: string; summaryJson: any | null }>;
+  clearMemorySummary: () => Promise<{ ok: boolean }>;
+
   clearChatHistory: () => Promise<{ ok: boolean }>;
   clearMemoryNotes: () => Promise<{ ok: boolean }>;
+  clearMemoryFacts: () => Promise<{ ok: boolean }>;
   chatInvoke: (message: string) => Promise<ChatResponse>;
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
@@ -159,8 +199,16 @@ const api: StageDesktopAPI = {
   addMemoryNote: async (content: string) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteAdd, { content }),
   deleteMemoryNote: async (id: number) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteDelete, { id }),
   updateMemoryNote: async (id: number, content: string) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteUpdate, { id, content }),
+  listMemoryFacts: async (limit: number) => ipcRenderer.invoke(IPC_HANDLES.memoryFactsList, limit),
+  upsertMemoryFact: async (fact: { key: string; kind: string; value: string }) =>
+    ipcRenderer.invoke(IPC_HANDLES.memoryFactUpsert, { fact }),
+  deleteMemoryFact: async (id: number) => ipcRenderer.invoke(IPC_HANDLES.memoryFactDelete, { id }),
+  updateMemoryFact: async (id: number, value: string) => ipcRenderer.invoke(IPC_HANDLES.memoryFactUpdate, { id, value }),
+  getMemorySummary: async () => ipcRenderer.invoke(IPC_HANDLES.memorySummaryGet),
+  clearMemorySummary: async () => ipcRenderer.invoke(IPC_HANDLES.memorySummaryClear),
   clearChatHistory: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearChat),
   clearMemoryNotes: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearNotes),
+  clearMemoryFacts: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearFacts),
   chatInvoke: async (message: string) => {
     const req: ChatRequest = { type: "CHAT_REQUEST", ts: Date.now(), message };
     return ipcRenderer.invoke(IPC_HANDLES.chatInvoke, req);

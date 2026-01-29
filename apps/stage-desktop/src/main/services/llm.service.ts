@@ -31,13 +31,28 @@ export interface LLMProvider {
       history: { role: "user" | "assistant"; content: string }[];
     },
     turn: { user: string; assistant: string }
-  ) => Promise<{ kind: "preference" | "profile" | "project" | "note"; content: string }[]>;
+  ) => Promise<
+    {
+      kind: "preference" | "profile" | "project" | "note";
+      content?: string;
+      key?: string;
+      value?: string;
+    }[]
+  >;
 
   // Optional: update the rolling short-term summary (kept separate from durable notes).
   summarizeConversation?: (opts: {
     currentSummary: string;
     newMessages: { role: "user" | "assistant"; content: string }[];
   }) => Promise<string>;
+
+  // Optional: re-rank retrieved long-term memory items by relevance to the current user query.
+  rerankMemory?: (opts: {
+    query: string;
+    limit: number;
+    facts: { id: number; kind: string; key: string; value: string }[];
+    notes: { id: number; kind: string; content: string }[];
+  }) => Promise<{ factIds: number[]; noteIds: number[] }>;
 }
 
 type OpenAICompatibleOpts = {
@@ -109,23 +124,145 @@ function parseMemoryExtractorJson(raw: string) {
     const parsed: any = JSON.parse(slice);
     if (!Array.isArray(parsed)) return [];
 
-    const out: { kind: "preference" | "profile" | "project" | "note"; content: string }[] = [];
-    for (const item of parsed.slice(0, 6)) {
+    const out: {
+      kind: "preference" | "profile" | "project" | "note";
+      content?: string;
+      key?: string;
+      value?: string;
+    }[] = [];
+
+    for (const item of parsed.slice(0, 8)) {
       const kindRaw = String(item?.kind ?? "note").toLowerCase();
       const kind: "preference" | "profile" | "project" | "note" =
         kindRaw === "preference" || kindRaw === "profile" || kindRaw === "project" ? (kindRaw as any) : "note";
 
+      const key = String(item?.key ?? "").trim();
+      const value = String(item?.value ?? "").trim();
       const content = String(item?.content ?? "").trim();
+
+      // Prefer keyed facts when provided (overwritable durable memory).
+      if (key && value) {
+        const clippedKey = truncateByCodepoints(key, 48);
+        const clippedValue = truncateByCodepoints(value, 160);
+        out.push({ kind, key: clippedKey, value: clippedValue });
+        continue;
+      }
+
       if (!content) continue;
 
       // Keep each memory short and human-readable.
       const clipped = truncateByCodepoints(content, 120);
       out.push({ kind, content: clipped });
     }
-    return out.slice(0, 3);
+    return out.slice(0, 4);
   } catch {
     return [];
   }
+}
+
+function parseJsonObjectFromText(raw: string): any | null {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+
+  // Try to slice the first JSON object; be defensive against markdown fences.
+  const withoutFences = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  const start = withoutFences.indexOf("{");
+  const end = withoutFences.lastIndexOf("}");
+  const slice = start >= 0 && end > start ? withoutFences.slice(start, end + 1) : withoutFences;
+  try {
+    const parsed = JSON.parse(slice);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+type ConversationSummaryV1 = {
+  version: 1;
+  profile: string[];
+  preferences: string[];
+  goals: string[];
+  decisions: string[];
+  constraints: string[];
+  todos: string[];
+  context: string[];
+};
+
+function normalizeSummaryList(v: unknown, maxItems: number): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v.slice(0, maxItems)) {
+    const s = String(item ?? "").trim();
+    if (!s) continue;
+    out.push(truncateByCodepoints(s, 160));
+  }
+  return out;
+}
+
+function parseConversationSummaryV1(raw: string): ConversationSummaryV1 | null {
+  const obj = parseJsonObjectFromText(raw);
+  if (!obj) return null;
+  const version = Number((obj as any).version ?? 1);
+  if (version !== 1) return null;
+
+  const summary: ConversationSummaryV1 = {
+    version: 1,
+    profile: normalizeSummaryList((obj as any).profile, 8),
+    preferences: normalizeSummaryList((obj as any).preferences, 10),
+    goals: normalizeSummaryList((obj as any).goals, 8),
+    decisions: normalizeSummaryList((obj as any).decisions, 10),
+    constraints: normalizeSummaryList((obj as any).constraints, 10),
+    todos: normalizeSummaryList((obj as any).todos, 10),
+    context: normalizeSummaryList((obj as any).context, 10)
+  };
+
+  const nonEmpty =
+    summary.profile.length ||
+    summary.preferences.length ||
+    summary.goals.length ||
+    summary.decisions.length ||
+    summary.constraints.length ||
+    summary.todos.length ||
+    summary.context.length;
+  return nonEmpty ? summary : { ...summary, context: [] };
+}
+
+function renderConversationSummary(summary: ConversationSummaryV1): string {
+  const sections: { title: string; items: string[] }[] = [
+    { title: "用户画像", items: summary.profile },
+    { title: "偏好", items: summary.preferences },
+    { title: "目标", items: summary.goals },
+    { title: "已决定事项", items: summary.decisions },
+    { title: "约束", items: summary.constraints },
+    { title: "待办", items: summary.todos },
+    { title: "上下文", items: summary.context }
+  ];
+
+  const lines: string[] = [];
+  for (const s of sections) {
+    if (!s.items.length) continue;
+    lines.push(`【${s.title}】`);
+    for (const it of s.items) lines.push(`- ${it}`);
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+
+function parseRerankResult(raw: string): { factIds: number[]; noteIds: number[] } | null {
+  const obj = parseJsonObjectFromText(raw);
+  if (!obj) return null;
+  const facts = Array.isArray((obj as any).facts) ? (obj as any).facts : (obj as any).factIds;
+  const notes = Array.isArray((obj as any).notes) ? (obj as any).notes : (obj as any).noteIds;
+  const toIds = (v: any) =>
+    (Array.isArray(v) ? v : [])
+      .map((x) => Math.floor(Number(x) || 0))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .slice(0, 40);
+  const factIds = toIds(facts);
+  const noteIds = toIds(notes);
+  if (!factIds.length && !noteIds.length) return null;
+  return { factIds, noteIds };
 }
 
 function hashStringCodepoints(s: string) {
@@ -379,15 +516,26 @@ class OpenAICompatibleProvider implements LLMProvider {
     newMessages: { role: "user" | "assistant"; content: string }[];
   }) {
     const system =
-      "你是“对话摘要器（短期记忆）”。任务：维护一份用于继续聊天的摘要。\n" +
-      "要求：\n" +
-      "- 中文输出。\n" +
-      "- 用要点列表（- 开头）。\n" +
+      "你是“对话摘要器（短期记忆/工作记忆）”。任务：维护一份用于继续聊天的结构化摘要。\n" +
+      "输出要求：严格 JSON（不要 Markdown，不要解释）。\n" +
+      "Schema：\n" +
+      "{\n" +
+      "  \"version\": 1,\n" +
+      "  \"profile\": string[],\n" +
+      "  \"preferences\": string[],\n" +
+      "  \"goals\": string[],\n" +
+      "  \"decisions\": string[],\n" +
+      "  \"constraints\": string[],\n" +
+      "  \"todos\": string[],\n" +
+      "  \"context\": string[]\n" +
+      "}\n" +
+      "规则：\n" +
+      "- 中文为主；每条尽量短（<= 25 汉字），像条目笔记。\n" +
       "- 只保留对后续有用的信息：用户目标/偏好/约束/已决定事项/正在做的任务。\n" +
       "- 不要加入道德说教、时间提醒（例如“夜里说话…”）。\n" +
       "- 不要包含敏感信息（密码/API Key/地址等）。\n" +
-      "- 不要输出除了摘要以外的任何内容。\n" +
-      "长度：总计 <= 1200 汉字。";
+      "- 字段没有内容就输出空数组 []。\n" +
+      "- 总体不要超过约 1200 汉字。";
 
     const current = String(opts?.currentSummary ?? "").trim();
     const lines = (opts?.newMessages ?? [])
@@ -398,7 +546,7 @@ class OpenAICompatibleProvider implements LLMProvider {
     const prompt =
       `现有摘要：\n${current || "(空)"}\n\n` +
       `新增对话：\n${lines || "(无)"}\n\n` +
-      "请输出更新后的摘要：";
+      "请输出更新后的 JSON：";
 
     const raw = await openAICompatibleChat(
       this.#opts,
@@ -406,7 +554,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "system", content: system },
         { role: "user", content: prompt }
       ],
-      320,
+      360,
       18_000
     );
     return sanitizeChatText(raw);
@@ -431,7 +579,13 @@ class OpenAICompatibleProvider implements LLMProvider {
       "- 不要提取一次性任务、临时计划、短期状态。\n" +
       "- 不要提取敏感信息（密码/API key/地址/身份证等）。\n" +
       "- 如不确定，输出空数组 []。\n" +
-      "输出格式：严格 JSON 数组，每个元素为 {\"kind\":\"preference|profile|project|note\",\"content\":\"...\"}，最多 3 条。";
+      "输出格式：严格 JSON 数组，最多 4 条。每个元素二选一：\n" +
+      "1) 可覆盖事实（推荐）：{\"kind\":\"profile|preference|project|note\",\"key\":\"...\",\"value\":\"...\"}\n" +
+      "2) 普通笔记：{\"kind\":\"profile|preference|project|note\",\"content\":\"...\"}\n" +
+      "可用 key 示例（尽量用这些，避免无限发明新 key）：\n" +
+      "- user.name / user.language / user.response_style\n" +
+      "- project.name / project.repo / project.stack\n" +
+      "- app.preference (如“不跑 build”)";
 
     const prompt =
       (memory ? `现有长期记忆（可能不完整）：\n${memory}\n\n` : "") +
@@ -449,6 +603,71 @@ class OpenAICompatibleProvider implements LLMProvider {
       12_000
     );
     return parseMemoryExtractorJson(raw);
+  }
+
+  async rerankMemory(opts: {
+    query: string;
+    limit: number;
+    facts: { id: number; kind: string; key: string; value: string }[];
+    notes: { id: number; kind: string; content: string }[];
+  }) {
+    const limit = Math.max(0, Math.min(40, Math.floor(Number(opts?.limit) || 0)));
+    if (!limit) return { factIds: [], noteIds: [] };
+
+    const query = sanitizeOneLine(String(opts?.query ?? ""));
+    const facts = Array.isArray(opts?.facts) ? opts.facts : [];
+    const notes = Array.isArray(opts?.notes) ? opts.notes : [];
+
+    const system =
+      "你是“长期记忆重排器”。任务：从候选记忆中选出最相关、最有用的条目，帮助回答用户当前问题。\n" +
+      "输出要求：严格 JSON 对象，仅输出一次。\n" +
+      "格式：{\"facts\":[id...],\"notes\":[id...]}\n" +
+      "规则：\n" +
+      `- 总数量（facts+notes）<= ${limit}。\n` +
+      "- 只允许选择候选列表中出现的 id；不要发明 id。\n" +
+      "- 优先选择与当前问题直接相关的事实/偏好/项目背景。\n" +
+      "- 不要为了凑数选无关内容；不相关就留空数组。\n" +
+      "- 不要输出解释、不要输出 Markdown。";
+
+    const factLines = facts
+      .slice(0, 40)
+      .map((f) => {
+        const id = Math.floor(Number((f as any).id) || 0);
+        const kind = sanitizeOneLine(String((f as any).kind ?? "fact"));
+        const key = sanitizeOneLine(String((f as any).key ?? ""));
+        const value = sanitizeOneLine(truncateByCodepoints(String((f as any).value ?? ""), 120));
+        return `- id=${id} kind=${kind} ${key}: ${value}`;
+      })
+      .join("\n");
+
+    const noteLines = notes
+      .slice(0, 80)
+      .map((n) => {
+        const id = Math.floor(Number((n as any).id) || 0);
+        const kind = sanitizeOneLine(String((n as any).kind ?? "note"));
+        const content = sanitizeOneLine(truncateByCodepoints(String((n as any).content ?? ""), 140));
+        return `- id=${id} kind=${kind} ${content}`;
+      })
+      .join("\n");
+
+    const prompt =
+      `用户当前问题：\n${query || "(空)"}\n\n` +
+      `候选 Facts：\n${factLines || "(无)"}\n\n` +
+      `候选 Notes：\n${noteLines || "(无)"}\n\n` +
+      "请输出 JSON：";
+
+    const raw = await openAICompatibleChat(
+      this.#opts,
+      [
+        { role: "system", content: system },
+        { role: "user", content: prompt }
+      ],
+      180,
+      12_000
+    );
+
+    const parsed = parseRerankResult(raw);
+    return parsed ?? { factIds: [], noteIds: [] };
   }
 
   isConfigured() {
@@ -559,15 +778,26 @@ class AIStudioProvider implements LLMProvider {
     newMessages: { role: "user" | "assistant"; content: string }[];
   }) {
     const system =
-      "你是“对话摘要器（短期记忆）”。任务：维护一份用于继续聊天的摘要。\n" +
-      "要求：\n" +
-      "- 中文输出。\n" +
-      "- 用要点列表（- 开头）。\n" +
+      "你是“对话摘要器（短期记忆/工作记忆）”。任务：维护一份用于继续聊天的结构化摘要。\n" +
+      "输出要求：严格 JSON（不要 Markdown，不要解释）。\n" +
+      "Schema：\n" +
+      "{\n" +
+      "  \"version\": 1,\n" +
+      "  \"profile\": string[],\n" +
+      "  \"preferences\": string[],\n" +
+      "  \"goals\": string[],\n" +
+      "  \"decisions\": string[],\n" +
+      "  \"constraints\": string[],\n" +
+      "  \"todos\": string[],\n" +
+      "  \"context\": string[]\n" +
+      "}\n" +
+      "规则：\n" +
+      "- 中文为主；每条尽量短（<= 25 汉字），像条目笔记。\n" +
       "- 只保留对后续有用的信息：用户目标/偏好/约束/已决定事项/正在做的任务。\n" +
       "- 不要加入道德说教、时间提醒（例如“夜里说话…”）。\n" +
       "- 不要包含敏感信息（密码/API Key/地址等）。\n" +
-      "- 不要输出除了摘要以外的任何内容。\n" +
-      "长度：总计 <= 1200 汉字。";
+      "- 字段没有内容就输出空数组 []。\n" +
+      "- 总体不要超过约 1200 汉字。";
 
     const current = String(opts?.currentSummary ?? "").trim();
     const lines = (opts?.newMessages ?? [])
@@ -578,7 +808,7 @@ class AIStudioProvider implements LLMProvider {
     const prompt =
       `现有摘要：\n${current || "(空)"}\n\n` +
       `新增对话：\n${lines || "(无)"}\n\n` +
-      "请输出更新后的摘要：";
+      "请输出更新后的 JSON：";
 
     const raw = this.#baseUrl
       ? await openAICompatibleChat(
@@ -587,7 +817,7 @@ class AIStudioProvider implements LLMProvider {
             { role: "system", content: system },
             { role: "user", content: prompt }
           ],
-          320,
+          360,
           18_000
         )
       : await geminiGenerateText({
@@ -595,7 +825,7 @@ class AIStudioProvider implements LLMProvider {
           model: this.#model,
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          maxOutputTokens: 320,
+          maxOutputTokens: 360,
           timeoutMs: 18_000
         });
 
@@ -621,7 +851,13 @@ class AIStudioProvider implements LLMProvider {
       "- 不要提取一次性任务、临时计划、短期状态。\n" +
       "- 不要提取敏感信息（密码/API key/地址/身份证等）。\n" +
       "- 如不确定，输出空数组 []。\n" +
-      "输出格式：严格 JSON 数组，每个元素为 {\"kind\":\"preference|profile|project|note\",\"content\":\"...\"}，最多 3 条。";
+      "输出格式：严格 JSON 数组，最多 4 条。每个元素二选一：\n" +
+      "1) 可覆盖事实（推荐）：{\"kind\":\"profile|preference|project|note\",\"key\":\"...\",\"value\":\"...\"}\n" +
+      "2) 普通笔记：{\"kind\":\"profile|preference|project|note\",\"content\":\"...\"}\n" +
+      "可用 key 示例（尽量用这些，避免无限发明新 key）：\n" +
+      "- user.name / user.language / user.response_style\n" +
+      "- project.name / project.repo / project.stack\n" +
+      "- app.preference (如“不跑 build”)";
 
     const prompt =
       (memory ? `现有长期记忆（可能不完整）：\n${memory}\n\n` : "") +
@@ -649,6 +885,80 @@ class AIStudioProvider implements LLMProvider {
         });
 
     return parseMemoryExtractorJson(raw);
+  }
+
+  async rerankMemory(opts: {
+    query: string;
+    limit: number;
+    facts: { id: number; kind: string; key: string; value: string }[];
+    notes: { id: number; kind: string; content: string }[];
+  }) {
+    const limit = Math.max(0, Math.min(40, Math.floor(Number(opts?.limit) || 0)));
+    if (!limit) return { factIds: [], noteIds: [] };
+
+    const query = sanitizeOneLine(String(opts?.query ?? ""));
+    const facts = Array.isArray(opts?.facts) ? opts.facts : [];
+    const notes = Array.isArray(opts?.notes) ? opts.notes : [];
+
+    const system =
+      "你是“长期记忆重排器”。任务：从候选记忆中选出最相关、最有用的条目，帮助回答用户当前问题。\n" +
+      "输出要求：严格 JSON 对象，仅输出一次。\n" +
+      "格式：{\"facts\":[id...],\"notes\":[id...]}\n" +
+      "规则：\n" +
+      `- 总数量（facts+notes）<= ${limit}。\n` +
+      "- 只允许选择候选列表中出现的 id；不要发明 id。\n" +
+      "- 优先选择与当前问题直接相关的事实/偏好/项目背景。\n" +
+      "- 不要为了凑数选无关内容；不相关就留空数组。\n" +
+      "- 不要输出解释、不要输出 Markdown。";
+
+    const factLines = facts
+      .slice(0, 40)
+      .map((f) => {
+        const id = Math.floor(Number((f as any).id) || 0);
+        const kind = sanitizeOneLine(String((f as any).kind ?? "fact"));
+        const key = sanitizeOneLine(String((f as any).key ?? ""));
+        const value = sanitizeOneLine(truncateByCodepoints(String((f as any).value ?? ""), 120));
+        return `- id=${id} kind=${kind} ${key}: ${value}`;
+      })
+      .join("\n");
+
+    const noteLines = notes
+      .slice(0, 80)
+      .map((n) => {
+        const id = Math.floor(Number((n as any).id) || 0);
+        const kind = sanitizeOneLine(String((n as any).kind ?? "note"));
+        const content = sanitizeOneLine(truncateByCodepoints(String((n as any).content ?? ""), 140));
+        return `- id=${id} kind=${kind} ${content}`;
+      })
+      .join("\n");
+
+    const prompt =
+      `用户当前问题：\n${query || "(空)"}\n\n` +
+      `候选 Facts：\n${factLines || "(无)"}\n\n` +
+      `候选 Notes：\n${noteLines || "(无)"}\n\n` +
+      "请输出 JSON：";
+
+    const raw = this.#baseUrl
+      ? await openAICompatibleChat(
+          { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
+          [
+            { role: "system", content: system },
+            { role: "user", content: prompt }
+          ],
+          180,
+          12_000
+        )
+      : await geminiGenerateText({
+          apiKey: this.#apiKey,
+          model: this.#model,
+          systemInstruction: system,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          maxOutputTokens: 180,
+          timeoutMs: 12_000
+        });
+
+    const parsed = parseRerankResult(raw);
+    return parsed ?? { factIds: [], noteIds: [] };
   }
 
   isConfigured() {
@@ -806,23 +1116,62 @@ export class LLMService {
   async summarizeConversation(opts: {
     currentSummary: string;
     newMessages: { role: "user" | "assistant"; content: string }[];
-  }): Promise<string> {
-    const current = sanitizeChatText(String(opts?.currentSummary ?? ""));
+  }): Promise<{ summaryText: string; summaryJson: ConversationSummaryV1 | null }> {
+    const currentText = sanitizeChatText(String(opts?.currentSummary ?? ""));
 
-    if (!this.#provider || typeof this.#provider.summarizeConversation !== "function") return current;
+    if (!this.#provider || typeof this.#provider.summarizeConversation !== "function") {
+      return { summaryText: currentText, summaryJson: null };
+    }
 
     try {
       const raw = await this.#provider.summarizeConversation({
-        currentSummary: current,
+        currentSummary: currentText,
         newMessages: Array.isArray(opts?.newMessages) ? opts.newMessages : []
       });
 
-      const next = stripNightNagPrefix(sanitizeChatText(raw));
-      if (!next.trim()) return current;
-      return next;
+      const cleaned = stripNightNagPrefix(sanitizeChatText(raw));
+      if (!cleaned.trim()) return { summaryText: currentText, summaryJson: null };
+
+      const parsed = parseConversationSummaryV1(cleaned);
+      if (parsed) {
+        const rendered = renderConversationSummary(parsed);
+        return { summaryText: rendered || currentText, summaryJson: parsed };
+      }
+
+      // Provider didn't follow JSON format; keep the old text as a best-effort fallback.
+      return { summaryText: cleaned, summaryJson: null };
     } catch (err) {
       console.warn("[llm] summary skipped:", err);
-      return current;
+      return { summaryText: currentText, summaryJson: null };
+    }
+  }
+
+  async rerankMemory(opts: {
+    query: string;
+    limit: number;
+    facts: { id: number; kind: string; key: string; value: string }[];
+    notes: { id: number; kind: string; content: string }[];
+  }): Promise<{ factIds: number[]; noteIds: number[] } | null> {
+    if (!this.#provider || typeof this.#provider.rerankMemory !== "function") return null;
+
+    const query = String(opts?.query ?? "").trim();
+    const limit = Math.max(0, Math.min(40, Math.floor(Number(opts?.limit) || 0)));
+    if (!query || !limit) return null;
+
+    try {
+      const facts = Array.isArray(opts?.facts) ? opts.facts : [];
+      const notes = Array.isArray(opts?.notes) ? opts.notes : [];
+      const raw = await this.#provider.rerankMemory({ query, limit, facts, notes });
+      const out = raw && typeof raw === "object" ? raw : null;
+      if (!out) return null;
+
+      const factIds = Array.isArray((out as any).factIds) ? (out as any).factIds : (out as any).facts;
+      const noteIds = Array.isArray((out as any).noteIds) ? (out as any).noteIds : (out as any).notes;
+      const norm = parseRerankResult(JSON.stringify({ facts: factIds, notes: noteIds }));
+      return norm;
+    } catch (err) {
+      console.warn("[llm] rerank skipped:", err);
+      return null;
     }
   }
 
@@ -836,23 +1185,44 @@ export class LLMService {
       history: { role: "user" | "assistant"; content: string }[];
     },
     turn: { user: string; assistant: string }
-  ): Promise<{ kind: "preference" | "profile" | "project" | "note"; content: string }[]> {
+  ): Promise<
+    {
+      kind: "preference" | "profile" | "project" | "note";
+      content?: string;
+      key?: string;
+      value?: string;
+    }[]
+  > {
     if (!this.#provider || typeof this.#provider.extractMemoryNotes !== "function") return [];
 
     try {
       const items = await this.#provider.extractMemoryNotes(ctx, turn);
       if (!Array.isArray(items)) return [];
 
-      const out: { kind: "preference" | "profile" | "project" | "note"; content: string }[] = [];
+      const out: {
+        kind: "preference" | "profile" | "project" | "note";
+        content?: string;
+        key?: string;
+        value?: string;
+      }[] = [];
       for (const it of items) {
         const kindRaw = String((it as any)?.kind ?? "note").toLowerCase();
         const kind: "preference" | "profile" | "project" | "note" =
           kindRaw === "preference" || kindRaw === "profile" || kindRaw === "project" ? (kindRaw as any) : "note";
+
+        const key = String((it as any)?.key ?? "").trim();
+        const value = String((it as any)?.value ?? "").trim();
         const content = String((it as any)?.content ?? "").trim();
+
+        if (key && value) {
+          out.push({ kind, key: truncateByCodepoints(key, 48), value: truncateByCodepoints(value, 160) });
+          continue;
+        }
+
         if (!content) continue;
         out.push({ kind, content: truncateByCodepoints(content, 120) });
       }
-      return out.slice(0, 3);
+      return out.slice(0, 4);
     } catch (err) {
       console.warn("[llm] memory-extract skipped:", err);
       return [];

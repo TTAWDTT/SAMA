@@ -9,12 +9,22 @@ export type MemoryServiceOpts = {
 type DailyStats = { date: string; proactive_count: number; ignore_count: number };
 type ChatRow = { id: number; ts: number; role: "user" | "assistant"; content: string };
 type MemoryNoteRow = { id: number; created_ts: number; updated_ts: number; kind: string; content: string };
+type MemoryFactRow = { id: number; created_ts: number; updated_ts: number; kind: string; key: string; value: string };
 
 const CHAT_RETENTION_LIMIT = 2000;
 const NOTE_RETENTION_LIMIT = 400;
-const DEFAULT_AGENT_MEMORY_CONFIG = { injectLimit: 12, autoRemember: false, autoMode: "rules" as const };
+const DEFAULT_AGENT_MEMORY_CONFIG = {
+  injectLimit: 12,
+  autoRemember: false,
+  autoMode: "rules" as const,
+  // Short-term summary ("working memory") helps continuity.
+  summaryEnabled: true,
+  // Re-rank memory notes/facts with the LLM for better relevance (costs extra tokens/latency).
+  llmRerank: true
+};
 
 const KV_CHAT_SUMMARY = "chat.summary.v1";
+const KV_CHAT_SUMMARY_JSON = "chat.summary.json.v1";
 const KV_CHAT_SUMMARY_LAST_ID = "chat.summary.lastId.v1";
 
 function tokenizeForSearch(raw: string): string[] {
@@ -112,6 +122,17 @@ export class MemoryService {
       );
       CREATE INDEX IF NOT EXISTS idx_memory_notes_updated ON memory_notes(updated_ts);
 
+      -- Keyed durable facts (for things that should be overwritten instead of duplicated).
+      CREATE TABLE IF NOT EXISTS memory_facts(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_ts INTEGER NOT NULL,
+        updated_ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        key TEXT NOT NULL UNIQUE,
+        value TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_facts_updated ON memory_facts(updated_ts);
+
       -- Simple key/value settings for memory features.
       CREATE TABLE IF NOT EXISTS kv(
         key TEXT PRIMARY KEY,
@@ -141,7 +162,13 @@ export class MemoryService {
     } catch {}
   }
 
-  getAgentMemoryConfig(): { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } {
+  getAgentMemoryConfig(): {
+    injectLimit: number;
+    autoRemember: boolean;
+    autoMode: "rules" | "llm";
+    summaryEnabled: boolean;
+    llmRerank: boolean;
+  } {
     if (!this.#db) return { ...DEFAULT_AGENT_MEMORY_CONFIG };
 
     const injectLimit = (() => {
@@ -162,12 +189,33 @@ export class MemoryService {
       return raw === "llm" ? "llm" : "rules";
     })();
 
-    return { injectLimit, autoRemember, autoMode };
+    const summaryEnabled = (() => {
+      const raw = this.#getKv("memory.summaryEnabled");
+      if (raw === null) return DEFAULT_AGENT_MEMORY_CONFIG.summaryEnabled;
+      return raw === "1" || raw.toLowerCase() === "true";
+    })();
+
+    const llmRerank = (() => {
+      const raw = this.#getKv("memory.llmRerank");
+      if (raw === null) return DEFAULT_AGENT_MEMORY_CONFIG.llmRerank;
+      return raw === "1" || raw.toLowerCase() === "true";
+    })();
+
+    return { injectLimit, autoRemember, autoMode, summaryEnabled, llmRerank };
   }
 
   setAgentMemoryConfig(
     partial: any
-  ): { ok: boolean; config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } } {
+  ): {
+    ok: boolean;
+    config: {
+      injectLimit: number;
+      autoRemember: boolean;
+      autoMode: "rules" | "llm";
+      summaryEnabled: boolean;
+      llmRerank: boolean;
+    };
+  } {
     if (!this.#db) return { ok: false, config: { ...DEFAULT_AGENT_MEMORY_CONFIG } };
 
     const prev = this.getAgentMemoryConfig();
@@ -182,13 +230,17 @@ export class MemoryService {
           ? partial.autoMode.toLowerCase() === "llm"
             ? "llm"
             : "rules"
-          : prev.autoMode
+          : prev.autoMode,
+      summaryEnabled: partial && partial.summaryEnabled !== undefined ? Boolean(partial.summaryEnabled) : prev.summaryEnabled,
+      llmRerank: partial && partial.llmRerank !== undefined ? Boolean(partial.llmRerank) : prev.llmRerank
     } as const;
 
     try {
       this.#setKv("memory.injectLimit", String(next.injectLimit));
       this.#setKv("memory.autoRemember", next.autoRemember ? "1" : "0");
       this.#setKv("memory.autoMode", next.autoMode);
+      this.#setKv("memory.summaryEnabled", next.summaryEnabled ? "1" : "0");
+      this.#setKv("memory.llmRerank", next.llmRerank ? "1" : "0");
       return { ok: true, config: next };
     } catch {
       return { ok: false, config: next };
@@ -326,15 +378,109 @@ export class MemoryService {
     }));
   }
 
+  upsertMemoryFact(fact: { key: string; kind: string; value: string; ts?: number }) {
+    if (!this.#db) return false;
+    const key = String(fact.key ?? "").trim();
+    if (!key) return false;
+    const kind = String(fact.kind ?? "").trim() || "fact";
+    const value = String(fact.value ?? "").trim();
+    if (!value) return false;
+
+    const now = Math.max(1, Math.floor(Number(fact.ts ?? Date.now())));
+    try {
+      const exists = this.#db
+        .prepare("SELECT id FROM memory_facts WHERE key=?")
+        .get(key) as { id: number } | undefined;
+
+      if (exists?.id) {
+        this.#db.prepare("UPDATE memory_facts SET kind=?, value=?, updated_ts=? WHERE id=?").run(kind, value, now, exists.id);
+      } else {
+        this.#db
+          .prepare("INSERT INTO memory_facts(created_ts, updated_ts, kind, key, value) VALUES(?,?,?,?,?)")
+          .run(now, now, kind, key, value);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  listMemoryFacts(limit: number): { id: number; kind: string; key: string; value: string; updatedTs: number }[] {
+    if (!this.#db) return [];
+    const n = Math.max(0, Math.min(200, Math.floor(Number(limit) || 0)));
+    if (!n) return [];
+    const stmt = this.#db.prepare(
+      "SELECT id, created_ts, updated_ts, kind, key, value FROM memory_facts ORDER BY updated_ts DESC, id DESC LIMIT ?"
+    );
+    const rows = (stmt.all(n) as MemoryFactRow[]) ?? [];
+    return rows.map((r) => ({
+      id: Number(r.id ?? 0) || 0,
+      kind: String(r.kind ?? "fact"),
+      key: String(r.key ?? ""),
+      value: String(r.value ?? ""),
+      updatedTs: Number(r.updated_ts ?? 0)
+    }));
+  }
+
+  deleteMemoryFactById(id: number) {
+    if (!this.#db) return false;
+    const n = Math.floor(Number(id) || 0);
+    if (!Number.isFinite(n) || n <= 0) return false;
+    try {
+      const info = this.#db.prepare("DELETE FROM memory_facts WHERE id=?").run(n);
+      return Number((info as any)?.changes ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  updateMemoryFactById(id: number, value: string, ts?: number) {
+    if (!this.#db) return false;
+    const n = Math.floor(Number(id) || 0);
+    const next = String(value ?? "").trim();
+    if (!Number.isFinite(n) || n <= 0) return false;
+    if (!next) return false;
+
+    const now = Math.max(1, Math.floor(Number(ts ?? Date.now())));
+    try {
+      const info = this.#db.prepare("UPDATE memory_facts SET value=?, updated_ts=? WHERE id=?").run(next, now, n);
+      return Number((info as any)?.changes ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
   getMemoryPrompt(limit: number): string {
     const notes = this.listMemoryNotes(limit);
     if (!notes.length) return "";
-    const lines: string[] = [];
-    for (const n of notes) {
-      const kind = n.kind && n.kind !== "note" ? `(${n.kind}) ` : "";
-      lines.push(`- ${kind}${n.content}`);
+    return this.formatMemoryPrompt({ facts: [], notes });
+  }
+
+  formatMemoryPrompt(opts: {
+    facts: { id: number; kind: string; key: string; value: string; updatedTs: number }[];
+    notes: { id: number; kind: string; content: string; updatedTs: number }[];
+  }): string {
+    const facts = Array.isArray(opts?.facts) ? opts.facts : [];
+    const notes = Array.isArray(opts?.notes) ? opts.notes : [];
+
+    const sections: string[] = [];
+    if (facts.length) {
+      const lines: string[] = [];
+      for (const f of facts) {
+        const kind = f.kind && f.kind !== "fact" ? `(${f.kind}) ` : "";
+        lines.push(`- ${kind}${f.key}: ${f.value}`);
+      }
+      sections.push(`【长期记忆·事实】\n${lines.join("\n")}`);
     }
-    return lines.join("\n");
+    if (notes.length) {
+      const lines: string[] = [];
+      for (const n of notes) {
+        const kind = n.kind && n.kind !== "note" ? `(${n.kind}) ` : "";
+        lines.push(`- ${kind}${n.content}`);
+      }
+      sections.push(`【长期记忆·笔记】\n${lines.join("\n")}`);
+    }
+    return sections.join("\n\n");
   }
 
   getRelevantMemoryNotes(query: string, limit: number): { id: number; kind: string; content: string; updatedTs: number }[] {
@@ -381,31 +527,92 @@ export class MemoryService {
     return picked.length ? picked : this.listMemoryNotes(n);
   }
 
-  getMemoryPromptForQuery(query: string, limit: number): string {
-    const notes = this.getRelevantMemoryNotes(query, limit);
-    if (!notes.length) return "";
-    const lines: string[] = [];
-    for (const n of notes) {
-      const kind = n.kind && n.kind !== "note" ? `(${n.kind}) ` : "";
-      lines.push(`- ${kind}${n.content}`);
+  getRelevantMemoryFacts(
+    query: string,
+    limit: number
+  ): { id: number; kind: string; key: string; value: string; updatedTs: number }[] {
+    const n = Math.max(0, Math.min(60, Math.floor(Number(limit) || 0)));
+    if (!n) return [];
+
+    const tokens = tokenizeForSearch(query);
+    const facts = this.listMemoryFacts(200);
+
+    if (!tokens.length) return facts.slice(0, n);
+
+    const scored: { fact: { id: number; kind: string; key: string; value: string; updatedTs: number }; score: number }[] = [];
+    const now = Date.now();
+    for (const fact of facts) {
+      const hay = `${fact.key}\n${fact.value}`.toLowerCase();
+      let score = 0;
+      for (const t of tokens) {
+        if (!t) continue;
+        if (hay.includes(t)) score += Math.min(9, Math.max(1, t.length));
+      }
+      const kind = String(fact.kind ?? "fact").toLowerCase();
+      if (kind === "profile") score += 2.2;
+      else if (kind === "preference" || kind === "project") score += 1.2;
+
+      const ageDays = Math.max(0, (now - Number(fact.updatedTs || 0)) / 86_400_000);
+      score += Math.max(0, 1.4 - ageDays * 0.08);
+
+      if (score > 0.5) scored.push({ fact, score });
     }
-    return lines.join("\n");
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (b.fact.updatedTs || 0) - (a.fact.updatedTs || 0);
+    });
+
+    const picked = scored.slice(0, n).map((x) => x.fact);
+    return picked.length ? picked : facts.slice(0, n);
   }
 
-  getConversationSummary(): { summary: string; lastId: number } {
+  getMemoryPromptForQuery(query: string, limit: number): string {
+    const n = Math.max(0, Math.min(40, Math.floor(Number(limit) || 0)));
+    if (!n) return "";
+
+    // Heuristic split: reserve some space for keyed facts, but don't starve notes.
+    const factBudget = Math.min(10, Math.max(2, Math.round(n * 0.35)));
+    const noteBudget = Math.max(0, n - factBudget);
+
+    const facts = this.getRelevantMemoryFacts(query, factBudget);
+    const notes = this.getRelevantMemoryNotes(query, noteBudget);
+    return this.formatMemoryPrompt({ facts, notes });
+  }
+
+  getConversationSummary(): { summary: string; summaryJson: any | null; lastId: number } {
     const summary = this.#getKv(KV_CHAT_SUMMARY) ?? "";
+    const jsonRaw = this.#getKv(KV_CHAT_SUMMARY_JSON);
+    const summaryJson = (() => {
+      if (!jsonRaw) return null;
+      try {
+        return JSON.parse(jsonRaw);
+      } catch {
+        return null;
+      }
+    })();
     const lastIdRaw = this.#getKv(KV_CHAT_SUMMARY_LAST_ID);
     const lastId = Math.max(0, Math.floor(Number(lastIdRaw ?? 0) || 0));
-    return { summary, lastId };
+    return { summary, summaryJson, lastId };
   }
 
-  setConversationSummary(summary: string, lastId: number) {
+  setConversationSummary(summary: string, summaryJson: any | null, lastId: number) {
     if (!this.#db) return;
     const s = String(summary ?? "").trim();
     const id = Math.max(0, Math.floor(Number(lastId) || 0));
     try {
       this.#setKv(KV_CHAT_SUMMARY, s);
+      this.#setKv(KV_CHAT_SUMMARY_JSON, summaryJson ? JSON.stringify(summaryJson) : "");
       this.#setKv(KV_CHAT_SUMMARY_LAST_ID, String(id));
+    } catch {}
+  }
+
+  clearConversationSummary() {
+    if (!this.#db) return;
+    try {
+      this.#setKv(KV_CHAT_SUMMARY, "");
+      this.#setKv(KV_CHAT_SUMMARY_JSON, "");
+      this.#setKv(KV_CHAT_SUMMARY_LAST_ID, "0");
     } catch {}
   }
 
@@ -429,14 +636,20 @@ export class MemoryService {
     }
   }
 
-  getMemoryStats(): { enabled: boolean; chatCount: number; noteCount: number } {
-    if (!this.#db) return { enabled: false, chatCount: 0, noteCount: 0 };
+  getMemoryStats(): { enabled: boolean; chatCount: number; noteCount: number; factCount: number } {
+    if (!this.#db) return { enabled: false, chatCount: 0, noteCount: 0, factCount: 0 };
     try {
       const chat = this.#db.prepare("SELECT COUNT(1) AS n FROM chat_messages").get() as { n?: number } | undefined;
       const notes = this.#db.prepare("SELECT COUNT(1) AS n FROM memory_notes").get() as { n?: number } | undefined;
-      return { enabled: true, chatCount: Number(chat?.n ?? 0) || 0, noteCount: Number(notes?.n ?? 0) || 0 };
+      const facts = this.#db.prepare("SELECT COUNT(1) AS n FROM memory_facts").get() as { n?: number } | undefined;
+      return {
+        enabled: true,
+        chatCount: Number(chat?.n ?? 0) || 0,
+        noteCount: Number(notes?.n ?? 0) || 0,
+        factCount: Number(facts?.n ?? 0) || 0
+      };
     } catch {
-      return { enabled: true, chatCount: 0, noteCount: 0 };
+      return { enabled: true, chatCount: 0, noteCount: 0, factCount: 0 };
     }
   }
 
@@ -445,8 +658,7 @@ export class MemoryService {
     try {
       this.#db.prepare("DELETE FROM chat_messages").run();
       // Reset summary too, since it's derived from chat history.
-      this.#setKv(KV_CHAT_SUMMARY, "");
-      this.#setKv(KV_CHAT_SUMMARY_LAST_ID, "0");
+      this.clearConversationSummary();
     } catch {}
   }
 
@@ -457,12 +669,32 @@ export class MemoryService {
     } catch {}
   }
 
+  clearMemoryFacts() {
+    if (!this.#db) return;
+    try {
+      this.#db.prepare("DELETE FROM memory_facts").run();
+    } catch {}
+  }
+
   deleteMemoryNoteById(id: number) {
     if (!this.#db) return false;
     const n = Math.floor(Number(id) || 0);
     if (!Number.isFinite(n) || n <= 0) return false;
     try {
       const info = this.#db.prepare("DELETE FROM memory_notes WHERE id=?").run(n);
+      return Number((info as any)?.changes ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  deleteMemoryNoteByKindAndContent(kind: string, content: string) {
+    if (!this.#db) return false;
+    const k = String(kind ?? "").trim() || "note";
+    const c = String(content ?? "").trim();
+    if (!c) return false;
+    try {
+      const info = this.#db.prepare("DELETE FROM memory_notes WHERE kind=? AND content=?").run(k, c);
       return Number((info as any)?.changes ?? 0) > 0;
     } catch {
       return false;

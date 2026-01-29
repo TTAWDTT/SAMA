@@ -1052,6 +1052,54 @@ async function bootstrap() {
     return { ok: Boolean(ok) };
   });
 
+  ipcMain.handle(IPC_HANDLES.memoryFactsList, async (_evt, limitRaw: any) => {
+    const limit = Math.max(1, Math.min(80, Math.floor(Number(limitRaw) || 0))) || 20;
+    return { enabled: memory.enabled, facts: memory.listMemoryFacts(limit) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryFactUpsert, async (_evt, payload: any) => {
+    if (!memory.enabled) return { ok: false };
+    const fact = isPlainObject(payload) ? payload.fact : payload;
+    const ok = memory.upsertMemoryFact({
+      key: String(isPlainObject(fact) ? fact.key : ""),
+      kind: String(isPlainObject(fact) ? fact.kind : ""),
+      value: String(isPlainObject(fact) ? fact.value : ""),
+      ts: Date.now()
+    });
+    return { ok: Boolean(ok) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryFactDelete, async (_evt, payload: any) => {
+    if (!memory.enabled) return { ok: false };
+    const id = Number(isPlainObject(payload) ? payload.id : payload);
+    const ok = memory.deleteMemoryFactById(id);
+    return { ok: Boolean(ok) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryFactUpdate, async (_evt, payload: any) => {
+    if (!memory.enabled) return { ok: false };
+    const id = Number(isPlainObject(payload) ? payload.id : 0);
+    const value = String(isPlainObject(payload) ? payload.value : "").trim();
+    const ok = memory.updateMemoryFactById(id, value, Date.now());
+    return { ok: Boolean(ok) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memorySummaryGet, async () => {
+    if (!memory.enabled) return { enabled: false, summary: "", summaryJson: null };
+    const s = memory.getConversationSummary();
+    return { enabled: true, summary: s.summary, summaryJson: s.summaryJson };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memorySummaryClear, async () => {
+    if (!memory.enabled) return { ok: false };
+    try {
+      memory.clearConversationSummary();
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   ipcMain.handle(IPC_HANDLES.memoryClearChat, async () => {
     if (!memory.enabled) return { ok: false };
     try {
@@ -1069,6 +1117,16 @@ async function bootstrap() {
     if (!memory.enabled) return { ok: false };
     try {
       memory.clearMemoryNotes();
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryClearFacts, async () => {
+    if (!memory.enabled) return { ok: false };
+    try {
+      memory.clearMemoryFacts();
       return { ok: true };
     } catch {
       return { ok: false };
