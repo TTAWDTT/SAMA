@@ -662,7 +662,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
       // Procedural locomotion when no VRMA/embedded clip is available.
       if (activeAnimation === "NONE") {
-        if (moving) {
+        if (movement.moving) {
           walk?.apply(dt, t, { intensity: moveIntensity });
         } else {
           if (now < walkResetUntil) walk?.apply(dt, t, { intensity: 0 });
