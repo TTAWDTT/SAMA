@@ -1,46 +1,41 @@
-import type { ChatLogEntry } from "@sama/shared";
 import React, { forwardRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { formatTime } from "../lib/utils";
+import type { StageDesktopApi } from "../api";
+import { JumpToBottom } from "./JumpToBottom";
+import { MessageRow, type UiMessage } from "./MessageRow";
+import { TypingIndicator } from "./TypingIndicator";
 
-export const ChatTimeline = forwardRef<HTMLDivElement, { entries: ChatLogEntry[]; isThinking: boolean }>(
-  function ChatTimeline(props, ref) {
-    const { entries, isThinking } = props;
+export const ChatTimeline = forwardRef<
+  HTMLDivElement,
+  {
+    api: StageDesktopApi | null;
+    messages: UiMessage[];
+    isThinking: boolean;
+    scrollLock: boolean;
+    onJumpToBottom: () => void;
+    onRetry?: (text: string) => void;
+    onToast?: (msg: string, o?: any) => void;
+  }
+>(function ChatTimeline(props, ref) {
+  const { api, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast } = props;
 
-    return (
+  return (
+    <div className="timelineWrap">
       <div ref={ref} className="timeline" role="log" aria-live="polite">
-        {entries.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="empty">
             <div className="emptyTitle">SAMA</div>
             <div className="emptyDesc">单会话。没有会话列表。直接开始聊。</div>
           </div>
         ) : (
-          entries.map((e) => (
-            <div key={e.id || `${e.ts}_${e.role}`} className={`msgRow ${e.role}`}>
-              <div className={`msg ${e.role}`}>
-                <div className="msgHeader">
-                  <div className="msgWho">{e.role === "user" ? "You" : "Her"}</div>
-                  <div className="msgTime">{formatTime(e.ts)}</div>
-                </div>
-                <div className="msgBody markdown">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{e.content}</ReactMarkdown>
-                </div>
-              </div>
-            </div>
+          messages.map((m) => (
+            <MessageRow key={m.id} api={api} message={m} onToast={onToast} onRetry={onRetry} />
           ))
         )}
 
-        {isThinking ? (
-          <div className="typingRow" aria-label="Typing">
-            <div className="typingDot" />
-            <div className="typingDot" />
-            <div className="typingDot" />
-            <div className="typingText">Typing…</div>
-          </div>
-        ) : null}
+        {isThinking ? <TypingIndicator /> : null}
       </div>
-    );
-  }
-);
 
+      {scrollLock ? <JumpToBottom onClick={onJumpToBottom} /> : null}
+    </div>
+  );
+});

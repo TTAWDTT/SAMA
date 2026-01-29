@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { clipboard, contextBridge, ipcRenderer, shell } from "electron";
 import type {
   ActionCommand,
   ChatRequest,
@@ -100,7 +100,24 @@ export type StageDesktopAPI = {
   sendPetState: (s: PetStateMessage) => void;
   onPetState: (cb: (s: PetStateMessage) => void) => Unsubscribe;
   onPetWindowState: (cb: (s: PetWindowStateMessage) => void) => Unsubscribe;
+
+  // Renderer helpers (safe wrappers)
+  openExternal: (url: string) => Promise<boolean>;
+  clipboardWrite: (text: string) => boolean;
 };
+
+function sanitizeExternalUrl(raw: string): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    const proto = u.protocol.toLowerCase();
+    if (proto === "http:" || proto === "https:" || proto === "mailto:") return u.toString();
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 const api: StageDesktopAPI = {
   onActionCommand: (cb) => {
@@ -176,6 +193,27 @@ const api: StageDesktopAPI = {
     const handler = (_evt: Electron.IpcRendererEvent, payload: PetWindowStateMessage) => cb(payload);
     ipcRenderer.on(IPC_CHANNELS.petWindowState, handler);
     return () => ipcRenderer.off(IPC_CHANNELS.petWindowState, handler);
+  },
+
+  openExternal: async (url) => {
+    const safe = sanitizeExternalUrl(url);
+    if (!safe) return false;
+    try {
+      await shell.openExternal(safe);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  clipboardWrite: (text) => {
+    const t = String(text ?? "");
+    if (!t) return false;
+    try {
+      clipboard.writeText(t);
+      return true;
+    } catch {
+      return false;
+    }
   }
 };
 

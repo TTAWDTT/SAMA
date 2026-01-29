@@ -35,6 +35,10 @@ export type StageDesktopApi = {
   chatInvoke?: (message: string) => Promise<any>;
   sendUserInteraction?: (i: any) => void;
 
+  // Renderer helpers (preload wrappers)
+  openExternal?: (url: string) => Promise<boolean> | boolean;
+  clipboardWrite?: (text: string) => boolean;
+
   // Pet control (VRMA / motion tuning)
   sendPetControl?: (m: PetControlMessage) => void;
   onPetControlResult?: (cb: (r: PetControlResult) => void) => () => void;

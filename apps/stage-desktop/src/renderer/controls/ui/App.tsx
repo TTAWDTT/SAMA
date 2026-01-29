@@ -6,12 +6,13 @@ import { TopBar } from "./components/TopBar";
 import { SidebarDrawer, type SidebarTab } from "./components/SidebarDrawer";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { Composer } from "./components/Composer";
+import type { UiMessage } from "./components/MessageRow";
 import { useToast } from "./hooks/useToast";
 import { ActionsPanel } from "./panels/ActionsPanel";
 import { ConsolePanel, type AppLogItem } from "./panels/ConsolePanel";
 import { LlmPanel } from "./panels/LlmPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
-import { isNearBottom, scrollToBottom } from "./lib/utils";
+import { scrollToBottom } from "./lib/utils";
 import { loadMotionUiSettings } from "./lib/motionUi";
 
 type Theme = "light" | "dark";
@@ -19,6 +20,15 @@ type Theme = "light" | "dark";
 const LS_THEME = "sama.ui.theme.v1";
 const LS_DEV = "sama.ui.devMode.v1";
 const LS_TAB = "sama.ui.sidebarTab.v1";
+const LS_DRAFT = "sama.ui.chatDraft.v1";
+
+function loadDraft(): string {
+  try {
+    return String(localStorage.getItem(LS_DRAFT) ?? "");
+  } catch {
+    return "";
+  }
+}
 
 function loadTheme(): Theme {
   try {
@@ -55,6 +65,9 @@ export function App() {
 
   const [entries, setEntries] = useState<ChatLogEntry[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [draft, setDraft] = useState<string>(loadDraft);
+  const [scrollLock, setScrollLock] = useState(false);
+  const [sendError, setSendError] = useState<null | { message: string; retryText: string }>(null);
 
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -110,12 +123,32 @@ export function App() {
     } catch {}
   }, [tab]);
 
-  // Keep a sticky-bottom heuristic for auto-scroll
+  // Draft persistence (debounced)
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      try {
+        const v = String(draft ?? "");
+        if (!v.trim()) {
+          localStorage.removeItem(LS_DRAFT);
+        } else {
+          localStorage.setItem(LS_DRAFT, v);
+        }
+      } catch {}
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [draft]);
+
+  // Scrolling heuristic:
+  // - scrollLock=true when the user scrolls up more than 120px from bottom
+  // - when unlocked, auto-follow new messages
   useEffect(() => {
     const el = timelineRef.current;
     if (!el) return;
     const onScroll = () => {
-      stickToBottomRef.current = isNearBottom(el);
+      const gap = el.scrollHeight - (el.scrollTop + el.clientHeight);
+      const locked = gap > 120;
+      stickToBottomRef.current = !locked;
+      setScrollLock(locked);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
@@ -126,7 +159,14 @@ export function App() {
     const el = timelineRef.current;
     if (!el) return;
     if (stickToBottomRef.current) scrollToBottom(el);
-  }, [entries]);
+  }, [entries, sendError, isThinking]);
+
+  const jumpToBottom = () => {
+    const el = timelineRef.current;
+    if (el) scrollToBottom(el);
+    setScrollLock(false);
+    stickToBottomRef.current = true;
+  };
 
   // Track "open chat" so proactive ignore logic doesn't misfire.
   useEffect(() => {
@@ -191,7 +231,10 @@ export function App() {
           // Keep the DOM manageable (UI only; canonical log lives in main/memory).
           return next.length > 500 ? next.slice(-420) : next;
         });
-        if (entry.role === "assistant") setIsThinking(false);
+        if (entry.role === "assistant") {
+          setIsThinking(false);
+          setSendError(null);
+        }
         return;
       }
     });
@@ -226,6 +269,22 @@ export function App() {
     };
   }, [api]);
 
+  const uiMessages: UiMessage[] = useMemo(() => {
+    const msgs: UiMessage[] = entries.map((e) => ({ ...e, status: "sent" as const }));
+    if (sendError) {
+      msgs.push({
+        id: `err_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`,
+        ts: Date.now(),
+        role: "assistant",
+        content: "请求失败",
+        status: "error",
+        errorMessage: sendError.message,
+        retryText: sendError.retryText
+      });
+    }
+    return msgs;
+  }, [entries, sendError]);
+
   async function sendMessage(text: string) {
     if (!api || typeof api.chatInvoke !== "function") {
       showToast("preload API 缺失：无法发送消息", { timeoutMs: 4200 });
@@ -235,12 +294,20 @@ export function App() {
     const msg = String(text ?? "").trim();
     if (!msg) return;
 
+    // If the user sends while scrolled up, we follow ChatGPT behavior: jump to bottom.
+    jumpToBottom();
+    setSendError(null);
     setIsThinking(true);
+    setDraft("");
+    try {
+      localStorage.removeItem(LS_DRAFT);
+    } catch {}
     try {
       await api.chatInvoke(msg);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      showToast(`发送失败：${message}`, { timeoutMs: 5200 });
+      showToast("请求失败", { timeoutMs: 2400 });
+      setSendError({ message, retryText: msg });
       setIsThinking(false);
     }
   }
@@ -265,8 +332,17 @@ export function App() {
       />
 
       <div className="chatShell">
-        <ChatTimeline ref={timelineRef} entries={entries} isThinking={isThinking} />
-        <Composer onSend={sendMessage} disabled={false} />
+        <ChatTimeline
+          ref={timelineRef}
+          api={api}
+          messages={uiMessages}
+          isThinking={isThinking}
+          scrollLock={scrollLock}
+          onJumpToBottom={jumpToBottom}
+          onRetry={(text) => void sendMessage(text)}
+          onToast={showToast}
+        />
+        <Composer value={draft} onChange={setDraft} onSend={sendMessage} busy={isThinking} />
       </div>
 
       <SidebarDrawer
