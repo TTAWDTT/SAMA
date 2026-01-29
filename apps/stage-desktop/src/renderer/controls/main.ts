@@ -24,8 +24,17 @@ type StageDesktopApi = {
   getMemoryStats?: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number }>;
   listMemoryNotes?: (
     limit: number
-  ) => Promise<{ enabled: boolean; notes: { kind: string; content: string; updatedTs: number }[] }>;
+  ) => Promise<{ enabled: boolean; notes: { id: number; kind: string; content: string; updatedTs: number }[] }>;
   addMemoryNote?: (content: string) => Promise<{ ok: boolean }>;
+  deleteMemoryNote?: (id: number) => Promise<{ ok: boolean }>;
+  updateMemoryNote?: (id: number, content: string) => Promise<{ ok: boolean }>;
+  getMemoryConfig?: () => Promise<{
+    enabled: boolean;
+    config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" };
+  }>;
+  setMemoryConfig?: (
+    partial: Partial<{ injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" }>
+  ) => Promise<{ ok: boolean; config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } }>;
   clearChatHistory?: () => Promise<{ ok: boolean }>;
   clearMemoryNotes?: () => Promise<{ ok: boolean }>;
 };
@@ -57,6 +66,12 @@ function scrollToBottom(el: HTMLElement) {
 const app = (() => {
   const el = document.getElementById("app");
   if (!(el instanceof HTMLDivElement)) throw new Error("missing #app");
+  return el;
+})();
+
+const settingsWrap = (() => {
+  const el = document.querySelector(".settingsWrap");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing .settingsWrap");
   return el;
 })();
 
@@ -192,6 +207,36 @@ const memoryStatusEl = (() => {
 const memoryCountsEl = (() => {
   const el = document.getElementById("memoryCounts");
   if (!(el instanceof HTMLSpanElement)) throw new Error("missing #memoryCounts");
+  return el;
+})();
+const memoryAutoEnabledEl = (() => {
+  const el = document.getElementById("memoryAutoEnabled");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #memoryAutoEnabled");
+  return el;
+})();
+const memoryAutoOptionsEl = (() => {
+  const el = document.getElementById("memoryAutoOptions");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #memoryAutoOptions");
+  return el;
+})();
+const memoryAutoModeEl = (() => {
+  const el = document.getElementById("memoryAutoMode");
+  if (!(el instanceof HTMLSelectElement)) throw new Error("missing #memoryAutoMode");
+  return el;
+})();
+const memoryAutoHelpEl = (() => {
+  const el = document.getElementById("memoryAutoHelp");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #memoryAutoHelp");
+  return el;
+})();
+const memoryInjectLimitEl = (() => {
+  const el = document.getElementById("memoryInjectLimit");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #memoryInjectLimit");
+  return el;
+})();
+const memoryInjectLimitValueEl = (() => {
+  const el = document.getElementById("memoryInjectLimitValue");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #memoryInjectLimitValue");
   return el;
 })();
 const memoryNoteInputEl = (() => {
@@ -373,6 +418,44 @@ function setView(view: "chat" | "settings") {
   }
 }
 
+function setActiveSettingsNav(cardId: string | null) {
+  const btns = Array.from(document.querySelectorAll('button.segBtn[data-open-card]')).filter(
+    (b): b is HTMLButtonElement => b instanceof HTMLButtonElement
+  );
+  for (const b of btns) {
+    const target = String(b.getAttribute("data-open-card") ?? "");
+    b.setAttribute("data-active", target && cardId && target === cardId ? "1" : "0");
+  }
+}
+
+function openSettingsCard(cardId: string, opts?: { scroll?: boolean }) {
+  const el = document.getElementById(cardId);
+  if (!(el instanceof HTMLDetailsElement)) return;
+  el.open = true;
+  setActiveSettingsNav(cardId);
+  try {
+    window.localStorage.setItem("sama.settings.lastCard", cardId);
+  } catch {}
+
+  if (opts?.scroll === false) return;
+  // Scroll inside the settings panel so the sticky header doesn't get in the way.
+  try {
+    const top = el.offsetTop - 90;
+    settingsWrap.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  } catch {
+    try {
+      el.scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch {}
+  }
+}
+
+function restoreLastSettingsCard() {
+  try {
+    const last = window.localStorage.getItem("sama.settings.lastCard") || "";
+    if (last) openSettingsCard(last, { scroll: false });
+  } catch {}
+}
+
 function renderEmpty() {
   timeline.innerHTML = "";
   const empty = document.createElement("div");
@@ -526,7 +609,7 @@ function setStatusLine(el: HTMLElement, opts: { text: string; enabled?: boolean 
   dotEl.style.boxShadow = "";
 }
 
-function renderMemoryNotes(notes: { kind: string; content: string; updatedTs: number }[]) {
+function renderMemoryNotes(notes: { id: number; kind: string; content: string; updatedTs: number }[]) {
   memoryNotesListEl.innerHTML = "";
   if (!Array.isArray(notes) || notes.length === 0) {
     memoryNotesEmptyEl.style.display = "block";
@@ -553,7 +636,65 @@ function renderMemoryNotes(notes: { kind: string; content: string; updatedTs: nu
     meta.textContent = `${kind} · ${when}`;
 
     left.append(name, meta);
-    row.append(left);
+
+    const actions = document.createElement("div");
+    actions.className = "libActions";
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn btnSm";
+    editBtn.type = "button";
+    editBtn.textContent = "编辑";
+    editBtn.addEventListener("click", async () => {
+      const current = String(n?.content ?? "");
+      const next = String(window.prompt("修改记忆：", current) ?? "").trim();
+      if (!next || next === current) return;
+      const api = getApi();
+      if (!api || typeof api.updateMemoryNote !== "function") {
+        showToast("preload API 缺失：无法编辑记忆", { timeoutMs: 4200 });
+        return;
+      }
+      try {
+        const res = await api.updateMemoryNote(Number(n?.id ?? 0) || 0, next);
+        if (!res?.ok) {
+          showToast("编辑失败（可能未启用本地 SQLite）", { timeoutMs: 5200 });
+          return;
+        }
+        showToast("已更新", { timeoutMs: 1400 });
+        void refreshMemorySection();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showToast(`编辑失败：${message}`, { timeoutMs: 5200 });
+      }
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btnSm btnDanger";
+    delBtn.type = "button";
+    delBtn.textContent = "删除";
+    delBtn.addEventListener("click", async () => {
+      const ok = window.confirm("删除这条记忆？");
+      if (!ok) return;
+      const api = getApi();
+      if (!api || typeof api.deleteMemoryNote !== "function") {
+        showToast("preload API 缺失：无法删除记忆", { timeoutMs: 4200 });
+        return;
+      }
+      try {
+        const res = await api.deleteMemoryNote(Number(n?.id ?? 0) || 0);
+        if (!res?.ok) {
+          showToast("删除失败（可能未启用本地 SQLite）", { timeoutMs: 5200 });
+          return;
+        }
+        showToast("已删除", { timeoutMs: 1400 });
+        void refreshMemorySection();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showToast(`删除失败：${message}`, { timeoutMs: 5200 });
+      }
+    });
+
+    actions.append(editBtn, delBtn);
+    row.append(left, actions);
     frag.appendChild(row);
   }
   memoryNotesListEl.appendChild(frag);
@@ -564,18 +705,65 @@ async function refreshMemorySection() {
   if (!api || typeof api.getMemoryStats !== "function") {
     setStatusLine(memoryStatusEl, { text: "状态：preload missing", enabled: false });
     memoryCountsEl.textContent = "chat - · notes -";
+    memoryAutoEnabledEl.checked = false;
+    memoryAutoEnabledEl.disabled = true;
+    memoryAutoModeEl.disabled = true;
+    memoryAutoOptionsEl.style.opacity = "0.6";
+    memoryInjectLimitEl.disabled = true;
+    memoryInjectLimitValueEl.textContent = "12";
     renderMemoryNotes([]);
     return;
   }
 
+  let enabled = false;
   try {
     const stats = await api.getMemoryStats();
-    const enabled = Boolean(stats?.enabled);
+    enabled = Boolean(stats?.enabled);
     setStatusLine(memoryStatusEl, { text: enabled ? "状态：已启用" : "状态：未启用（SQLite 不可用）", enabled });
     memoryCountsEl.textContent = `chat ${Number(stats?.chatCount ?? 0) || 0} · notes ${Number(stats?.noteCount ?? 0) || 0}`;
   } catch {
     setStatusLine(memoryStatusEl, { text: "状态：unknown", enabled: false });
     memoryCountsEl.textContent = "chat - · notes -";
+  }
+
+  // Config (optional; older preloads won't have it).
+  try {
+    if (api && typeof api.getMemoryConfig === "function") {
+      const res = await api.getMemoryConfig();
+      const cfg = res?.config ?? { injectLimit: 12, autoRemember: false, autoMode: "rules" as const };
+      enabled = Boolean(res?.enabled ?? enabled);
+
+      memoryAutoEnabledEl.disabled = !enabled;
+      memoryAutoEnabledEl.checked = Boolean(cfg.autoRemember);
+      memoryAutoModeEl.value = cfg.autoMode === "llm" ? "llm" : "rules";
+      memoryAutoModeEl.disabled = !enabled || !memoryAutoEnabledEl.checked;
+      memoryAutoOptionsEl.style.opacity = memoryAutoEnabledEl.checked ? "1" : "0.6";
+
+      const inject = clamp(Number(cfg.injectLimit ?? 12), 0, 20);
+      memoryInjectLimitEl.disabled = !enabled;
+      memoryInjectLimitEl.value = String(inject);
+      memoryInjectLimitValueEl.textContent = String(inject);
+
+      memoryAutoHelpEl.textContent =
+        memoryAutoModeEl.value === "llm"
+          ? "LLM 模式会额外请求一次（更像 agent，但更慢/更耗 token）。"
+          : "规则模式几乎不耗资源：提取名字/喜欢/不喜欢等稳定信息。";
+    } else {
+      // No config API: keep UI disabled to avoid confusing users.
+      memoryAutoEnabledEl.checked = false;
+      memoryAutoEnabledEl.disabled = true;
+      memoryAutoModeEl.disabled = true;
+      memoryAutoOptionsEl.style.opacity = "0.6";
+      memoryInjectLimitEl.disabled = true;
+      memoryInjectLimitValueEl.textContent = memoryInjectLimitEl.value;
+      memoryAutoHelpEl.textContent = "（需要更新 preload 才能配置自动记忆）";
+    }
+  } catch {
+    memoryAutoEnabledEl.checked = false;
+    memoryAutoEnabledEl.disabled = !enabled;
+    memoryAutoModeEl.disabled = true;
+    memoryAutoOptionsEl.style.opacity = "0.6";
+    memoryInjectLimitEl.disabled = !enabled;
   }
 
   if (!api || typeof api.listMemoryNotes !== "function") return;
@@ -1059,6 +1247,28 @@ function queueWalkConfig(partial: any) {
   }, 60);
 }
 
+let pendingMemoryCfg: any = {};
+let memoryCfgTimer: number | null = null;
+function queueMemoryConfig(partial: any) {
+  Object.assign(pendingMemoryCfg, partial);
+  if (memoryCfgTimer !== null) return;
+  memoryCfgTimer = window.setTimeout(() => {
+    memoryCfgTimer = null;
+    const cfg = pendingMemoryCfg;
+    pendingMemoryCfg = {};
+
+    const api = getApi();
+    if (!api || typeof api.setMemoryConfig !== "function") return;
+    const setMemoryConfig = api.setMemoryConfig;
+    void (async () => {
+      try {
+        const res = await setMemoryConfig(cfg);
+        if (!res?.ok) showToast("记忆配置保存失败", { timeoutMs: 4200 });
+      } catch {}
+    })();
+  }, 120);
+}
+
 async function loadVrmaBytes(bytes: Uint8Array) {
   const res = await sendPetControlWithResult({
     type: "PET_CONTROL",
@@ -1212,6 +1422,7 @@ function boot() {
   // --- View navigation -------------------------------------------------------
   settingsBtn.addEventListener("click", () => {
     setView("settings");
+    restoreLastSettingsCard();
     void loadLlmConfigIntoForm();
     void refreshLlmRuntime();
     void refreshMemorySection();
@@ -1226,12 +1437,31 @@ function boot() {
   for (const card of settingsCards) {
     card.addEventListener("toggle", () => {
       if (!card.open) return;
+      if (card.id) {
+        setActiveSettingsNav(card.id);
+        try {
+          window.localStorage.setItem("sama.settings.lastCard", card.id);
+        } catch {}
+      }
       for (const other of settingsCards) {
         if (other === card) continue;
         other.open = false;
       }
     });
   }
+
+  // Settings jump-nav: open a section directly (no scrolling hunt).
+  const navButtons = Array.from(document.querySelectorAll('button.segBtn[data-open-card]')).filter(
+    (b): b is HTMLButtonElement => b instanceof HTMLButtonElement
+  );
+  for (const b of navButtons) {
+    b.addEventListener("click", () => {
+      const target = String(b.getAttribute("data-open-card") ?? "");
+      if (!target) return;
+      openSettingsCard(target);
+    });
+  }
+  setActiveSettingsNav(null);
 
   // --- Motion / VRMA settings (in Settings view) -----------------------------
   updateMotionFormFromState();
@@ -1247,6 +1477,26 @@ function boot() {
     }
   });
   refreshMemoryNotesEl.addEventListener("click", () => void refreshMemorySection());
+
+  memoryAutoEnabledEl.addEventListener("change", () => {
+    memoryAutoOptionsEl.style.opacity = memoryAutoEnabledEl.checked ? "1" : "0.6";
+    memoryAutoModeEl.disabled = !memoryAutoEnabledEl.checked;
+    queueMemoryConfig({ autoRemember: Boolean(memoryAutoEnabledEl.checked) });
+    void refreshMemorySection();
+  });
+  memoryAutoModeEl.addEventListener("change", () => {
+    const mode = memoryAutoModeEl.value === "llm" ? "llm" : "rules";
+    memoryAutoHelpEl.textContent =
+      mode === "llm"
+        ? "LLM 模式会额外请求一次（更像 agent，但更慢/更耗 token）。"
+        : "规则模式几乎不耗资源：提取名字/喜欢/不喜欢等稳定信息。";
+    queueMemoryConfig({ autoMode: mode });
+  });
+  memoryInjectLimitEl.addEventListener("input", () => {
+    const n = clamp(Number(memoryInjectLimitEl.value), 0, 20);
+    memoryInjectLimitValueEl.textContent = String(n);
+    queueMemoryConfig({ injectLimit: n });
+  });
 
   clearChatHistoryEl.addEventListener("click", () => {
     void (async () => {

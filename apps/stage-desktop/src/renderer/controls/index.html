@@ -339,11 +339,22 @@
         padding: 14px;
         box-sizing: border-box;
       }
+      .settingsTop {
+        position: sticky;
+        top: 0;
+        z-index: 6;
+        padding: 12px 0 12px 0;
+        margin: -14px -14px 12px -14px;
+        padding: 14px;
+        background: rgba(250, 249, 245, 0.92);
+        border-bottom: 1px solid rgba(20, 20, 19, 0.08);
+        backdrop-filter: blur(10px);
+      }
       .settingsHeader {
         display: flex;
         align-items: center;
         gap: 10px;
-        margin: 4px 0 14px 0;
+        margin: 0;
       }
       .settingsTitle {
         font: 20px/1.1 var(--font-display);
@@ -353,6 +364,43 @@
         margin-top: 6px;
         color: rgba(20, 20, 19, 0.55);
         font-size: 13px;
+      }
+      .settingsNav {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .segBtn {
+        height: 30px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.65);
+        color: rgba(20, 20, 19, 0.82);
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        cursor: pointer;
+        transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
+        user-select: none;
+      }
+      .segBtn:hover {
+        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 12px 24px rgba(20, 20, 19, 0.1);
+      }
+      .segBtn:active {
+        transform: translateY(0px);
+      }
+      .segBtn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.18);
+        border-color: rgba(217, 119, 87, 0.5);
+      }
+      .segBtn[data-active="1"] {
+        border-color: rgba(217, 119, 87, 0.46);
+        background: rgba(217, 119, 87, 0.12);
+        color: rgba(20, 20, 19, 0.9);
       }
 
       .card {
@@ -751,14 +799,24 @@
         <!-- Settings view -->
         <div id="settingsView" class="view" aria-label="Settings">
           <div class="settingsWrap">
-            <div class="settingsHeader">
-              <div>
-                <div class="settingsTitle">设置</div>
-                <div class="settingsSubtitle">不再“一股脑全展示”，按需展开。</div>
+            <div class="settingsTop">
+              <div class="settingsHeader">
+                <div>
+                  <div class="settingsTitle">设置</div>
+                  <div class="settingsSubtitle">轻量、按需配置。改完就走，不打扰。</div>
+                </div>
+              </div>
+
+              <div class="settingsNav" aria-label="Settings sections">
+                <button class="segBtn" type="button" data-open-card="llmCard">LLM</button>
+                <button class="segBtn" type="button" data-open-card="memoryCard">长期记忆</button>
+                <button class="segBtn" type="button" data-open-card="vrmaCard">VRMA</button>
+                <button class="segBtn" type="button" data-open-card="motionCard">程序动作</button>
+                <button class="segBtn" type="button" data-open-card="shortcutsCard">快捷键</button>
               </div>
             </div>
 
-            <details class="card" data-accordion="settings">
+            <details id="llmCard" class="card" data-accordion="settings">
               <summary class="cardTitle">LLM</summary>
               <div class="fieldGrid">
                 <div class="field">
@@ -855,7 +913,7 @@
               </div>
             </details>
 
-            <details class="card" data-accordion="settings">
+            <details id="memoryCard" class="card" data-accordion="settings">
               <summary class="cardTitle">长期记忆</summary>
               <div class="fieldGrid">
                 <div class="help">
@@ -869,6 +927,25 @@
                     <span class="statusText">状态：—</span>
                   </div>
                   <span class="statusPill" id="memoryCounts">chat - · notes -</span>
+                </div>
+
+                <label class="toggle"><input id="memoryAutoEnabled" type="checkbox" />自动记忆（从对话中提取）</label>
+
+                <div id="memoryAutoOptions" class="fieldGrid" style="margin-top: 2px">
+                  <div class="field">
+                    <div class="label">自动记忆模式</div>
+                    <select id="memoryAutoMode" class="select">
+                      <option value="rules">规则（快速）</option>
+                      <option value="llm">LLM（更像 agent，会额外请求一次）</option>
+                    </select>
+                    <div class="help" id="memoryAutoHelp">建议先用规则模式；想更像 agent 再切到 LLM。</div>
+                  </div>
+                </div>
+
+                <div class="rangeRow">
+                  <div class="rangeLabel">注入条数</div>
+                  <input id="memoryInjectLimit" class="range" type="range" min="0" max="20" step="1" value="12" />
+                  <div class="rangeValue" id="memoryInjectLimitValue">12</div>
                 </div>
 
                 <div class="field">
@@ -896,13 +973,19 @@
                 </div>
               </div>
 
-              <div class="actionsRow">
-                <button id="clearChatHistory" class="btn btnDanger" type="button">清空聊天记录</button>
-                <button id="clearMemoryNotes" class="btn btnDanger" type="button">清空记忆</button>
-              </div>
+              <details class="subDetails" style="margin-top: 10px">
+                <summary>清理（危险操作）</summary>
+                <div class="subDetailsBody">
+                  <div class="help">删除操作不可恢复。建议先确认你不需要这些内容。</div>
+                  <div class="actionsRow">
+                    <button id="clearChatHistory" class="btn btnDanger" type="button">清空聊天记录</button>
+                    <button id="clearMemoryNotes" class="btn btnDanger" type="button">清空记忆</button>
+                  </div>
+                </div>
+              </details>
             </details>
 
-            <details class="card" data-accordion="settings">
+            <details id="vrmaCard" class="card" data-accordion="settings">
               <summary class="cardTitle">动作（VRMA）</summary>
               <div class="fieldGrid">
                 <div class="help">加载 .vrma 后可播放，并可设为 Idle/Walk 槽位自动切换；也可保存到动作库。</div>
@@ -951,7 +1034,7 @@
               </div>
             </details>
 
-            <details class="card" data-accordion="settings">
+            <details id="motionCard" class="card" data-accordion="settings">
               <summary class="cardTitle">程序动作（兜底）</summary>
               <div class="fieldGrid">
                 <div class="help">当没有 VRMA Idle/Walk 时会更明显；也可作为轻微的“呼吸感”。</div>
@@ -982,7 +1065,7 @@
               </div>
             </details>
 
-            <details class="card" data-accordion="settings">
+            <details id="shortcutsCard" class="card" data-accordion="settings">
               <summary class="cardTitle">快捷键</summary>
               <div class="help">
                 <div><span class="kbd">Ctrl+Shift+C</span> 快速发送（仅输入框，回复只在气泡）</div>
