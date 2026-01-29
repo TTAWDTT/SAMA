@@ -32,8 +32,8 @@ if (bc) {
       return;
     }
 
-    // Fallback: if preload is missing, still render bubble text that was broadcast by the pet window.
-    if (!hasApi && msg.type === "ACTION_COMMAND") {
+    // Also accept ActionCommand via BroadcastChannel (more robust than relying on preload IPC only).
+    if (msg.type === "ACTION_COMMAND") {
       caption.onCommand(msg as ActionCommand);
       return;
     }

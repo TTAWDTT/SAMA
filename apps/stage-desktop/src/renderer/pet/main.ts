@@ -9,6 +9,9 @@ const hud = hudEl instanceof HTMLDivElement ? hudEl : null;
 const bannerEl = document.getElementById("banner");
 const banner = bannerEl instanceof HTMLDivElement ? bannerEl : null;
 
+const inlineBubbleEl = document.getElementById("inlineBubble");
+const inlineBubble = inlineBubbleEl instanceof HTMLDivElement ? inlineBubbleEl : null;
+
 const canvasEl = document.getElementById("canvas");
 if (!(canvasEl instanceof HTMLCanvasElement)) throw new Error("missing #canvas");
 const canvas = canvasEl;
@@ -56,6 +59,84 @@ function showBanner(s: string, opts?: { timeoutMs?: number }) {
     bannerTimer = null;
   }, ms);
 }
+
+type BubbleAnchor = { nx: number; ny: number };
+
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+let inlineBubbleVisible = false;
+let inlineBubbleAnchor: BubbleAnchor = { nx: 0.5, ny: 0.22 };
+let inlineBubbleHideTimer: number | null = null;
+
+function layoutInlineBubble() {
+  if (!inlineBubble || !inlineBubbleVisible) return;
+
+  const vw = Math.max(1, window.innerWidth || 1);
+  const vh = Math.max(1, window.innerHeight || 1);
+
+  const rect = inlineBubble.getBoundingClientRect();
+  const bw = Math.max(1, rect.width || inlineBubble.offsetWidth || 1);
+  const bh = Math.max(1, rect.height || inlineBubble.offsetHeight || 1);
+
+  const margin = 14;
+  const gap = 12;
+
+  const anchorX = clamp(clamp01(inlineBubbleAnchor.nx), 0, 1) * vw;
+  const anchorY = clamp(clamp01(inlineBubbleAnchor.ny), 0, 1) * vh;
+
+  let placement: "top" | "bottom" = "top";
+  if (anchorY < bh + margin + gap) placement = "bottom";
+  if (anchorY > vh - bh - margin - gap) placement = "top";
+
+  const x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
+  const y =
+    placement === "top"
+      ? clamp(anchorY, bh + margin + gap, vh - margin)
+      : clamp(anchorY, margin, vh - bh - margin - gap);
+
+  inlineBubble.dataset.placement = placement;
+  inlineBubble.style.setProperty("--bx", `${x.toFixed(2)}px`);
+  inlineBubble.style.setProperty("--by", `${y.toFixed(2)}px`);
+}
+
+function setInlineBubbleAnchor(a: BubbleAnchor) {
+  inlineBubbleAnchor = { nx: clamp01(Number(a?.nx ?? 0.5)), ny: clamp01(Number(a?.ny ?? 0.22)) };
+  layoutInlineBubble();
+}
+
+function hideInlineBubble() {
+  if (!inlineBubble) return;
+  inlineBubble.classList.remove("show");
+  inlineBubble.textContent = "";
+  inlineBubbleVisible = false;
+}
+
+function showInlineBubble(text: string, durationMs: number) {
+  if (!inlineBubble) return;
+  inlineBubble.textContent = text;
+  inlineBubble.classList.add("show");
+  inlineBubbleVisible = true;
+
+  // Layout after DOM updates so we can measure bubble size.
+  requestAnimationFrame(() => layoutInlineBubble());
+
+  if (inlineBubbleHideTimer !== null) window.clearTimeout(inlineBubbleHideTimer);
+  inlineBubbleHideTimer = window.setTimeout(() => {
+    inlineBubbleHideTimer = null;
+    hideInlineBubble();
+  }, Math.max(80, Number(durationMs) || 0));
+}
+
+window.addEventListener("resize", () => {
+  if (!inlineBubbleVisible) return;
+  layoutInlineBubble();
+});
 
 function setDropOverlayActive(active: boolean) {
   if (!dropOverlay) return;
@@ -238,6 +319,7 @@ async function boot() {
   const postCaptionAnchor = () => {
     const a = scene.getBubbleAnchor?.();
     if (!a) return;
+    if (inlineBubbleVisible) setInlineBubbleAnchor(a);
     try {
       bc?.postMessage({ type: "CAPTION_ANCHOR", ts: Date.now(), nx: a.nx, ny: a.ny });
     } catch {}
@@ -373,7 +455,13 @@ async function boot() {
       if (msg.action === "NOTIFY_ACTION") {
         scene.notifyAction(msg.cmd);
         scene.setExpression(msg.cmd.expression);
-        if (msg.cmd.bubble) scene.speak(msg.cmd.durationMs);
+        if (msg.cmd.bubble) {
+          scene.speak(msg.cmd.durationMs);
+          const a = scene.getBubbleAnchor?.();
+          if (a) setInlineBubbleAnchor(a);
+          showInlineBubble(msg.cmd.bubble, msg.cmd.durationMs || 3000);
+          startCaptionAnchorTracking(msg.cmd.durationMs);
+        }
         sendPetState();
         return;
       }
@@ -538,6 +626,9 @@ async function boot() {
     scene.setExpression(cmd.expression);
     if (cmd.bubble) {
       scene.speak(cmd.durationMs);
+      const a = scene.getBubbleAnchor?.();
+      if (a) setInlineBubbleAnchor(a);
+      showInlineBubble(cmd.bubble, cmd.durationMs || 3000);
       startCaptionAnchorTracking(cmd.durationMs);
     }
 
