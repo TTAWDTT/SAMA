@@ -218,6 +218,8 @@ async function bootstrap() {
 
   const configPath = resolve(process.cwd(), "config.json");
   const config = readAppConfig(configPath);
+  const llm = new LLMService({ config: config.llm ?? null });
+  console.log(`[llm] provider=${llm.providerName}`);
 
   // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
   // but we keep this resolver defensive to avoid "preload API missing" in case of outDir mismatch.
@@ -281,7 +283,7 @@ async function bootstrap() {
   let petWindowRef: BrowserWindow | null = null;
   let cachedVrm: { path: string; bytes: Uint8Array } | null = null;
 
-  ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked }));
+  ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked, llmProvider: llm.providerName }));
 
   ipcMain.handle(IPC_HANDLES.vrmGet, async (_evt) => {
     // IMPORTANT:
@@ -399,9 +401,6 @@ async function bootstrap() {
 
   const memory = new MemoryService({ dbPath: join(app.getPath("userData"), "memory.db") });
   await memory.init();
-
-  const llm = new LLMService({ config: config.llm ?? null });
-  console.log(`[llm] provider=${llm.providerName}`);
 
   let moveCancel = { canceled: false };
   const moveTo = (p: Point, durationMs: number) => {

@@ -50,6 +50,52 @@ function sanitizeOneLine(s: string) {
   return s.replace(/\s+/g, " ").replace(/(^[“”"']+|[“”"']+$)/g, "").trim();
 }
 
+function hashStringCodepoints(s: string) {
+  // Simple deterministic hash for variant selection (FNV-like).
+  let h = 2166136261;
+  for (const ch of Array.from(String(s ?? ""))) {
+    h ^= ch.codePointAt(0) ?? 0;
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function pickVariant(options: string[], seed: number, avoid?: string) {
+  if (options.length === 0) return "";
+  if (options.length === 1) return options[0] ?? "";
+
+  const idx = seed % options.length;
+  const first = options[idx] ?? options[0] ?? "";
+  if (!avoid || sanitizeOneLine(first) !== sanitizeOneLine(avoid)) return first;
+
+  // Pick the next option deterministically if we need to avoid repeating.
+  for (let i = 1; i < options.length; i++) {
+    const next = options[(idx + i) % options.length] ?? "";
+    if (sanitizeOneLine(next) !== sanitizeOneLine(avoid)) return next;
+  }
+  return first;
+}
+
+function isLowValueAckReply(s: string) {
+  const t = sanitizeOneLine(String(s ?? ""));
+  if (!t) return true;
+  const compact = t.replace(/\s+/g, "");
+
+  // Very short acknowledgements look broken in a bubble-only UX.
+  if (compact.length <= 2 && /^(嗯|哦|哈|好|行|在)$/.test(compact)) return true;
+
+  // Common "I heard you" style replies that feel stuck.
+  if (
+    /^(我听到了|我听见了|我在听|我在听着|我听着呢|收到|知道了|了解了|明白了)([。!！…]*)$/.test(compact)
+  ) {
+    return true;
+  }
+
+  // Generic filler that doesn't react to the message at all.
+  if (/^(嗯…|嗯\\.\\.\\.|嗯\\.\\.\\.)([。!！…]*)$/.test(t)) return true;
+  return false;
+}
+
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), Math.max(1, timeoutMs));
@@ -67,13 +113,16 @@ async function openAICompatibleChat(
   timeoutMs: number
 ) {
   const url = `${opts.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json"
+  };
+  if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
   const res = await fetchWithTimeout(
     url,
     {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${opts.apiKey}`
+        ...headers
       },
       body: JSON.stringify({
         model: opts.model,
@@ -154,6 +203,7 @@ function ruleBasedChatReply(ctx: { state: string; isNight: boolean; mood: number
   const trimmed = userMsg.trim();
   if (!trimmed) return "嗯？";
   const compact = trimmed.replace(/\s+/g, "");
+  const seed = hashStringCodepoints(`${compact}|${ctx.state}|${ctx.isNight ? "n" : "d"}|${ctx.mood.toFixed(2)}`);
 
   // Special-cases for built-in diagnostics.
   if (compact.startsWith("测试气泡") || /^test$/i.test(compact)) return `${prefix}气泡显示正常 ✅`.trim();
@@ -164,11 +214,28 @@ function ruleBasedChatReply(ctx: { state: string; isNight: boolean; mood: number
     if (/(你好|嗨|在吗|喂)/.test(compact)) return `${prefix}我在呢。`.trim();
     if (/(谢谢|谢啦|thx|thanks)/i.test(compact)) return `${prefix}不客气。`.trim();
     if (/[？?]$/.test(compact)) return `${prefix}你想问哪一部分？`.trim();
-    return `${prefix}我在听，你继续说。`.trim();
+
+    // Add a tiny bit of variety so it doesn't feel "stuck".
+    return pickVariant(
+      [
+        `${prefix}我在呢，你继续说。`.trim(),
+        `${prefix}嗯，我听着。`.trim(),
+        `${prefix}怎么啦？`.trim(),
+        `${prefix}我在这儿。`.trim()
+      ],
+      seed
+    );
   }
   if (ctx.state === "FOCUS") return `${prefix}你先忙，我在这儿。`.trim();
   if (ctx.mood < 0.35) return `${prefix}我可能理解得不够，但我愿意听。`.trim();
-  return `${prefix}你想先从哪一点说起？`.trim();
+  return pickVariant(
+    [
+      `${prefix}你想先从哪一点说起？`.trim(),
+      `${prefix}你希望我怎么陪你？`.trim(),
+      `${prefix}要不要先讲最困扰你的那一段？`.trim()
+    ],
+    seed
+  );
 }
 
 class OpenAICompatibleProvider implements LLMProvider {
@@ -187,7 +254,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         {
           role: "system",
           content:
-            "你是桌面陪伴助手，只输出一行中文短句。语气温和、带点不确定，不要自称理解一切。不要贴标签。"
+            "你是桌面陪伴助手，只输出一行中文短句。语气温和、带点不确定，不要自称理解一切。不要贴标签。不要只输出“我听到了/收到/嗯…”这类纯确认句。"
         },
         {
           role: "user",
@@ -212,7 +279,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         {
           role: "system",
           content:
-            "你是温和的桌面陪伴助手。不要声称你完全理解用户。回答简洁自然，中文为主。"
+            "你是温和的桌面陪伴助手。不要声称你完全理解用户。回答简洁自然，中文为主。必须对用户消息做出具体回应，避免只回复“我听到了/收到”。"
         },
         ...(ctx.history ?? []).slice(-20),
         { role: "user", content: userMsg }
@@ -224,7 +291,19 @@ class OpenAICompatibleProvider implements LLMProvider {
   }
 
   isConfigured() {
-    return Boolean(this.#opts.apiKey);
+    if (this.#opts.apiKey) return true;
+
+    // Allow keyless local OpenAI-compatible endpoints (e.g. Ollama: http://localhost:11434/v1)
+    // so users don't need to set a dummy API key.
+    try {
+      const url = new URL(this.#opts.baseUrl);
+      const host = url.hostname.toLowerCase();
+      const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+      const isHttp = url.protocol === "http:";
+      return Boolean(isHttp && isLocalHost);
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -243,7 +322,7 @@ class AIStudioProvider implements LLMProvider {
 
   async generateBubble(ctx: { state: string; isNight: boolean; mood: number }) {
     const system =
-      "你是桌面陪伴助手，只输出一行中文短句。语气温和、带点不确定，不要自称理解一切。不要贴标签。";
+      "你是桌面陪伴助手，只输出一行中文短句。语气温和、带点不确定，不要自称理解一切。不要贴标签。不要只输出“我听到了/收到/嗯…”这类纯确认句。";
     const prompt = `状态=${ctx.state}, 夜间=${ctx.isNight ? "是" : "否"}, 情绪=${ctx.mood.toFixed(
       2
     )}。请给一句<=20个汉字的气泡内容。`;
@@ -274,11 +353,12 @@ class AIStudioProvider implements LLMProvider {
     ctx: { state: string; isNight: boolean; mood: number; history: any[] },
     userMsg: string
   ) {
-    const system = "你是温和的桌面陪伴助手。不要声称你完全理解用户。回答简洁自然，中文为主。";
+    const system =
+      "你是温和的桌面陪伴助手。不要声称你完全理解用户。回答简洁自然，中文为主。必须对用户消息做出具体回应，避免只回复“我听到了/收到”。";
 
     if (this.#baseUrl) {
       const raw = await openAICompatibleChat(
-          { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
+        { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
         [
           { role: "system", content: system },
           ...(ctx.history ?? []).slice(-20),
@@ -386,13 +466,15 @@ export class LLMService {
   }
 
   async generateBubble(ctx: { state: string; isNight: boolean; mood: number }) {
-    if (!this.#provider) return truncateByCodepoints(ruleBasedBubble(ctx), 20);
+    const fallback = () => truncateByCodepoints(ruleBasedBubble(ctx), 20);
+    if (!this.#provider) return fallback();
     try {
-      const bubble = await this.#provider.generateBubble(ctx);
-      return truncateByCodepoints(bubble, 20);
+      const bubble = truncateByCodepoints(await this.#provider.generateBubble(ctx), 20);
+      if (isLowValueAckReply(bubble)) return fallback();
+      return bubble;
     } catch (err) {
       console.warn("[llm] bubble fallback:", err);
-      return truncateByCodepoints(ruleBasedBubble(ctx), 20);
+      return fallback();
     }
   }
 
@@ -400,12 +482,28 @@ export class LLMService {
     ctx: { state: string; isNight: boolean; mood: number; history: any[] },
     userMsg: string
   ) {
-    if (!this.#provider) return ruleBasedChatReply(ctx, userMsg);
+    const lastAssistant = Array.isArray(ctx?.history)
+      ? [...ctx.history]
+          .reverse()
+          .find((m: any) => m && m.role === "assistant" && typeof m.content === "string")
+          ?.content
+      : undefined;
+
+    const fallback = () => ruleBasedChatReply(ctx, userMsg);
+
+    const finalize = (raw: string) => {
+      const normalized = sanitizeOneLine(String(raw ?? ""));
+      if (!normalized || isLowValueAckReply(normalized)) return fallback();
+      if (lastAssistant && sanitizeOneLine(lastAssistant) === normalized) return fallback();
+      return normalized;
+    };
+
+    if (!this.#provider) return finalize(fallback());
     try {
-      return await this.#provider.chatReply(ctx, userMsg);
+      return finalize(await this.#provider.chatReply(ctx, userMsg));
     } catch (err) {
       console.warn("[llm] chat fallback:", err);
-      return ruleBasedChatReply(ctx, userMsg);
+      return finalize(fallback());
     }
   }
 }

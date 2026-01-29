@@ -44,7 +44,7 @@ export type StageDesktopAPI = {
   onClickThroughChanged: (cb: (enabled: boolean) => void) => Unsubscribe;
   getVrmBytes: () => Promise<Uint8Array>;
   pickVrmBytes: () => Promise<Uint8Array>;
-  getAppInfo: () => Promise<{ vrmLocked: boolean }>;
+  getAppInfo: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
   chatInvoke: (message: string) => Promise<ChatResponse>;
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
@@ -74,7 +74,7 @@ const api: StageDesktopAPI = {
   pickVrmBytes: () => ipcRenderer.invoke(IPC_HANDLES.vrmPick),
   getAppInfo: async () => {
     const raw = await ipcRenderer.invoke(IPC_HANDLES.appInfoGet);
-    return { vrmLocked: Boolean(raw?.vrmLocked) };
+    return { vrmLocked: Boolean(raw?.vrmLocked), llmProvider: String(raw?.llmProvider ?? "") || "unknown" };
   },
   chatInvoke: async (message: string) => {
     const req: ChatRequest = { type: "CHAT_REQUEST", ts: Date.now(), message };
