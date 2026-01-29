@@ -87,6 +87,16 @@
       .topbarSpacer {
         flex: 1;
       }
+      #backBtn {
+        display: none;
+      }
+      /* Only one nav button at a time (reduces “useless buttons” clutter). */
+      #app[data-view="settings"] #settingsBtn {
+        display: none;
+      }
+      #app[data-view="settings"] #backBtn {
+        display: inline-flex;
+      }
 
       .iconBtn {
         width: 36px;
@@ -377,7 +387,66 @@
       .cardTitle {
         font: 14px/1.1 var(--font-display);
         letter-spacing: 0.2px;
+        margin: 0;
+      }
+      /* Collapsible settings cards (progressive disclosure) */
+      details.card > summary.cardTitle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        padding: 2px 2px;
+      }
+      details.card > summary.cardTitle::-webkit-details-marker {
+        display: none;
+      }
+      details.card > summary.cardTitle::after {
+        content: "▾";
+        font: 12px/1 var(--font-display);
+        color: rgba(20, 20, 19, 0.55);
+      }
+      details.card[open] > summary.cardTitle {
         margin-bottom: 10px;
+      }
+      details.card[open] > summary.cardTitle::after {
+        content: "▴";
+      }
+
+      .subDetails {
+        border-radius: 14px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(20, 20, 19, 0.03);
+        overflow: hidden;
+      }
+      .subDetails > summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        padding: 10px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font: 13px/1.1 var(--font-display);
+        color: rgba(20, 20, 19, 0.86);
+      }
+      .subDetails > summary::-webkit-details-marker {
+        display: none;
+      }
+      .subDetails > summary::after {
+        content: "▾";
+        opacity: 0.7;
+      }
+      .subDetails[open] > summary::after {
+        content: "▴";
+      }
+      .subDetailsBody {
+        padding: 10px 10px 12px 10px;
+        border-top: 1px solid rgba(20, 20, 19, 0.08);
+        display: grid;
+        gap: 10px;
       }
       .fieldGrid {
         display: grid;
@@ -667,6 +736,18 @@
           </svg>
         </button>
 
+        <button id="backBtn" class="iconBtn" type="button" aria-label="Back">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M14.5 5.5L8 12l6.5 6.5"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+
         <div class="topbarSpacer"></div>
 
         <div id="llmBadge" class="badge" title="当前对话模型来源">
@@ -697,25 +778,14 @@
         <div id="settingsView" class="view" aria-label="Settings">
           <div class="settingsWrap">
             <div class="settingsHeader">
-              <button id="backBtn" class="iconBtn" type="button" aria-label="Back">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M14.5 5.5L8 12l6.5 6.5"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </button>
               <div>
                 <div class="settingsTitle">设置</div>
-                <div class="settingsSubtitle">尽量少的按钮，但把体验打磨顺。</div>
+                <div class="settingsSubtitle">不再“一股脑全展示”，按需展开。</div>
               </div>
             </div>
 
-            <div class="card">
-              <div class="cardTitle">LLM</div>
+            <details class="card" data-accordion="settings">
+              <summary class="cardTitle">LLM</summary>
               <div class="fieldGrid">
                 <div class="field">
                   <div class="label">Provider</div>
@@ -726,55 +796,92 @@
                     <option value="deepseek">deepseek</option>
                     <option value="aistudio">aistudio (Gemini)</option>
                   </select>
-                  <div class="help">推荐保持 auto：有 key 就用，没有就 fallback。</div>
+                  <div class="help" id="providerHelp">推荐 auto：有 key 就用，没有就 fallback。</div>
                 </div>
-                <div class="field">
-                  <div class="label">OpenAI API Key</div>
-                  <input id="openaiKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
-                </div>
-                <div class="field">
-                  <div class="label">OpenAI Model</div>
-                  <input id="openaiModel" class="input" type="text" autocomplete="off" placeholder="gpt-4o-mini" />
-                </div>
-                <div class="field">
-                  <div class="label">OpenAI Base URL（可选）</div>
-                  <input id="openaiBaseUrl" class="input" type="text" autocomplete="off" placeholder="https://api.openai.com/v1" />
-                  <div class="help">如果你用 OpenAI-compatible 网关（本地或私有），在这里填。</div>
-                </div>
-                <div class="field" style="margin-top: 4px">
-                  <div class="label">DeepSeek API Key</div>
-                  <input id="deepseekKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
-                </div>
-                <div class="field">
-                  <div class="label">DeepSeek Model</div>
-                  <input id="deepseekModel" class="input" type="text" autocomplete="off" placeholder="deepseek-chat" />
-                </div>
-                <div class="field">
-                  <div class="label">DeepSeek Base URL（可选）</div>
-                  <input id="deepseekBaseUrl" class="input" type="text" autocomplete="off" placeholder="https://api.deepseek.com/v1" />
-                </div>
-                <div class="field" style="margin-top: 4px">
-                  <div class="label">AIStudio API Key</div>
-                  <input id="aistudioKey" class="input" type="password" autocomplete="off" placeholder="AIza..." />
-                  <div class="help">AIStudio 默认走 Gemini generateContent；如你有 OpenAI-compatible 网关，可填 Base URL。</div>
-                </div>
-                <div class="field">
-                  <div class="label">AIStudio Model</div>
-                  <input id="aistudioModel" class="input" type="text" autocomplete="off" placeholder="gemini-1.5-flash" />
-                </div>
-                <div class="field">
-                  <div class="label">AIStudio Base URL（可选）</div>
-                  <input id="aistudioBaseUrl" class="input" type="text" autocomplete="off" placeholder="(留空 = Gemini 官方接口)" />
-                </div>
+
+                <details id="openaiDetails" class="subDetails">
+                  <summary>OpenAI</summary>
+                  <div class="subDetailsBody">
+                    <div class="field">
+                      <div class="label">OpenAI API Key</div>
+                      <input id="openaiKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
+                    </div>
+                    <div class="field">
+                      <div class="label">OpenAI Model</div>
+                      <input id="openaiModel" class="input" type="text" autocomplete="off" placeholder="gpt-4o-mini" />
+                    </div>
+                    <div class="field">
+                      <div class="label">OpenAI Base URL（可选）</div>
+                      <input
+                        id="openaiBaseUrl"
+                        class="input"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="https://api.openai.com/v1"
+                      />
+                      <div class="help">如果你用 OpenAI-compatible 网关（本地或私有），在这里填。</div>
+                    </div>
+                  </div>
+                </details>
+
+                <details id="deepseekDetails" class="subDetails">
+                  <summary>DeepSeek</summary>
+                  <div class="subDetailsBody">
+                    <div class="field">
+                      <div class="label">DeepSeek API Key</div>
+                      <input id="deepseekKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
+                    </div>
+                    <div class="field">
+                      <div class="label">DeepSeek Model</div>
+                      <input id="deepseekModel" class="input" type="text" autocomplete="off" placeholder="deepseek-chat" />
+                    </div>
+                    <div class="field">
+                      <div class="label">DeepSeek Base URL（可选）</div>
+                      <input
+                        id="deepseekBaseUrl"
+                        class="input"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="https://api.deepseek.com/v1"
+                      />
+                    </div>
+                  </div>
+                </details>
+
+                <details id="aistudioDetails" class="subDetails">
+                  <summary>AIStudio（Gemini）</summary>
+                  <div class="subDetailsBody">
+                    <div class="field">
+                      <div class="label">AIStudio API Key</div>
+                      <input id="aistudioKey" class="input" type="password" autocomplete="off" placeholder="AIza..." />
+                      <div class="help">AIStudio 默认走 Gemini generateContent；如你有 OpenAI-compatible 网关，可填 Base URL。</div>
+                    </div>
+                    <div class="field">
+                      <div class="label">AIStudio Model</div>
+                      <input id="aistudioModel" class="input" type="text" autocomplete="off" placeholder="gemini-1.5-flash" />
+                    </div>
+                    <div class="field">
+                      <div class="label">AIStudio Base URL（可选）</div>
+                      <input
+                        id="aistudioBaseUrl"
+                        class="input"
+                        type="text"
+                        autocomplete="off"
+                        placeholder="(留空 = Gemini 官方接口)"
+                      />
+                    </div>
+                  </div>
+                </details>
               </div>
+
               <div class="actionsRow">
                 <button id="saveLlm" class="btn btnPrimary" type="button">保存</button>
                 <button id="reloadLlm" class="btn" type="button">重新读取</button>
               </div>
-            </div>
+            </details>
 
-            <div class="card">
-              <div class="cardTitle">动作（VRMA）</div>
+            <details class="card" open data-accordion="settings">
+              <summary class="cardTitle">动作（VRMA）</summary>
               <div class="fieldGrid">
                 <div class="help">加载 .vrma 后可播放，并可设为 Idle/Walk 槽位自动切换；也可保存到动作库。</div>
 
@@ -820,10 +927,10 @@
                   <div id="vrmaLibList" class="libraryList"></div>
                 </div>
               </div>
-            </div>
+            </details>
 
-            <div class="card">
-              <div class="cardTitle">程序动作（兜底）</div>
+            <details class="card" data-accordion="settings">
+              <summary class="cardTitle">程序动作（兜底）</summary>
               <div class="fieldGrid">
                 <div class="help">当没有 VRMA Idle/Walk 时会更明显；也可作为轻微的“呼吸感”。</div>
 
@@ -851,16 +958,16 @@
                   <div class="rangeValue" id="walkStrideValue">0.75</div>
                 </div>
               </div>
-            </div>
+            </details>
 
-            <div class="card">
-              <div class="cardTitle">快捷键</div>
+            <details class="card" data-accordion="settings">
+              <summary class="cardTitle">快捷键</summary>
               <div class="help">
                 <div><span class="kbd">Ctrl+Shift+C</span> 快速发送（仅输入框，回复只在气泡）</div>
                 <div style="margin-top: 6px"><span class="kbd">Ctrl+Alt+O</span> 打开主界面（本窗口）</div>
                 <div style="margin-top: 6px"><span class="kbd">Ctrl+Alt+P</span> 切换 click-through</div>
               </div>
-            </div>
+            </details>
           </div>
           <div class="composer" style="border-top: none; background: transparent">
             <div style="height: 8px"></div>

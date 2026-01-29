@@ -98,6 +98,26 @@ const providerEl = (() => {
   if (!(el instanceof HTMLSelectElement)) throw new Error("missing #provider");
   return el;
 })();
+const providerHelpEl = (() => {
+  const el = document.getElementById("providerHelp");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #providerHelp");
+  return el;
+})();
+const openaiDetailsEl = (() => {
+  const el = document.getElementById("openaiDetails");
+  if (!(el instanceof HTMLDetailsElement)) throw new Error("missing #openaiDetails");
+  return el;
+})();
+const deepseekDetailsEl = (() => {
+  const el = document.getElementById("deepseekDetails");
+  if (!(el instanceof HTMLDetailsElement)) throw new Error("missing #deepseekDetails");
+  return el;
+})();
+const aistudioDetailsEl = (() => {
+  const el = document.getElementById("aistudioDetails");
+  if (!(el instanceof HTMLDetailsElement)) throw new Error("missing #aistudioDetails");
+  return el;
+})();
 const openaiKeyEl = (() => {
   const el = document.getElementById("openaiKey");
   if (!(el instanceof HTMLInputElement)) throw new Error("missing #openaiKey");
@@ -428,6 +448,61 @@ async function refreshLlmBadge() {
   }
 }
 
+function setDetailsVisible(el: HTMLDetailsElement, visible: boolean) {
+  el.style.display = visible ? "" : "none";
+}
+
+function updateProviderPanels() {
+  const provider = String(providerEl.value || "auto");
+  if (provider === "off") {
+    providerHelpEl.textContent = "已禁用：SAMA 会使用规则回复（不走 LLM）。";
+    setDetailsVisible(openaiDetailsEl, false);
+    setDetailsVisible(deepseekDetailsEl, false);
+    setDetailsVisible(aistudioDetailsEl, false);
+    openaiDetailsEl.open = false;
+    deepseekDetailsEl.open = false;
+    aistudioDetailsEl.open = false;
+    return;
+  }
+
+  if (provider === "openai") {
+    providerHelpEl.textContent = "选择 openai：只展示 OpenAI 配置。";
+    setDetailsVisible(openaiDetailsEl, true);
+    setDetailsVisible(deepseekDetailsEl, false);
+    setDetailsVisible(aistudioDetailsEl, false);
+    openaiDetailsEl.open = true;
+    deepseekDetailsEl.open = false;
+    aistudioDetailsEl.open = false;
+    return;
+  }
+  if (provider === "deepseek") {
+    providerHelpEl.textContent = "选择 deepseek：只展示 DeepSeek 配置。";
+    setDetailsVisible(openaiDetailsEl, false);
+    setDetailsVisible(deepseekDetailsEl, true);
+    setDetailsVisible(aistudioDetailsEl, false);
+    openaiDetailsEl.open = false;
+    deepseekDetailsEl.open = true;
+    aistudioDetailsEl.open = false;
+    return;
+  }
+  if (provider === "aistudio") {
+    providerHelpEl.textContent = "选择 aistudio：只展示 AIStudio/Gemini 配置。";
+    setDetailsVisible(openaiDetailsEl, false);
+    setDetailsVisible(deepseekDetailsEl, false);
+    setDetailsVisible(aistudioDetailsEl, true);
+    openaiDetailsEl.open = false;
+    deepseekDetailsEl.open = false;
+    aistudioDetailsEl.open = true;
+    return;
+  }
+
+  // auto
+  providerHelpEl.textContent = "auto：你可以填写任意一个 Key；SAMA 会自动选择可用的。";
+  setDetailsVisible(openaiDetailsEl, true);
+  setDetailsVisible(deepseekDetailsEl, true);
+  setDetailsVisible(aistudioDetailsEl, true);
+}
+
 async function loadLlmConfigIntoForm() {
   const api = getApi();
   if (!api || typeof api.getLlmConfig !== "function") {
@@ -453,6 +528,7 @@ async function loadLlmConfigIntoForm() {
     aistudioModelEl.value = String(cfg.aistudio?.model ?? "");
     aistudioBaseUrlEl.value = String(cfg.aistudio?.baseUrl ?? "");
 
+    updateProviderPanels();
     showToast("已读取 LLM 配置", { timeoutMs: 1400 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -972,6 +1048,21 @@ function boot() {
   });
   backBtn.addEventListener("click", () => setView("chat"));
 
+  // Accordion-style settings cards: open one, close the rest.
+  // This keeps settings from being "dumped" on users all at once.
+  const settingsCards = Array.from(document.querySelectorAll('details[data-accordion="settings"]')).filter(
+    (d): d is HTMLDetailsElement => d instanceof HTMLDetailsElement
+  );
+  for (const card of settingsCards) {
+    card.addEventListener("toggle", () => {
+      if (!card.open) return;
+      for (const other of settingsCards) {
+        if (other === card) continue;
+        other.open = false;
+      }
+    });
+  }
+
   // --- Motion / VRMA settings (in Settings view) -----------------------------
   updateMotionFormFromState();
   applyMotionToPet();
@@ -1112,6 +1203,9 @@ function boot() {
     saveMotionUiSettings(motionUi);
     queueWalkConfig({ stride: motionUi.walk.stride });
   });
+
+  providerEl.addEventListener("change", () => updateProviderPanels());
+  updateProviderPanels();
 
   sendBtn.addEventListener("click", () => void sendMessage());
   input.addEventListener("keydown", (e) => {
