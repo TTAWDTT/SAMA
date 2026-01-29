@@ -613,6 +613,27 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   llmStatus.textContent = "LLM：—";
   llmDetails.body.appendChild(llmStatus);
 
+  const DEFAULT_LLM_BASE_URL = {
+    openai: "https://api.openai.com/v1",
+    deepseek: "https://api.deepseek.com/v1"
+  } as const;
+
+  const fillDefaultBaseUrls = (opts?: { only?: "openai" | "deepseek" | "all" }) => {
+    const only = opts?.only ?? "all";
+    if ((only === "openai" || only === "all") && !openaiBaseUrl.value.trim()) {
+      openaiBaseUrl.value = DEFAULT_LLM_BASE_URL.openai;
+    }
+    if ((only === "deepseek" || only === "all") && !deepseekBaseUrl.value.trim()) {
+      deepseekBaseUrl.value = DEFAULT_LLM_BASE_URL.deepseek;
+    }
+  };
+
+  providerSelect.addEventListener("change", () => {
+    const p = String(providerSelect.value || "").toLowerCase();
+    if (p === "openai") fillDefaultBaseUrls({ only: "openai" });
+    if (p === "deepseek") fillDefaultBaseUrls({ only: "deepseek" });
+  });
+
   const loadLlmUi = async () => {
     const api: any = (window as any).stageDesktop;
     if (!api || typeof api.getLlmConfig !== "function") {
@@ -636,6 +657,9 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
     aistudioModel.value = String(effective?.aistudio?.model ?? "");
     aistudioApiKey.value = String(effective?.aistudio?.apiKey ?? "");
     aistudioBaseUrl.value = String(effective?.aistudio?.baseUrl ?? "");
+
+    // Auto-fill well-known defaults if the merged config still leaves baseUrl empty.
+    fillDefaultBaseUrls({ only: "all" });
 
     const provider = String(res?.provider ?? "");
     const path = String(res?.storagePath ?? "");

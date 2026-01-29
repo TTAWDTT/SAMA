@@ -176,9 +176,18 @@ function sanitizeLlmConfig(raw: unknown): LLMConfig {
     const b = (raw as any)[key];
     if (!isPlainObject(b)) return undefined;
     const out: any = {};
+    // apiKey: allow empty string so users can explicitly clear it.
     if (typeof b.apiKey === "string") out.apiKey = b.apiKey;
-    if (typeof b.model === "string") out.model = b.model;
-    if (typeof b.baseUrl === "string") out.baseUrl = b.baseUrl;
+
+    // baseUrl/model: ignore empty strings so "clear" reverts to defaults from config.json.
+    if (typeof b.model === "string") {
+      const s = b.model.trim();
+      if (s) out.model = s;
+    }
+    if (typeof b.baseUrl === "string") {
+      const s = b.baseUrl.trim();
+      if (s) out.baseUrl = s;
+    }
     return out;
   };
 
