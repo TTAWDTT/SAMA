@@ -41,8 +41,12 @@ const IPC_HANDLES = {
   llmConfigGet: "handle:llm-config-get",
   llmConfigSet: "handle:llm-config-set",
   memoryStatsGet: "handle:memory-stats-get",
+  memoryConfigGet: "handle:memory-config-get",
+  memoryConfigSet: "handle:memory-config-set",
   memoryNotesList: "handle:memory-notes-list",
   memoryNoteAdd: "handle:memory-note-add",
+  memoryNoteDelete: "handle:memory-note-delete",
+  memoryNoteUpdate: "handle:memory-note-update",
   memoryClearChat: "handle:memory-clear-chat",
   memoryClearNotes: "handle:memory-clear-notes"
 } as const;
@@ -65,10 +69,19 @@ export type StageDesktopAPI = {
   }>;
   setLlmConfig: (config: LLMConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
   getMemoryStats: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number }>;
+  getMemoryConfig: () => Promise<{
+    enabled: boolean;
+    config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" };
+  }>;
+  setMemoryConfig: (
+    partial: Partial<{ injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" }>
+  ) => Promise<{ ok: boolean; config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } }>;
   listMemoryNotes: (
     limit: number
-  ) => Promise<{ enabled: boolean; notes: { kind: string; content: string; updatedTs: number }[] }>;
+  ) => Promise<{ enabled: boolean; notes: { id: number; kind: string; content: string; updatedTs: number }[] }>;
   addMemoryNote: (content: string) => Promise<{ ok: boolean }>;
+  deleteMemoryNote: (id: number) => Promise<{ ok: boolean }>;
+  updateMemoryNote: (id: number, content: string) => Promise<{ ok: boolean }>;
   clearChatHistory: () => Promise<{ ok: boolean }>;
   clearMemoryNotes: () => Promise<{ ok: boolean }>;
   chatInvoke: (message: string) => Promise<ChatResponse>;
@@ -111,8 +124,12 @@ const api: StageDesktopAPI = {
   getLlmConfig: async () => ipcRenderer.invoke(IPC_HANDLES.llmConfigGet),
   setLlmConfig: async (config: LLMConfig) => ipcRenderer.invoke(IPC_HANDLES.llmConfigSet, config),
   getMemoryStats: async () => ipcRenderer.invoke(IPC_HANDLES.memoryStatsGet),
+  getMemoryConfig: async () => ipcRenderer.invoke(IPC_HANDLES.memoryConfigGet),
+  setMemoryConfig: async (partial) => ipcRenderer.invoke(IPC_HANDLES.memoryConfigSet, partial),
   listMemoryNotes: async (limit: number) => ipcRenderer.invoke(IPC_HANDLES.memoryNotesList, limit),
   addMemoryNote: async (content: string) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteAdd, { content }),
+  deleteMemoryNote: async (id: number) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteDelete, { id }),
+  updateMemoryNote: async (id: number, content: string) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteUpdate, { id, content }),
   clearChatHistory: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearChat),
   clearMemoryNotes: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearNotes),
   chatInvoke: async (message: string) => {

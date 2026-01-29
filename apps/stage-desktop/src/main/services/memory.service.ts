@@ -12,6 +12,7 @@ type MemoryNoteRow = { id: number; created_ts: number; updated_ts: number; kind:
 
 const CHAT_RETENTION_LIMIT = 2000;
 const NOTE_RETENTION_LIMIT = 400;
+const DEFAULT_AGENT_MEMORY_CONFIG = { injectLimit: 12, autoRemember: false, autoMode: "rules" as const };
 
 export class MemoryService {
   #dbPath: string;
@@ -87,7 +88,88 @@ export class MemoryService {
         UNIQUE(kind, content)
       );
       CREATE INDEX IF NOT EXISTS idx_memory_notes_updated ON memory_notes(updated_ts);
+
+      -- Simple key/value settings for memory features.
+      CREATE TABLE IF NOT EXISTS kv(
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
+  }
+
+  #getKv(key: string): string | null {
+    if (!this.#db) return null;
+    try {
+      const row = this.#db.prepare("SELECT value FROM kv WHERE key=?").get(String(key)) as { value?: string } | undefined;
+      const v = typeof row?.value === "string" ? row.value : "";
+      return v ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  #setKv(key: string, value: string) {
+    if (!this.#db) return;
+    try {
+      this.#db.prepare("INSERT INTO kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+        String(key),
+        String(value ?? "")
+      );
+    } catch {}
+  }
+
+  getAgentMemoryConfig(): { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } {
+    if (!this.#db) return { ...DEFAULT_AGENT_MEMORY_CONFIG };
+
+    const injectLimit = (() => {
+      const raw = this.#getKv("memory.injectLimit");
+      const n = Math.floor(Number(raw));
+      if (!Number.isFinite(n)) return DEFAULT_AGENT_MEMORY_CONFIG.injectLimit;
+      return Math.max(0, Math.min(40, n));
+    })();
+
+    const autoRemember = (() => {
+      const raw = this.#getKv("memory.autoRemember");
+      if (raw === null) return DEFAULT_AGENT_MEMORY_CONFIG.autoRemember;
+      return raw === "1" || raw.toLowerCase() === "true";
+    })();
+
+    const autoMode = (() => {
+      const raw = (this.#getKv("memory.autoMode") ?? DEFAULT_AGENT_MEMORY_CONFIG.autoMode).toLowerCase();
+      return raw === "llm" ? "llm" : "rules";
+    })();
+
+    return { injectLimit, autoRemember, autoMode };
+  }
+
+  setAgentMemoryConfig(
+    partial: any
+  ): { ok: boolean; config: { injectLimit: number; autoRemember: boolean; autoMode: "rules" | "llm" } } {
+    if (!this.#db) return { ok: false, config: { ...DEFAULT_AGENT_MEMORY_CONFIG } };
+
+    const prev = this.getAgentMemoryConfig();
+    const next = {
+      injectLimit:
+        partial && partial.injectLimit !== undefined
+          ? Math.max(0, Math.min(40, Math.floor(Number(partial.injectLimit) || 0)))
+          : prev.injectLimit,
+      autoRemember: partial && partial.autoRemember !== undefined ? Boolean(partial.autoRemember) : prev.autoRemember,
+      autoMode:
+        partial && typeof partial.autoMode === "string"
+          ? partial.autoMode.toLowerCase() === "llm"
+            ? "llm"
+            : "rules"
+          : prev.autoMode
+    } as const;
+
+    try {
+      this.#setKv("memory.injectLimit", String(next.injectLimit));
+      this.#setKv("memory.autoRemember", next.autoRemember ? "1" : "0");
+      this.#setKv("memory.autoMode", next.autoMode);
+      return { ok: true, config: next };
+    } catch {
+      return { ok: false, config: next };
+    }
   }
 
   logAction(cmd: ActionCommand) {
@@ -191,7 +273,7 @@ export class MemoryService {
     }
   }
 
-  listMemoryNotes(limit: number): { kind: string; content: string; updatedTs: number }[] {
+  listMemoryNotes(limit: number): { id: number; kind: string; content: string; updatedTs: number }[] {
     if (!this.#db) return [];
     const n = Math.max(0, Math.min(200, Math.floor(Number(limit) || 0)));
     if (!n) return [];
@@ -200,6 +282,7 @@ export class MemoryService {
     );
     const rows = (stmt.all(n) as MemoryNoteRow[]) ?? [];
     return rows.map((r) => ({
+      id: Number(r.id ?? 0) || 0,
       kind: String(r.kind ?? "note"),
       content: String(r.content ?? ""),
       updatedTs: Number(r.updated_ts ?? 0)
@@ -240,6 +323,61 @@ export class MemoryService {
     try {
       this.#db.prepare("DELETE FROM memory_notes").run();
     } catch {}
+  }
+
+  deleteMemoryNoteById(id: number) {
+    if (!this.#db) return false;
+    const n = Math.floor(Number(id) || 0);
+    if (!Number.isFinite(n) || n <= 0) return false;
+    try {
+      const info = this.#db.prepare("DELETE FROM memory_notes WHERE id=?").run(n);
+      return Number((info as any)?.changes ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  updateMemoryNoteById(id: number, content: string, ts?: number) {
+    if (!this.#db) return false;
+    const n = Math.floor(Number(id) || 0);
+    const next = String(content ?? "").trim();
+    if (!Number.isFinite(n) || n <= 0) return false;
+    if (!next) return false;
+
+    const now = Math.max(1, Math.floor(Number(ts ?? Date.now())));
+    try {
+      const row = this.#db
+        .prepare("SELECT id, kind, content FROM memory_notes WHERE id=?")
+        .get(n) as { id: number; kind: string; content: string } | undefined;
+      if (!row?.id) return false;
+
+      const kind = String(row.kind ?? "note").trim() || "note";
+
+      if (String(row.content ?? "").trim() === next) {
+        this.#db.prepare("UPDATE memory_notes SET updated_ts=? WHERE id=?").run(now, n);
+        return true;
+      }
+
+      try {
+        this.#db.prepare("UPDATE memory_notes SET content=?, updated_ts=? WHERE id=?").run(next, now, n);
+        return true;
+      } catch (err) {
+        // UNIQUE(kind, content) conflict: merge into existing and delete this row.
+        try {
+          const existing = this.#db
+            .prepare("SELECT id FROM memory_notes WHERE kind=? AND content=?")
+            .get(kind, next) as { id: number } | undefined;
+          if (existing?.id) {
+            this.#db.prepare("UPDATE memory_notes SET updated_ts=? WHERE id=?").run(now, existing.id);
+            this.#db.prepare("DELETE FROM memory_notes WHERE id=?").run(n);
+            return true;
+          }
+        } catch {}
+        throw err;
+      }
+    } catch {
+      return false;
+    }
   }
 
   getOrInitDaily(date: string): DailyStats {

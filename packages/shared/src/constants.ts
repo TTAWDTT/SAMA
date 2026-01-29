@@ -24,8 +24,12 @@ export const IPC_HANDLES = {
 
   // Long-term memory (SQLite). These are optional at runtime (SQLite may be disabled).
   memoryStatsGet: "handle:memory-stats-get",
+  memoryConfigGet: "handle:memory-config-get",
+  memoryConfigSet: "handle:memory-config-set",
   memoryNotesList: "handle:memory-notes-list",
   memoryNoteAdd: "handle:memory-note-add",
+  memoryNoteDelete: "handle:memory-note-delete",
+  memoryNoteUpdate: "handle:memory-note-update",
   memoryClearChat: "handle:memory-clear-chat",
   memoryClearNotes: "handle:memory-clear-notes"
 } as const;

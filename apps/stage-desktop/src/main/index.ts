@@ -793,6 +793,18 @@ async function bootstrap() {
   // Long-term memory (SQLite) IPC ------------------------------------------------
   ipcMain.handle(IPC_HANDLES.memoryStatsGet, async () => memory.getMemoryStats());
 
+  ipcMain.handle(IPC_HANDLES.memoryConfigGet, async () => ({
+    enabled: memory.enabled,
+    config: memory.getAgentMemoryConfig()
+  }));
+
+  ipcMain.handle(IPC_HANDLES.memoryConfigSet, async (_evt, payload: any) => {
+    if (!memory.enabled) return { ok: false, config: memory.getAgentMemoryConfig() };
+    const partial = isPlainObject(payload) ? payload : {};
+    const res = memory.setAgentMemoryConfig(partial);
+    return { ok: Boolean(res.ok), config: res.config };
+  });
+
   ipcMain.handle(IPC_HANDLES.memoryNotesList, async (_evt, limitRaw: any) => {
     const limit = Math.max(1, Math.min(50, Math.floor(Number(limitRaw) || 0))) || 14;
     return { enabled: memory.enabled, notes: memory.listMemoryNotes(limit) };
@@ -801,6 +813,21 @@ async function bootstrap() {
   ipcMain.handle(IPC_HANDLES.memoryNoteAdd, async (_evt, payload: any) => {
     const content = isPlainObject(payload) ? payload.content : payload;
     const ok = memory.upsertMemoryNote({ kind: "note", content: String(content ?? ""), ts: Date.now() });
+    return { ok: Boolean(ok) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryNoteDelete, async (_evt, payload: any) => {
+    if (!memory.enabled) return { ok: false };
+    const id = Number(isPlainObject(payload) ? payload.id : payload);
+    const ok = memory.deleteMemoryNoteById(id);
+    return { ok: Boolean(ok) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryNoteUpdate, async (_evt, payload: any) => {
+    if (!memory.enabled) return { ok: false };
+    const id = Number(isPlainObject(payload) ? payload.id : 0);
+    const content = String(isPlainObject(payload) ? payload.content : "").trim();
+    const ok = memory.updateMemoryNoteById(id, content, Date.now());
     return { ok: Boolean(ok) };
   });
 

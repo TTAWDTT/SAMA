@@ -60,6 +60,53 @@ function parseRememberNote(raw: string): string | null {
   return content ? content : null;
 }
 
+function looksSensitiveText(s: string) {
+  const t = String(s ?? "");
+  if (!t) return false;
+  if (/sk-[A-Za-z0-9]{10,}/.test(t)) return true;
+  if (/AIza[0-9A-Za-z_-]{10,}/.test(t)) return true;
+  if (/(api[_-]?key|password|密码|令牌|token)/i.test(t) && t.length > 20) return true;
+  return false;
+}
+
+function ruleBasedMemoryExtract(userMsg: string): { kind: "preference" | "profile" | "project" | "note"; content: string }[] {
+  const s = String(userMsg ?? "").trim();
+  if (!s) return [];
+  if (looksSensitiveText(s)) return [];
+
+  const out: { kind: "preference" | "profile" | "project" | "note"; content: string }[] = [];
+
+  // Name patterns (keep conservative).
+  const nameMatch =
+    s.match(/(?:我叫|我的名字是|名叫)\s*([^\s，,。.!！?？\n]{1,16})/) ?? s.match(/叫我\s*([^\s，,。.!！?？\n]{1,16})/);
+  if (nameMatch?.[1]) {
+    const name = String(nameMatch[1]).trim();
+    if (name && name.length <= 16) out.push({ kind: "profile", content: `用户名字：${name}` });
+  }
+
+  // Simple preferences.
+  const like = s.match(/我(喜欢|更喜欢|爱)\s*([^。!?？\n]{1,40})/);
+  if (like?.[2]) {
+    const v = like[2].trim();
+    if (v) out.push({ kind: "preference", content: `喜欢：${v}` });
+  }
+  const dislike = s.match(/我(不喜欢|讨厌|不爱)\s*([^。!?？\n]{1,40})/);
+  if (dislike?.[2]) {
+    const v = dislike[2].trim();
+    if (v) out.push({ kind: "preference", content: `不喜欢：${v}` });
+  }
+
+  // De-dup by content.
+  const seen = new Set<string>();
+  const uniq = out.filter((x) => {
+    const key = `${x.kind}|${x.content}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return uniq.slice(0, 3);
+}
+
 export class CoreService {
   #llm: LLMService;
   #memory: MemoryService;
@@ -363,12 +410,15 @@ export class CoreService {
       return { type: "CHAT_RESPONSE", ts: replyTs, message: reply };
     }
 
+    const memCfg = this.#memory.getAgentMemoryConfig();
+    const memoryPrompt = memCfg.injectLimit > 0 ? this.#memory.getMemoryPrompt(memCfg.injectLimit) : "";
+
     const ctx = {
       state: this.#state,
       isNight: this.#lastSensor?.isNight ?? false,
       mood: this.#mood,
       history: this.#chatHistory,
-      memory: this.#memory.getMemoryPrompt(12)
+      memory: memoryPrompt
     };
 
     // UX: show an immediate "thinking" indicator near the avatar so users get feedback
@@ -411,6 +461,26 @@ export class CoreService {
     };
     this.#memory.logAction(cmd);
     this.#onAction(cmd, { proactive: false });
+
+    // Agent-like memory: optionally extract durable notes in the background.
+    // Do NOT block the user-visible reply on this.
+    void (async () => {
+      const cfg = this.#memory.getAgentMemoryConfig();
+      if (!cfg.autoRemember) return;
+      if (!this.#memory.enabled) return;
+      if (looksSensitiveText(req.message) || looksSensitiveText(reply)) return;
+
+      const items =
+        cfg.autoMode === "llm" && this.#llm.enabled
+          ? await this.#llm.extractMemoryNotes(ctx, { user: req.message, assistant: reply })
+          : ruleBasedMemoryExtract(req.message);
+
+      for (const it of items) {
+        try {
+          this.#memory.upsertMemoryNote({ kind: it.kind, content: it.content, ts: replyTs });
+        } catch {}
+      }
+    })();
 
     return { type: "CHAT_RESPONSE", ts: replyTs, message: reply };
   }

@@ -15,6 +15,20 @@ export interface LLMProvider {
     },
     userMsg: string
   ): Promise<string>;
+  /**
+   * Extract durable memory notes from a single turn.
+   * Implementations should be conservative: only return stable facts/preferences.
+   */
+  extractMemoryNotes?: (
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      memory?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
+    turn: { user: string; assistant: string }
+  ) => Promise<{ kind: "preference" | "profile" | "project" | "note"; content: string }[]>;
 }
 
 type OpenAICompatibleOpts = {
@@ -51,6 +65,38 @@ function truncateByCodepoints(s: string, max: number) {
 
 function sanitizeOneLine(s: string) {
   return s.replace(/\s+/g, " ").replace(/(^[“”"']+|[“”"']+$)/g, "").trim();
+}
+
+function parseMemoryExtractorJson(raw: string) {
+  const text = String(raw ?? "").trim();
+  if (!text) return [];
+
+  // The extractor prompt requests strict JSON, but be defensive.
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  const slice = start >= 0 && end > start ? text.slice(start, end + 1) : text;
+
+  try {
+    const parsed: any = JSON.parse(slice);
+    if (!Array.isArray(parsed)) return [];
+
+    const out: { kind: "preference" | "profile" | "project" | "note"; content: string }[] = [];
+    for (const item of parsed.slice(0, 6)) {
+      const kindRaw = String(item?.kind ?? "note").toLowerCase();
+      const kind: "preference" | "profile" | "project" | "note" =
+        kindRaw === "preference" || kindRaw === "profile" || kindRaw === "project" ? (kindRaw as any) : "note";
+
+      const content = String(item?.content ?? "").trim();
+      if (!content) continue;
+
+      // Keep each memory short and human-readable.
+      const clipped = truncateByCodepoints(content, 120);
+      out.push({ kind, content: clipped });
+    }
+    return out.slice(0, 3);
+  } catch {
+    return [];
+  }
 }
 
 function hashStringCodepoints(s: string) {
@@ -293,6 +339,38 @@ class OpenAICompatibleProvider implements LLMProvider {
     return sanitizeOneLine(raw);
   }
 
+  async extractMemoryNotes(
+    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    turn: { user: string; assistant: string }
+  ) {
+    const memory = String(ctx?.memory ?? "").trim();
+    const system =
+      "你是“长期记忆提取器”。你会从对话中提取适合长期记住的稳定信息（偏好、名字、长期目标、项目背景）。\n" +
+      "规则：\n" +
+      "- 只提取用户明确表达、且未来仍可能成立的信息。\n" +
+      "- 不要提取一次性任务、临时计划、短期状态。\n" +
+      "- 不要提取敏感信息（密码/API key/地址/身份证等）。\n" +
+      "- 如不确定，输出空数组 []。\n" +
+      "输出格式：严格 JSON 数组，每个元素为 {\"kind\":\"preference|profile|project|note\",\"content\":\"...\"}，最多 3 条。";
+
+    const prompt =
+      (memory ? `现有长期记忆（可能不完整）：\n${memory}\n\n` : "") +
+      `用户：${String(turn?.user ?? "").trim()}\n` +
+      `助手：${String(turn?.assistant ?? "").trim()}\n\n` +
+      "请输出 JSON：";
+
+    const raw = await openAICompatibleChat(
+      this.#opts,
+      [
+        { role: "system", content: system },
+        { role: "user", content: prompt }
+      ],
+      220,
+      12_000
+    );
+    return parseMemoryExtractorJson(raw);
+  }
+
   isConfigured() {
     if (this.#opts.apiKey) return true;
 
@@ -387,6 +465,48 @@ class AIStudioProvider implements LLMProvider {
     });
 
     return sanitizeOneLine(raw);
+  }
+
+  async extractMemoryNotes(
+    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    turn: { user: string; assistant: string }
+  ) {
+    const memory = String(ctx?.memory ?? "").trim();
+    const system =
+      "你是“长期记忆提取器”。你会从对话中提取适合长期记住的稳定信息（偏好、名字、长期目标、项目背景）。\n" +
+      "规则：\n" +
+      "- 只提取用户明确表达、且未来仍可能成立的信息。\n" +
+      "- 不要提取一次性任务、临时计划、短期状态。\n" +
+      "- 不要提取敏感信息（密码/API key/地址/身份证等）。\n" +
+      "- 如不确定，输出空数组 []。\n" +
+      "输出格式：严格 JSON 数组，每个元素为 {\"kind\":\"preference|profile|project|note\",\"content\":\"...\"}，最多 3 条。";
+
+    const prompt =
+      (memory ? `现有长期记忆（可能不完整）：\n${memory}\n\n` : "") +
+      `用户：${String(turn?.user ?? "").trim()}\n` +
+      `助手：${String(turn?.assistant ?? "").trim()}\n\n` +
+      "请输出 JSON：";
+
+    const raw = this.#baseUrl
+      ? await openAICompatibleChat(
+          { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
+          [
+            { role: "system", content: system },
+            { role: "user", content: prompt }
+          ],
+          220,
+          12_000
+        )
+      : await geminiGenerateText({
+          apiKey: this.#apiKey,
+          model: this.#model,
+          systemInstruction: system,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          maxOutputTokens: 220,
+          timeoutMs: 12_000
+        });
+
+    return parseMemoryExtractorJson(raw);
   }
 
   isConfigured() {
@@ -514,6 +634,32 @@ export class LLMService {
     } catch (err) {
       console.warn("[llm] chat fallback:", err);
       return finalize(fallback());
+    }
+  }
+
+  async extractMemoryNotes(
+    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    turn: { user: string; assistant: string }
+  ): Promise<{ kind: "preference" | "profile" | "project" | "note"; content: string }[]> {
+    if (!this.#provider || typeof this.#provider.extractMemoryNotes !== "function") return [];
+
+    try {
+      const items = await this.#provider.extractMemoryNotes(ctx, turn);
+      if (!Array.isArray(items)) return [];
+
+      const out: { kind: "preference" | "profile" | "project" | "note"; content: string }[] = [];
+      for (const it of items) {
+        const kindRaw = String((it as any)?.kind ?? "note").toLowerCase();
+        const kind: "preference" | "profile" | "project" | "note" =
+          kindRaw === "preference" || kindRaw === "profile" || kindRaw === "project" ? (kindRaw as any) : "note";
+        const content = String((it as any)?.content ?? "").trim();
+        if (!content) continue;
+        out.push({ kind, content: truncateByCodepoints(content, 120) });
+      }
+      return out.slice(0, 3);
+    } catch (err) {
+      console.warn("[llm] memory-extract skipped:", err);
+      return [];
     }
   }
 }
