@@ -38,6 +38,8 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
     show: false,
     resizable: true,
     alwaysOnTop: false,
+    // Hide the default Electron menu bar (File/View/...) to keep the UI clean.
+    autoHideMenuBar: true,
     backgroundColor: "#faf9f5",
     ...(icon ? { icon } : {}),
     webPreferences: {
@@ -46,6 +48,8 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
       nodeIntegration: false
     }
   });
+  win.setMenu(null);
+  win.setMenuBarVisibility(false);
 
   const isDev = !!(process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL);
   if (isDev) {
