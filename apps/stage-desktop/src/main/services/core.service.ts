@@ -104,6 +104,13 @@ function looksSensitiveText(s: string) {
   return false;
 }
 
+function redactSensitiveForSummary(s: string) {
+  const t = String(s ?? "").trim();
+  if (!t) return "";
+  if (looksSensitiveText(t)) return "[敏感信息已省略]";
+  return t;
+}
+
 function ruleBasedMemoryExtract(userMsg: string): { kind: "preference" | "profile" | "project" | "note"; content: string }[] {
   const s = String(userMsg ?? "").trim();
   if (!s) return [];
@@ -163,6 +170,8 @@ export class CoreService {
   #inFlight = false;
 
   #chatHistory: { role: "user" | "assistant"; content: string }[] = [];
+  #summaryInFlight = false;
+  #lastSummaryUpdateTs = 0;
 
   constructor(opts: {
     llm: LLMService;
@@ -195,6 +204,54 @@ export class CoreService {
 
   clearChatHistory() {
     this.#chatHistory = [];
+  }
+
+  async #maybeUpdateConversationSummary() {
+    if (!this.#llm.enabled) return;
+    if (!this.#memory.enabled) return;
+
+    const now = Date.now();
+    if (this.#summaryInFlight) return;
+
+    // Debounce: if the user is typing quickly, don't fire summary requests too frequently.
+    if (this.#lastSummaryUpdateTs && now - this.#lastSummaryUpdateTs < 2500) return;
+
+    this.#summaryInFlight = true;
+    try {
+      const { summary: currentSummary, lastId } = this.#memory.getConversationSummary();
+
+      const rows =
+        lastId > 0
+          ? this.#memory.getChatMessagesSinceId(lastId, 80)
+          : this.#memory.getRecentChatMessagesWithIds(80);
+
+      if (!rows.length) return;
+
+      const newMessages = rows
+        .map((r) => ({
+          role: r.role,
+          content: redactSensitiveForSummary(r.content)
+        }))
+        .filter((m) => m.content);
+
+      // Typical turn is 2 messages (user + assistant). If we have fewer, wait for more.
+      if (newMessages.length < 2) return;
+
+      const updated = await this.#llm.summarizeConversation({ currentSummary, newMessages });
+      const next = String(updated ?? "").trim();
+      if (!next) return;
+
+      // Never persist potentially sensitive content.
+      if (looksSensitiveText(next)) return;
+
+      const nextLastId = rows[rows.length - 1]?.id ?? lastId;
+      this.#memory.setConversationSummary(next, nextLastId);
+      this.#lastSummaryUpdateTs = now;
+    } catch (err) {
+      console.warn("[memory] short-term summary skipped:", err);
+    } finally {
+      this.#summaryInFlight = false;
+    }
   }
 
   #recomputeState(u: SensorUpdate): CompanionState {
@@ -446,14 +503,17 @@ export class CoreService {
     }
 
     const memCfg = this.#memory.getAgentMemoryConfig();
-    const memoryPrompt = memCfg.injectLimit > 0 ? this.#memory.getMemoryPrompt(memCfg.injectLimit) : "";
+    const memoryPrompt =
+      memCfg.injectLimit > 0 ? this.#memory.getMemoryPromptForQuery(req.message, memCfg.injectLimit) : "";
+    const summary = this.#memory.getConversationSummary().summary;
 
     const ctx = {
       state: this.#state,
       isNight: this.#lastSensor?.isNight ?? false,
       mood: this.#mood,
       history: this.#chatHistory,
-      memory: memoryPrompt
+      memory: memoryPrompt,
+      summary
     };
 
     // UX: show an immediate "thinking" indicator near the avatar so users get feedback
@@ -497,9 +557,11 @@ export class CoreService {
     this.#memory.logAction(cmd);
     this.#onAction(cmd, { proactive: false });
 
-    // Agent-like memory: optionally extract durable notes in the background.
+    // Agent-like memory: update short-term summary + optionally extract durable notes in the background.
     // Do NOT block the user-visible reply on this.
     void (async () => {
+      await this.#maybeUpdateConversationSummary();
+
       const cfg = this.#memory.getAgentMemoryConfig();
       if (!cfg.autoRemember) return;
       if (!this.#memory.enabled) return;

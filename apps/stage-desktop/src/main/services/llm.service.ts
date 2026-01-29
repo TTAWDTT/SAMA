@@ -11,6 +11,8 @@ export interface LLMProvider {
       mood: number;
       /** Durable memory (short, human-readable). */
       memory?: string;
+      /** Rolling short-term summary for continuity (best-practice working memory). */
+      summary?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
@@ -25,10 +27,17 @@ export interface LLMProvider {
       isNight: boolean;
       mood: number;
       memory?: string;
+      summary?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     turn: { user: string; assistant: string }
   ) => Promise<{ kind: "preference" | "profile" | "project" | "note"; content: string }[]>;
+
+  // Optional: update the rolling short-term summary (kept separate from durable notes).
+  summarizeConversation?: (opts: {
+    currentSummary: string;
+    newMessages: { role: "user" | "assistant"; content: string }[];
+  }) => Promise<string>;
 }
 
 type OpenAICompatibleOpts = {
@@ -73,6 +82,18 @@ function sanitizeChatText(raw: string) {
     .replace(/\r\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim();
+}
+
+function stripNightNagPrefix(raw: string) {
+  const s = String(raw ?? "").trimStart();
+  if (!s) return "";
+
+  // Some models pick up a "night reminder" style and keep repeating it.
+  // Strip a leading "夜里说话..." clause so it doesn't infect future history.
+  const m = s.match(/^夜里说话[^。\n]{0,18}?(?:安静点|更轻点|小声点|轻点|安静些|小点)[。!！…]*\s*/);
+  if (!m) return s;
+  const rest = s.slice(m[0].length).trimStart();
+  return rest || s;
 }
 
 function parseMemoryExtractorJson(raw: string) {
@@ -326,10 +347,17 @@ class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async chatReply(
-    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      memory?: string;
+      summary?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
     userMsg: string
   ) {
-    const system = buildChatSystemPrompt({ memory: ctx?.memory });
+    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary });
     const raw = await openAICompatibleChat(
       this.#opts,
       [
@@ -346,8 +374,53 @@ class OpenAICompatibleProvider implements LLMProvider {
     return sanitizeChatText(raw);
   }
 
+  async summarizeConversation(opts: {
+    currentSummary: string;
+    newMessages: { role: "user" | "assistant"; content: string }[];
+  }) {
+    const system =
+      "你是“对话摘要器（短期记忆）”。任务：维护一份用于继续聊天的摘要。\n" +
+      "要求：\n" +
+      "- 中文输出。\n" +
+      "- 用要点列表（- 开头）。\n" +
+      "- 只保留对后续有用的信息：用户目标/偏好/约束/已决定事项/正在做的任务。\n" +
+      "- 不要加入道德说教、时间提醒（例如“夜里说话…”）。\n" +
+      "- 不要包含敏感信息（密码/API Key/地址等）。\n" +
+      "- 不要输出除了摘要以外的任何内容。\n" +
+      "长度：总计 <= 1200 汉字。";
+
+    const current = String(opts?.currentSummary ?? "").trim();
+    const lines = (opts?.newMessages ?? [])
+      .slice(-24)
+      .map((m) => `${m.role === "assistant" ? "A" : "U"}: ${sanitizeOneLine(truncateByCodepoints(String(m.content ?? ""), 240))}`)
+      .join("\n");
+
+    const prompt =
+      `现有摘要：\n${current || "(空)"}\n\n` +
+      `新增对话：\n${lines || "(无)"}\n\n` +
+      "请输出更新后的摘要：";
+
+    const raw = await openAICompatibleChat(
+      this.#opts,
+      [
+        { role: "system", content: system },
+        { role: "user", content: prompt }
+      ],
+      320,
+      18_000
+    );
+    return sanitizeChatText(raw);
+  }
+
   async extractMemoryNotes(
-    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      memory?: string;
+      summary?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
     turn: { user: string; assistant: string }
   ) {
     const memory = String(ctx?.memory ?? "").trim();
@@ -437,10 +510,17 @@ class AIStudioProvider implements LLMProvider {
   }
 
   async chatReply(
-    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      memory?: string;
+      summary?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
     userMsg: string
   ) {
-    const system = buildChatSystemPrompt({ memory: ctx?.memory });
+    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary });
 
     if (this.#baseUrl) {
       const raw = await openAICompatibleChat(
@@ -474,8 +554,63 @@ class AIStudioProvider implements LLMProvider {
     return sanitizeChatText(raw);
   }
 
+  async summarizeConversation(opts: {
+    currentSummary: string;
+    newMessages: { role: "user" | "assistant"; content: string }[];
+  }) {
+    const system =
+      "你是“对话摘要器（短期记忆）”。任务：维护一份用于继续聊天的摘要。\n" +
+      "要求：\n" +
+      "- 中文输出。\n" +
+      "- 用要点列表（- 开头）。\n" +
+      "- 只保留对后续有用的信息：用户目标/偏好/约束/已决定事项/正在做的任务。\n" +
+      "- 不要加入道德说教、时间提醒（例如“夜里说话…”）。\n" +
+      "- 不要包含敏感信息（密码/API Key/地址等）。\n" +
+      "- 不要输出除了摘要以外的任何内容。\n" +
+      "长度：总计 <= 1200 汉字。";
+
+    const current = String(opts?.currentSummary ?? "").trim();
+    const lines = (opts?.newMessages ?? [])
+      .slice(-24)
+      .map((m) => `${m.role === "assistant" ? "A" : "U"}: ${sanitizeOneLine(truncateByCodepoints(String(m.content ?? ""), 240))}`)
+      .join("\n");
+
+    const prompt =
+      `现有摘要：\n${current || "(空)"}\n\n` +
+      `新增对话：\n${lines || "(无)"}\n\n` +
+      "请输出更新后的摘要：";
+
+    const raw = this.#baseUrl
+      ? await openAICompatibleChat(
+          { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
+          [
+            { role: "system", content: system },
+            { role: "user", content: prompt }
+          ],
+          320,
+          18_000
+        )
+      : await geminiGenerateText({
+          apiKey: this.#apiKey,
+          model: this.#model,
+          systemInstruction: system,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          maxOutputTokens: 320,
+          timeoutMs: 18_000
+        });
+
+    return sanitizeChatText(raw);
+  }
+
   async extractMemoryNotes(
-    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      memory?: string;
+      summary?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
     turn: { user: string; assistant: string }
   ) {
     const memory = String(ctx?.memory ?? "").trim();
@@ -616,21 +751,40 @@ export class LLMService {
   }
 
   async chatReply(
-    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      /** Durable memory (short, human-readable). */
+      memory?: string;
+      /** Rolling short-term summary for continuity (best-practice working memory). */
+      summary?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
     userMsg: string
   ) {
-    const lastAssistant = Array.isArray(ctx?.history)
-      ? [...ctx.history]
-          .reverse()
-          .find((m: any) => m && m.role === "assistant" && typeof m.content === "string")
-          ?.content
-      : undefined;
+    const historyRaw = Array.isArray(ctx?.history) ? ctx.history : [];
 
-    const fallback = () => ruleBasedChatReply(ctx, userMsg);
+    // Sanitize assistant history so "night nag" phrases don't keep reinforcing themselves.
+    const history = historyRaw
+      .map((m: any) => {
+        if (!m || typeof m !== "object") return null;
+        const role = m.role === "assistant" ? "assistant" : "user";
+        const content = typeof m.content === "string" ? m.content : "";
+        return { role, content: role === "assistant" ? stripNightNagPrefix(content) : content };
+      })
+      .filter((m): m is { role: "user" | "assistant"; content: string } => Boolean(m));
+
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m: any) => m && m.role === "assistant" && typeof m.content === "string")
+      ?.content;
+
+    const fallback = () => stripNightNagPrefix(ruleBasedChatReply(ctx as any, userMsg));
 
     const finalize = (raw: string) => {
-      const normalized = sanitizeChatText(String(raw ?? ""));
-      if (!normalized) return fallback();
+      const normalized = stripNightNagPrefix(sanitizeChatText(String(raw ?? "")));
+      if (!normalized.trim()) return fallback();
 
       // Heuristics for "too low value" / repetition should be applied to a one-line projection,
       // but we still return the original multi-line markdown to the UI when it's good.
@@ -642,15 +796,45 @@ export class LLMService {
 
     if (!this.#provider) return finalize(fallback());
     try {
-      return finalize(await this.#provider.chatReply(ctx, userMsg));
+      return finalize(await this.#provider.chatReply({ ...ctx, history }, userMsg));
     } catch (err) {
       console.warn("[llm] chat fallback:", err);
       return finalize(fallback());
     }
   }
 
+  async summarizeConversation(opts: {
+    currentSummary: string;
+    newMessages: { role: "user" | "assistant"; content: string }[];
+  }): Promise<string> {
+    const current = sanitizeChatText(String(opts?.currentSummary ?? ""));
+
+    if (!this.#provider || typeof this.#provider.summarizeConversation !== "function") return current;
+
+    try {
+      const raw = await this.#provider.summarizeConversation({
+        currentSummary: current,
+        newMessages: Array.isArray(opts?.newMessages) ? opts.newMessages : []
+      });
+
+      const next = stripNightNagPrefix(sanitizeChatText(raw));
+      if (!next.trim()) return current;
+      return next;
+    } catch (err) {
+      console.warn("[llm] summary skipped:", err);
+      return current;
+    }
+  }
+
   async extractMemoryNotes(
-    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      memory?: string;
+      summary?: string;
+      history: { role: "user" | "assistant"; content: string }[];
+    },
     turn: { user: string; assistant: string }
   ): Promise<{ kind: "preference" | "profile" | "project" | "note"; content: string }[]> {
     if (!this.#provider || typeof this.#provider.extractMemoryNotes !== "function") return [];

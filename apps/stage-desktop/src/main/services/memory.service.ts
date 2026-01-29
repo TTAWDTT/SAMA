@@ -14,6 +14,29 @@ const CHAT_RETENTION_LIMIT = 2000;
 const NOTE_RETENTION_LIMIT = 400;
 const DEFAULT_AGENT_MEMORY_CONFIG = { injectLimit: 12, autoRemember: false, autoMode: "rules" as const };
 
+const KV_CHAT_SUMMARY = "chat.summary.v1";
+const KV_CHAT_SUMMARY_LAST_ID = "chat.summary.lastId.v1";
+
+function tokenizeForSearch(raw: string): string[] {
+  const s = String(raw ?? "").toLowerCase();
+  if (!s.trim()) return [];
+
+  const out: string[] = [];
+
+  // Latin words / ids (models, libs, filenames, etc.)
+  const words = s.match(/[a-z0-9_./-]{2,}/g) ?? [];
+  out.push(...words);
+
+  // Chinese sequences
+  const zh = s.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
+  out.push(...zh);
+
+  // De-dupe, prefer longer tokens first (reduces noisy single-char matches).
+  const uniq = Array.from(new Set(out.map((x) => x.trim()).filter(Boolean)));
+  uniq.sort((a, b) => b.length - a.length);
+  return uniq.slice(0, 12);
+}
+
 export class MemoryService {
   #dbPath: string;
   #enabled = false;
@@ -219,6 +242,20 @@ export class MemoryService {
     }));
   }
 
+  getRecentChatMessagesWithIds(limit: number): { id: number; role: "user" | "assistant"; content: string }[] {
+    if (!this.#db) return [];
+    const n = Math.max(0, Math.min(400, Math.floor(Number(limit) || 0)));
+    if (!n) return [];
+    const stmt = this.#db.prepare("SELECT id, role, content FROM chat_messages ORDER BY id DESC LIMIT ?");
+    const rows = (stmt.all(n) as Pick<ChatRow, "id" | "role" | "content">[]) ?? [];
+    rows.reverse(); // oldest -> newest
+    return rows.map((r) => ({
+      id: Number((r as any).id ?? 0) || 0,
+      role: (r as any).role === "assistant" ? "assistant" : "user",
+      content: String((r as any).content ?? "")
+    }));
+  }
+
   getRecentChatLogEntries(limit: number): ChatLogEntry[] {
     if (!this.#db) return [];
     const n = Math.max(0, Math.min(400, Math.floor(Number(limit) || 0)));
@@ -275,7 +312,7 @@ export class MemoryService {
 
   listMemoryNotes(limit: number): { id: number; kind: string; content: string; updatedTs: number }[] {
     if (!this.#db) return [];
-    const n = Math.max(0, Math.min(200, Math.floor(Number(limit) || 0)));
+    const n = Math.max(0, Math.min(400, Math.floor(Number(limit) || 0)));
     if (!n) return [];
     const stmt = this.#db.prepare(
       "SELECT id, created_ts, updated_ts, kind, content FROM memory_notes ORDER BY updated_ts DESC, id DESC LIMIT ?"
@@ -300,6 +337,98 @@ export class MemoryService {
     return lines.join("\n");
   }
 
+  getRelevantMemoryNotes(query: string, limit: number): { id: number; kind: string; content: string; updatedTs: number }[] {
+    const n = Math.max(0, Math.min(60, Math.floor(Number(limit) || 0)));
+    if (!n) return [];
+
+    // Fast path: when query is empty, behave like the old implementation (most recent notes).
+    const tokens = tokenizeForSearch(query);
+    if (!tokens.length) return this.listMemoryNotes(n);
+
+    // Notes are capped at ~400 rows; in-memory scoring is fast and keeps SQL simple.
+    const notes = this.listMemoryNotes(400);
+    const scored: { note: { id: number; kind: string; content: string; updatedTs: number }; score: number }[] = [];
+
+    const now = Date.now();
+    for (const note of notes) {
+      const content = String(note.content ?? "");
+      const hay = content.toLowerCase();
+
+      let score = 0;
+      for (const t of tokens) {
+        if (!t) continue;
+        if (hay.includes(t)) score += Math.min(8, Math.max(1, t.length));
+      }
+
+      // Small bias towards certain kinds (profile/preference/project are more valuable).
+      const kind = String(note.kind ?? "note").toLowerCase();
+      if (kind === "profile") score += 2.2;
+      else if (kind === "preference" || kind === "project") score += 1.2;
+
+      // Very small recency boost so ties are stable.
+      const ageDays = Math.max(0, (now - Number(note.updatedTs || 0)) / 86_400_000);
+      score += Math.max(0, 1.4 - ageDays * 0.08);
+
+      if (score > 0.5) scored.push({ note, score });
+    }
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (b.note.updatedTs || 0) - (a.note.updatedTs || 0);
+    });
+
+    const picked = scored.slice(0, n).map((x) => x.note);
+    return picked.length ? picked : this.listMemoryNotes(n);
+  }
+
+  getMemoryPromptForQuery(query: string, limit: number): string {
+    const notes = this.getRelevantMemoryNotes(query, limit);
+    if (!notes.length) return "";
+    const lines: string[] = [];
+    for (const n of notes) {
+      const kind = n.kind && n.kind !== "note" ? `(${n.kind}) ` : "";
+      lines.push(`- ${kind}${n.content}`);
+    }
+    return lines.join("\n");
+  }
+
+  getConversationSummary(): { summary: string; lastId: number } {
+    const summary = this.#getKv(KV_CHAT_SUMMARY) ?? "";
+    const lastIdRaw = this.#getKv(KV_CHAT_SUMMARY_LAST_ID);
+    const lastId = Math.max(0, Math.floor(Number(lastIdRaw ?? 0) || 0));
+    return { summary, lastId };
+  }
+
+  setConversationSummary(summary: string, lastId: number) {
+    if (!this.#db) return;
+    const s = String(summary ?? "").trim();
+    const id = Math.max(0, Math.floor(Number(lastId) || 0));
+    try {
+      this.#setKv(KV_CHAT_SUMMARY, s);
+      this.#setKv(KV_CHAT_SUMMARY_LAST_ID, String(id));
+    } catch {}
+  }
+
+  getChatMessagesSinceId(sinceId: number, limit: number): { id: number; role: "user" | "assistant"; content: string }[] {
+    if (!this.#db) return [];
+    const since = Math.max(0, Math.floor(Number(sinceId) || 0));
+    const n = Math.max(0, Math.min(120, Math.floor(Number(limit) || 0)));
+    if (!n) return [];
+    try {
+      const stmt = this.#db.prepare(
+        "SELECT id, role, content FROM chat_messages WHERE id > ? ORDER BY id ASC LIMIT ?"
+      );
+      const rows = (stmt.all(since, n) as Pick<ChatRow, "id" | "role" | "content">[]) ?? [];
+      return rows.map((r) => ({
+        id: Number((r as any).id ?? 0) || 0,
+        role: (r as any).role === "assistant" ? "assistant" : "user",
+        content: String((r as any).content ?? "")
+      }));
+    } catch {
+      return [];
+    }
+  }
+
   getMemoryStats(): { enabled: boolean; chatCount: number; noteCount: number } {
     if (!this.#db) return { enabled: false, chatCount: 0, noteCount: 0 };
     try {
@@ -315,6 +444,9 @@ export class MemoryService {
     if (!this.#db) return;
     try {
       this.#db.prepare("DELETE FROM chat_messages").run();
+      // Reset summary too, since it's derived from chat history.
+      this.#setKv(KV_CHAT_SUMMARY, "");
+      this.#setKv(KV_CHAT_SUMMARY_LAST_ID, "0");
     } catch {}
   }
 

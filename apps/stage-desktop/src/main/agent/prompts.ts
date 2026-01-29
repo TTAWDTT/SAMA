@@ -20,19 +20,29 @@ export function buildBubbleSystemPrompt() {
  * Main chat prompt: used for replies in the chat timeline AND as the content that later becomes a bubble.
  * Memory is local-only and may be incomplete; the current user message always wins on conflicts.
  */
-export function buildChatSystemPrompt(opts?: { memory?: string }) {
+export function buildChatSystemPrompt(opts?: { memory?: string; summary?: string }) {
   const memory = normalizeMemory(opts?.memory);
+  const summary = normalizeMemory(opts?.summary);
   const base =
     "你是 SAMA，一个桌面陪伴助手，但在聊天中要像一个靠谱的通用助理（能写代码、能排错、能解释、能给方案）。" +
     "中文为主，允许多行输出，优先使用 Markdown（列表/标题/代码块）。" +
     "回答要具体、有步骤；信息不足时先问 1-2 个关键澄清问题，再给一个默认可执行方案。" +
     "不要说教或重复提醒（例如“夜里说话安静点”之类）。" +
-    "不要声称你完全理解用户；避免只回复“我听到了/收到”。";
+    "不要声称你完全理解用户；避免只回复“我听到了/收到”。" +
+    "不要在回答中提到“短期记忆/长期记忆/摘要”等内部提示。";
 
-  if (!memory) return base;
-  return (
-    base +
-    `\n\n【长期记忆（仅供参考，可能不完整）】\n${memory}\n\n` +
-    "如果记忆与用户当前消息冲突，以用户当前消息为准。"
-  );
+  if (!summary && !memory) return base;
+
+  let out = base;
+
+  if (summary) {
+    out += `\n\n【短期记忆（对话摘要，仅用于继续聊天）】\n${summary}`;
+  }
+
+  if (memory) {
+    out += `\n\n【长期记忆（仅供参考，可能不完整）】\n${memory}`;
+  }
+
+  out += "\n\n如果记忆与用户当前消息冲突，以用户当前消息为准。";
+  return out;
 }
