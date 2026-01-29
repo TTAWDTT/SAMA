@@ -84,8 +84,11 @@
         border-bottom: 1px solid rgba(20, 20, 19, 0.08);
         backdrop-filter: blur(10px);
       }
-      .topbarSpacer {
-        flex: 1;
+      /* In chat view the bar should feel invisible (just a floating settings icon). */
+      #app[data-view="chat"] .topbar {
+        background: transparent;
+        border-bottom: none;
+        backdrop-filter: none;
       }
       #backBtn {
         display: none;
@@ -128,28 +131,6 @@
       .iconBtn svg {
         width: 18px;
         height: 18px;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 7px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(20, 20, 19, 0.12);
-        background: rgba(255, 255, 255, 0.58);
-        color: rgba(20, 20, 19, 0.82);
-        font: 12px/1 var(--font-display);
-        letter-spacing: 0.2px;
-        user-select: none;
-        white-space: nowrap;
-      }
-      .badgeDot {
-        width: 7px;
-        height: 7px;
-        border-radius: 999px;
-        background: rgba(217, 119, 87, 0.75);
-        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.16);
       }
 
       /* Views */
@@ -747,13 +728,6 @@
             />
           </svg>
         </button>
-
-        <div class="topbarSpacer"></div>
-
-        <div id="llmBadge" class="badge" title="当前对话模型来源">
-          <span class="badgeDot" aria-hidden="true"></span>
-          <span id="llmText">LLM: —</span>
-        </div>
       </div>
 
       <div class="stage">
@@ -797,6 +771,7 @@
                     <option value="aistudio">aistudio (Gemini)</option>
                   </select>
                   <div class="help" id="providerHelp">推荐 auto：有 key 就用，没有就 fallback。</div>
+                  <div class="help" id="llmRuntime" style="margin-top: 6px">当前运行：—</div>
                 </div>
 
                 <details id="openaiDetails" class="subDetails">
@@ -880,7 +855,54 @@
               </div>
             </details>
 
-            <details class="card" open data-accordion="settings">
+            <details class="card" data-accordion="settings">
+              <summary class="cardTitle">长期记忆</summary>
+              <div class="fieldGrid">
+                <div class="help">
+                  聊天记录会保存在本机（SQLite）。你也可以手动添加“记忆”，让 SAMA 在之后的对话中参考。
+                  在聊天里发送：<span class="kbd">记住: ...</span> 也可以。
+                </div>
+
+                <div id="memoryStatus" class="statusLine">
+                  <div class="statusLeft">
+                    <span class="statusDot" aria-hidden="true"></span>
+                    <span class="statusText">状态：—</span>
+                  </div>
+                  <span class="statusPill" id="memoryCounts">chat - · notes -</span>
+                </div>
+
+                <div class="field">
+                  <div class="label">手动记住</div>
+                  <div class="inlineRow">
+                    <input
+                      id="memoryNoteInput"
+                      class="input"
+                      type="text"
+                      autocomplete="off"
+                      placeholder="例如：我喜欢简洁回答 / 我叫… / 我的偏好是…"
+                    />
+                    <button id="memoryNoteAdd" class="btn btnSm btnPrimary" type="button">记住</button>
+                  </div>
+                  <div class="help">只写入本地，不会上传。</div>
+                </div>
+
+                <div class="library">
+                  <div class="libraryHeader">
+                    <div class="label">最近记忆</div>
+                    <button id="refreshMemoryNotes" class="btn btnSm" type="button">刷新</button>
+                  </div>
+                  <div id="memoryNotesEmpty" class="help">暂无。</div>
+                  <div id="memoryNotesList" class="libraryList"></div>
+                </div>
+              </div>
+
+              <div class="actionsRow">
+                <button id="clearChatHistory" class="btn btnDanger" type="button">清空聊天记录</button>
+                <button id="clearMemoryNotes" class="btn btnDanger" type="button">清空记忆</button>
+              </div>
+            </details>
+
+            <details class="card" data-accordion="settings">
               <summary class="cardTitle">动作（VRMA）</summary>
               <div class="fieldGrid">
                 <div class="help">加载 .vrma 后可播放，并可设为 Idle/Walk 槽位自动切换；也可保存到动作库。</div>

@@ -19,6 +19,15 @@ type StageDesktopApi = {
   onPetState?: (cb: (s: PetStateMessage) => void) => () => void;
   getLlmConfig?: () => Promise<{ stored: LlmConfig | null; effective: LlmConfig | null; provider: string }>;
   setLlmConfig?: (cfg: LlmConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
+
+  // Long-term memory (SQLite) helpers.
+  getMemoryStats?: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number }>;
+  listMemoryNotes?: (
+    limit: number
+  ) => Promise<{ enabled: boolean; notes: { kind: string; content: string; updatedTs: number }[] }>;
+  addMemoryNote?: (content: string) => Promise<{ ok: boolean }>;
+  clearChatHistory?: () => Promise<{ ok: boolean }>;
+  clearMemoryNotes?: () => Promise<{ ok: boolean }>;
 };
 
 function getApi(): StageDesktopApi {
@@ -63,9 +72,9 @@ const backBtn = (() => {
   return el;
 })();
 
-const llmText = (() => {
-  const el = document.getElementById("llmText");
-  if (!(el instanceof HTMLSpanElement)) throw new Error("missing #llmText");
+const llmRuntimeEl = (() => {
+  const el = document.getElementById("llmRuntime");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #llmRuntime");
   return el;
 })();
 
@@ -171,6 +180,53 @@ const saveLlmEl = (() => {
 const reloadLlmEl = (() => {
   const el = document.getElementById("reloadLlm");
   if (!(el instanceof HTMLButtonElement)) throw new Error("missing #reloadLlm");
+  return el;
+})();
+
+// Long-term memory (settings view)
+const memoryStatusEl = (() => {
+  const el = document.getElementById("memoryStatus");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #memoryStatus");
+  return el;
+})();
+const memoryCountsEl = (() => {
+  const el = document.getElementById("memoryCounts");
+  if (!(el instanceof HTMLSpanElement)) throw new Error("missing #memoryCounts");
+  return el;
+})();
+const memoryNoteInputEl = (() => {
+  const el = document.getElementById("memoryNoteInput");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #memoryNoteInput");
+  return el;
+})();
+const memoryNoteAddEl = (() => {
+  const el = document.getElementById("memoryNoteAdd");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #memoryNoteAdd");
+  return el;
+})();
+const refreshMemoryNotesEl = (() => {
+  const el = document.getElementById("refreshMemoryNotes");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #refreshMemoryNotes");
+  return el;
+})();
+const memoryNotesEmptyEl = (() => {
+  const el = document.getElementById("memoryNotesEmpty");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #memoryNotesEmpty");
+  return el;
+})();
+const memoryNotesListEl = (() => {
+  const el = document.getElementById("memoryNotesList");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #memoryNotesList");
+  return el;
+})();
+const clearChatHistoryEl = (() => {
+  const el = document.getElementById("clearChatHistory");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #clearChatHistory");
+  return el;
+})();
+const clearMemoryNotesEl = (() => {
+  const el = document.getElementById("clearMemoryNotes");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #clearMemoryNotes");
   return el;
 })();
 
@@ -433,18 +489,130 @@ async function sendMessage() {
   } catch {}
 }
 
-async function refreshLlmBadge() {
+async function refreshLlmRuntime() {
   const api = getApi();
   if (!api || typeof api.getAppInfo !== "function") {
-    llmText.textContent = "LLM: preload missing";
+    llmRuntimeEl.textContent = "当前运行：preload missing";
     return;
   }
   try {
     const info = await api.getAppInfo();
     const provider = String(info?.llmProvider ?? "unknown") || "unknown";
-    llmText.textContent = `LLM: ${provider}`;
+    llmRuntimeEl.textContent = `当前运行：${provider}`;
   } catch {
-    llmText.textContent = "LLM: unknown";
+    llmRuntimeEl.textContent = "当前运行：unknown";
+  }
+}
+
+function setStatusLine(el: HTMLElement, opts: { text: string; enabled?: boolean }) {
+  const textEl = el.querySelector(".statusText");
+  if (textEl instanceof HTMLElement) textEl.textContent = opts.text;
+
+  const dotEl = el.querySelector(".statusDot");
+  if (!(dotEl instanceof HTMLElement)) return;
+
+  if (opts.enabled === true) {
+    dotEl.style.background = "rgba(120, 140, 93, 0.75)";
+    dotEl.style.boxShadow = "0 0 0 4px rgba(120, 140, 93, 0.14)";
+    return;
+  }
+  if (opts.enabled === false) {
+    dotEl.style.background = "rgba(20, 20, 19, 0.35)";
+    dotEl.style.boxShadow = "0 0 0 4px rgba(20, 20, 19, 0.10)";
+    return;
+  }
+
+  dotEl.style.background = "";
+  dotEl.style.boxShadow = "";
+}
+
+function renderMemoryNotes(notes: { kind: string; content: string; updatedTs: number }[]) {
+  memoryNotesListEl.innerHTML = "";
+  if (!Array.isArray(notes) || notes.length === 0) {
+    memoryNotesEmptyEl.style.display = "block";
+    return;
+  }
+  memoryNotesEmptyEl.style.display = "none";
+
+  const frag = document.createDocumentFragment();
+  for (const n of notes) {
+    const row = document.createElement("div");
+    row.className = "libItem";
+
+    const left = document.createElement("div");
+    left.className = "libLeft";
+
+    const name = document.createElement("div");
+    name.className = "libName";
+    name.textContent = String(n?.content ?? "");
+
+    const meta = document.createElement("div");
+    meta.className = "libMeta";
+    const kind = String(n?.kind ?? "note");
+    const when = new Date(Number(n?.updatedTs ?? 0) || Date.now()).toLocaleString();
+    meta.textContent = `${kind} · ${when}`;
+
+    left.append(name, meta);
+    row.append(left);
+    frag.appendChild(row);
+  }
+  memoryNotesListEl.appendChild(frag);
+}
+
+async function refreshMemorySection() {
+  const api = getApi();
+  if (!api || typeof api.getMemoryStats !== "function") {
+    setStatusLine(memoryStatusEl, { text: "状态：preload missing", enabled: false });
+    memoryCountsEl.textContent = "chat - · notes -";
+    renderMemoryNotes([]);
+    return;
+  }
+
+  try {
+    const stats = await api.getMemoryStats();
+    const enabled = Boolean(stats?.enabled);
+    setStatusLine(memoryStatusEl, { text: enabled ? "状态：已启用" : "状态：未启用（SQLite 不可用）", enabled });
+    memoryCountsEl.textContent = `chat ${Number(stats?.chatCount ?? 0) || 0} · notes ${Number(stats?.noteCount ?? 0) || 0}`;
+  } catch {
+    setStatusLine(memoryStatusEl, { text: "状态：unknown", enabled: false });
+    memoryCountsEl.textContent = "chat - · notes -";
+  }
+
+  if (!api || typeof api.listMemoryNotes !== "function") return;
+  try {
+    const res = await api.listMemoryNotes(14);
+    renderMemoryNotes(Array.isArray(res?.notes) ? res.notes : []);
+  } catch {
+    renderMemoryNotes([]);
+  }
+}
+
+async function addMemoryNoteFromInput() {
+  const api = getApi();
+  if (!api || typeof api.addMemoryNote !== "function") {
+    showToast("preload API 缺失：无法写入记忆", { timeoutMs: 4200 });
+    return;
+  }
+
+  const content = memoryNoteInputEl.value.trim();
+  if (!content) {
+    memoryNoteInputEl.focus();
+    showToast("请输入要记住的内容", { timeoutMs: 1600 });
+    return;
+  }
+
+  try {
+    const res = await api.addMemoryNote(content);
+    if (!res?.ok) {
+      showToast("记忆写入失败（可能未启用本地 SQLite）", { timeoutMs: 5200 });
+      return;
+    }
+    memoryNoteInputEl.value = "";
+    showToast("已记住", { timeoutMs: 1400 });
+    void refreshMemorySection();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`记忆写入失败：${message}`, { timeoutMs: 5200 });
   }
 }
 
@@ -556,7 +724,7 @@ async function saveLlmConfigFromForm() {
       showToast(`保存失败：${String(res?.message ?? "unknown error")}`, { timeoutMs: 5200 });
       return;
     }
-    await refreshLlmBadge();
+    await refreshLlmRuntime();
     showToast(`已保存（provider=${String(res?.provider ?? "ok")}）`, { timeoutMs: 2000 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1045,6 +1213,8 @@ function boot() {
   settingsBtn.addEventListener("click", () => {
     setView("settings");
     void loadLlmConfigIntoForm();
+    void refreshLlmRuntime();
+    void refreshMemorySection();
   });
   backBtn.addEventListener("click", () => setView("chat"));
 
@@ -1067,6 +1237,74 @@ function boot() {
   updateMotionFormFromState();
   applyMotionToPet();
   void refreshVrmaLibrary();
+
+  // --- Long-term memory (in Settings view) ----------------------------------
+  memoryNoteAddEl.addEventListener("click", () => void addMemoryNoteFromInput());
+  memoryNoteInputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void addMemoryNoteFromInput();
+    }
+  });
+  refreshMemoryNotesEl.addEventListener("click", () => void refreshMemorySection());
+
+  clearChatHistoryEl.addEventListener("click", () => {
+    void (async () => {
+      const ok = window.confirm("清空聊天记录？这会同时清空本窗口的聊天历史（不可恢复）。");
+      if (!ok) return;
+      const api = getApi();
+      if (!api || typeof api.clearChatHistory !== "function") {
+        showToast("preload API 缺失：无法清空聊天记录", { timeoutMs: 4200 });
+        return;
+      }
+      try {
+        const res = await api.clearChatHistory();
+        if (!res?.ok) {
+          showToast("清空失败（可能未启用本地 SQLite）", { timeoutMs: 5200 });
+          return;
+        }
+        showToast("已清空聊天记录", { timeoutMs: 1600 });
+        void refreshMemorySection();
+
+        // Extra robustness: pull log once so UI updates even if a broadcast was missed.
+        try {
+          if (typeof api.getChatLog === "function") {
+            const sync = await api.getChatLog();
+            if (sync && sync.type === "CHAT_LOG_SYNC") {
+              renderAll(Array.isArray((sync as any).entries) ? (sync as any).entries : []);
+            }
+          }
+        } catch {}
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showToast(`清空失败：${message}`, { timeoutMs: 5200 });
+      }
+    })();
+  });
+
+  clearMemoryNotesEl.addEventListener("click", () => {
+    void (async () => {
+      const ok = window.confirm("清空长期记忆？（只清空记忆条目，不影响聊天记录）");
+      if (!ok) return;
+      const api = getApi();
+      if (!api || typeof api.clearMemoryNotes !== "function") {
+        showToast("preload API 缺失：无法清空记忆", { timeoutMs: 4200 });
+        return;
+      }
+      try {
+        const res = await api.clearMemoryNotes();
+        if (!res?.ok) {
+          showToast("清空失败（可能未启用本地 SQLite）", { timeoutMs: 5200 });
+          return;
+        }
+        showToast("已清空记忆", { timeoutMs: 1600 });
+        void refreshMemorySection();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showToast(`清空失败：${message}`, { timeoutMs: 5200 });
+      }
+    })();
+  });
 
   vrmaSaveNameEl.addEventListener("input", () => {
     const name = normalizeVrmaName(vrmaSaveNameEl.value);
@@ -1226,7 +1464,8 @@ function boot() {
   updateSendEnabled();
   input.focus();
 
-  void refreshLlmBadge();
+  void refreshLlmRuntime();
+  void refreshMemorySection();
 
   const api = getApi();
   try {
