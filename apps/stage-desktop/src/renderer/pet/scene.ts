@@ -181,6 +181,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   let activeAction: THREE.AnimationAction | null = null;
   let activeAnimation: MotionState["animation"] = "NONE";
   let locomotion: MotionState["locomotion"] = "IDLE";
+  let restHipsLocal: THREE.Vector3 | null = null;
 
   // Movement signals (to switch idle <-> walk)
   let dragging = false;
@@ -302,6 +303,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       } catch {}
       vrm = null;
     }
+    restHipsLocal = null;
   };
 
   const applyModelTransform = () => {
@@ -340,7 +342,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
     try {
       const clip = createClipFromVrmAnimation(vrm, anim);
-      reanchorPositionTracks(clip, vrm);
+      reanchorPositionTracks(clip, vrm, restHipsLocal ?? undefined);
       clipCache.set(anim, clip);
       return clip;
     } catch (err) {
@@ -529,6 +531,15 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     }
 
     vrm = next.vrm;
+
+    // Capture a stable local hips position from the rest pose. We'll use it to reanchor VRMA translation tracks,
+    // so importing / switching animations doesn't cause the avatar to float up/down depending on load timing.
+    try {
+      const hipsNode = (vrm as any).humanoid?.getNormalizedBoneNode?.("hips");
+      restHipsLocal = hipsNode && (hipsNode as any).isObject3D ? (hipsNode as THREE.Object3D).position.clone() : null;
+    } catch {
+      restHipsLocal = null;
+    }
     const embeddedClips = Array.isArray(next.animations) ? next.animations : [];
     embeddedIdleClip = pickEmbeddedClip("idle", embeddedClips);
     embeddedWalkClip = pickEmbeddedClip("walk", embeddedClips);
