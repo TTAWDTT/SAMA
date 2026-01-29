@@ -4,12 +4,14 @@ import { BrowserWindow as ElectronBrowserWindow } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { IPC_CHANNELS, IPC_HANDLES } from "@sama/shared";
-import { ChatRequestSchema, UserInteractionSchema } from "@sama/shared";
+import { ChatRequestSchema, ManualActionSchema, UserInteractionSchema } from "@sama/shared";
 import type {
   ActionCommand,
+  AppLogMessage,
   ChatLogEntry,
   ChatLogMessage,
   ChatRequest,
+  ManualActionMessage,
   PetControlMessage,
   PetControlResult,
   PetStateMessage,
@@ -460,6 +462,7 @@ async function bootstrap() {
   let lastPetState: PetStateMessage | null = null;
   let lastPetWindowState: PetWindowStateMessage | null = null;
   let chatLog: ChatLogEntry[] = [];
+  let appLogs: AppLogMessage[] = [];
   // Caption window now overlays the pet window (same bounds) so the bubble can be anchored to the character.
 
   const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
@@ -510,6 +513,13 @@ async function bootstrap() {
       // Sync chat history for the main chat UI.
       const msg: ChatLogMessage = { type: "CHAT_LOG_SYNC", ts: Date.now(), entries: chatLog };
       controlsWindow?.webContents.send(IPC_CHANNELS.chatLog, msg);
+
+      // Sync recent app logs (for the in-app dev console).
+      try {
+        for (const l of appLogs.slice(-240)) {
+          controlsWindow?.webContents.send(IPC_CHANNELS.appLog, l);
+        }
+      } catch {}
     });
     controlsWindow.on("closed", () => {
       controlsWindow = null;
@@ -595,6 +605,53 @@ async function bootstrap() {
       });
     }, Math.max(200, durationMs));
   }
+
+  const formatLogArg = (a: unknown) => {
+    if (typeof a === "string") return a;
+    if (typeof a === "number" || typeof a === "boolean" || a === null || a === undefined) return String(a);
+    try {
+      return JSON.stringify(a);
+    } catch {
+      return Object.prototype.toString.call(a);
+    }
+  };
+
+  const pushAppLog = (level: AppLogMessage["level"], args: unknown[], scope?: string) => {
+    const msg: AppLogMessage = {
+      type: "APP_LOG",
+      ts: Date.now(),
+      level,
+      message: args.map(formatLogArg).join(" "),
+      ...(scope ? { scope } : {})
+    };
+    appLogs.push(msg);
+    if (appLogs.length > 900) appLogs = appLogs.slice(-720);
+    if (controlsWindow && !controlsWindow.isDestroyed()) {
+      try {
+        controlsWindow.webContents.send(IPC_CHANNELS.appLog, msg);
+      } catch {}
+    }
+  };
+
+  // Forward main-process logs to the Controls window so we can have an in-app dev console.
+  // Keep behavior identical: we still print to stdout/stderr, we just also mirror to IPC.
+  const origConsole = {
+    log: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console)
+  };
+  console.log = (...args: any[]) => {
+    origConsole.log(...args);
+    pushAppLog("info", args);
+  };
+  console.warn = (...args: any[]) => {
+    origConsole.warn(...args);
+    pushAppLog("warn", args);
+  };
+  console.error = (...args: any[]) => {
+    origConsole.error(...args);
+    pushAppLog("error", args);
+  };
 
   const core = new CoreService({
     llm,
@@ -758,6 +815,27 @@ async function bootstrap() {
     lastPetState = payload;
     if (!controlsWindow || controlsWindow.isDestroyed()) return;
     controlsWindow.webContents.send(IPC_CHANNELS.petState, payload);
+  });
+
+  ipcMain.on(IPC_CHANNELS.manualAction, (_evt, payload: ManualActionMessage) => {
+    const parsed = ManualActionSchema.safeParse(payload);
+    if (!parsed.success) return;
+
+    const cmd: ActionCommand = {
+      type: "ACTION_COMMAND",
+      ts: parsed.data.ts || Date.now(),
+      action: parsed.data.action,
+      expression: parsed.data.expression ?? "NEUTRAL",
+      bubble: null,
+      durationMs: parsed.data.action === "APPROACH" || parsed.data.action === "RETREAT" ? 1500 : 1200
+    };
+
+    // Mirror the core dispatch behavior so the pet moves and the caption can react.
+    petWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
+    captionWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
+
+    if (cmd.action === "APPROACH") moveTo(computeApproachTarget(), cmd.durationMs || 1500);
+    if (cmd.action === "RETREAT") moveTo(homePosition, cmd.durationMs || 1500);
   });
 
   ipcMain.on(IPC_CHANNELS.userInteraction, (_evt, payload: UserInteraction) => {

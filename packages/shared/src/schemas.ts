@@ -56,3 +56,10 @@ export const ChatResponseSchema = z.object({
   ts: z.number(),
   message: z.string()
 });
+
+export const ManualActionSchema = z.object({
+  type: z.literal("MANUAL_ACTION"),
+  ts: z.number(),
+  action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"]),
+  expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED"]).optional()
+});

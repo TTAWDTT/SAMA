@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "lib": ["ES2022", "DOM"],
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
@@ -14,5 +14,5 @@
       "@sama/shared": ["../../packages/shared/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "electron.vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts", "electron.vite.config.ts"]
 }

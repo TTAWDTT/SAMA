@@ -1,11 +1,13 @@
 export const IPC_CHANNELS = {
   actionCommand: "bus:action-command",
   userInteraction: "bus:user-interaction",
+  manualAction: "bus:manual-action",
   dragDelta: "bus:drag-delta",
   clickThroughChanged: "bus:click-through-changed",
   chatRequest: "bus:chat-request",
   chatResponse: "bus:chat-response",
   chatLog: "bus:chat-log",
+  appLog: "bus:app-log",
   petControl: "bus:pet-control",
   petControlResult: "bus:pet-control-result",
   petStatus: "bus:pet-status",

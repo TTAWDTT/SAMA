@@ -47,6 +47,23 @@ export type ChatLogMessage =
   | { type: "CHAT_LOG_SYNC"; ts: number; entries: ChatLogEntry[] }
   | { type: "CHAT_LOG_APPEND"; ts: number; entry: ChatLogEntry };
 
+// Manual action (Controls UI -> Main): lets the user explicitly trigger actions/motion.
+export type ManualActionMessage = {
+  type: "MANUAL_ACTION";
+  ts: number;
+  action: ActionCommand["action"];
+  expression?: ActionCommand["expression"];
+};
+
+// App logs (Main -> Controls UI): thin forwarding so we can have an in-app console.
+export type AppLogMessage = {
+  type: "APP_LOG";
+  ts: number;
+  level: "info" | "warn" | "error";
+  message: string;
+  scope?: string;
+};
+
 // Pet control protocol (controls window -> main -> pet renderer)
 export type PetMotionState = {
   locomotion: "IDLE" | "WALK";
@@ -147,9 +164,11 @@ export type AnyBusMessage =
   | SensorUpdate
   | ActionCommand
   | UserInteraction
+  | ManualActionMessage
   | ChatRequest
   | ChatResponse
   | ChatLogMessage
+  | AppLogMessage
   | PetControlMessage
   | PetControlResult
   | PetStatusMessage

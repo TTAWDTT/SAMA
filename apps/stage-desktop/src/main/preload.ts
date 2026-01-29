@@ -4,6 +4,8 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatLogMessage,
+  AppLogMessage,
+  ManualActionMessage,
   PetControlMessage,
   PetControlResult,
   PetStateMessage,
@@ -20,11 +22,13 @@ type Unsubscribe = () => void;
 const IPC_CHANNELS = {
   actionCommand: "bus:action-command",
   userInteraction: "bus:user-interaction",
+  manualAction: "bus:manual-action",
   dragDelta: "bus:drag-delta",
   clickThroughChanged: "bus:click-through-changed",
   chatRequest: "bus:chat-request",
   chatResponse: "bus:chat-response",
   chatLog: "bus:chat-log",
+  appLog: "bus:app-log",
   petControl: "bus:pet-control",
   petControlResult: "bus:pet-control-result",
   petStatus: "bus:pet-status",
@@ -54,8 +58,10 @@ const IPC_HANDLES = {
 export type StageDesktopAPI = {
   onActionCommand: (cb: (cmd: ActionCommand) => void) => Unsubscribe;
   sendUserInteraction: (i: UserInteraction) => void;
+  sendManualAction: (m: ManualActionMessage) => void;
   sendDragDelta: (d: DragDelta) => void;
   onClickThroughChanged: (cb: (enabled: boolean) => void) => Unsubscribe;
+  onAppLog: (cb: (m: AppLogMessage) => void) => Unsubscribe;
   onChatLog: (cb: (msg: ChatLogMessage) => void) => Unsubscribe;
   getChatLog: () => Promise<ChatLogMessage>;
   getVrmBytes: () => Promise<Uint8Array>;
@@ -102,6 +108,11 @@ const api: StageDesktopAPI = {
     ipcRenderer.on(IPC_CHANNELS.actionCommand, handler);
     return () => ipcRenderer.off(IPC_CHANNELS.actionCommand, handler);
   },
+  onAppLog: (cb) => {
+    const handler = (_evt: Electron.IpcRendererEvent, payload: AppLogMessage) => cb(payload);
+    ipcRenderer.on(IPC_CHANNELS.appLog, handler);
+    return () => ipcRenderer.off(IPC_CHANNELS.appLog, handler);
+  },
   onChatLog: (cb) => {
     const handler = (_evt: Electron.IpcRendererEvent, payload: ChatLogMessage) => cb(payload);
     ipcRenderer.on(IPC_CHANNELS.chatLog, handler);
@@ -113,6 +124,7 @@ const api: StageDesktopAPI = {
     return () => ipcRenderer.off(IPC_CHANNELS.clickThroughChanged, handler);
   },
   sendUserInteraction: (i) => ipcRenderer.send(IPC_CHANNELS.userInteraction, i),
+  sendManualAction: (m) => ipcRenderer.send(IPC_CHANNELS.manualAction, m),
   sendDragDelta: (d) => ipcRenderer.send(IPC_CHANNELS.dragDelta, d),
   getChatLog: async () => ipcRenderer.invoke(IPC_HANDLES.chatLogGet),
   getVrmBytes: () => ipcRenderer.invoke(IPC_HANDLES.vrmGet),
