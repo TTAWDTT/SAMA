@@ -75,6 +75,24 @@ const settingsWrap = (() => {
   return el;
 })();
 
+const settingsRouter = (() => {
+  const el = document.getElementById("settingsRouter");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #settingsRouter");
+  return el;
+})();
+
+const settingsLlmSummaryEl = (() => {
+  const el = document.getElementById("settingsLlmSummary");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #settingsLlmSummary");
+  return el;
+})();
+
+const settingsMemorySummaryEl = (() => {
+  const el = document.getElementById("settingsMemorySummary");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #settingsMemorySummary");
+  return el;
+})();
+
 const settingsBtn = (() => {
   const el = document.getElementById("settingsBtn");
   if (!(el instanceof HTMLButtonElement)) throw new Error("missing #settingsBtn");
@@ -418,42 +436,40 @@ function setView(view: "chat" | "settings") {
   }
 }
 
-function setActiveSettingsNav(cardId: string | null) {
-  const btns = Array.from(document.querySelectorAll('button.segBtn[data-open-card]')).filter(
-    (b): b is HTMLButtonElement => b instanceof HTMLButtonElement
-  );
-  for (const b of btns) {
-    const target = String(b.getAttribute("data-open-card") ?? "");
-    b.setAttribute("data-active", target && cardId && target === cardId ? "1" : "0");
-  }
+type SettingsRoute = "root" | "llm" | "memory" | "vrma" | "motion" | "shortcuts";
+
+function normalizeSettingsRoute(raw: unknown): SettingsRoute {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (s === "llm" || s === "memory" || s === "vrma" || s === "motion" || s === "shortcuts") return s as any;
+  return "root";
 }
 
-function openSettingsCard(cardId: string, opts?: { scroll?: boolean }) {
-  const el = document.getElementById(cardId);
-  if (!(el instanceof HTMLDetailsElement)) return;
-  el.open = true;
-  setActiveSettingsNav(cardId);
-  try {
-    window.localStorage.setItem("sama.settings.lastCard", cardId);
-  } catch {}
-
-  if (opts?.scroll === false) return;
-  // Scroll inside the settings panel so the sticky header doesn't get in the way.
-  try {
-    const top = el.offsetTop - 90;
-    settingsWrap.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  } catch {
-    try {
-      el.scrollIntoView({ block: "start", behavior: "smooth" });
-    } catch {}
-  }
+function getSettingsRoute(): SettingsRoute {
+  return normalizeSettingsRoute(settingsRouter.getAttribute("data-route"));
 }
 
-function restoreLastSettingsCard() {
-  try {
-    const last = window.localStorage.getItem("sama.settings.lastCard") || "";
-    if (last) openSettingsCard(last, { scroll: false });
-  } catch {}
+function setSettingsRoute(route: SettingsRoute) {
+  settingsRouter.setAttribute("data-route", route);
+
+  // Keep a single back button: detail -> root -> chat.
+  backBtn.setAttribute("aria-label", route === "root" ? "Back" : "Back to Settings");
+
+  const pageId =
+    route === "root"
+      ? "settingsRootPage"
+      : route === "llm"
+        ? "settingsLlmPage"
+        : route === "memory"
+          ? "settingsMemoryPage"
+          : route === "vrma"
+            ? "settingsVrmaPage"
+            : route === "motion"
+              ? "settingsMotionPage"
+              : "settingsShortcutsPage";
+  const page = document.getElementById(pageId);
+  if (page instanceof HTMLDivElement) page.scrollTop = 0;
 }
 
 function renderEmpty() {
@@ -576,14 +592,17 @@ async function refreshLlmRuntime() {
   const api = getApi();
   if (!api || typeof api.getAppInfo !== "function") {
     llmRuntimeEl.textContent = "当前运行：preload missing";
+    settingsLlmSummaryEl.textContent = "preload missing";
     return;
   }
   try {
     const info = await api.getAppInfo();
     const provider = String(info?.llmProvider ?? "unknown") || "unknown";
     llmRuntimeEl.textContent = `当前运行：${provider}`;
+    settingsLlmSummaryEl.textContent = provider;
   } catch {
     llmRuntimeEl.textContent = "当前运行：unknown";
+    settingsLlmSummaryEl.textContent = "unknown";
   }
 }
 
@@ -705,6 +724,7 @@ async function refreshMemorySection() {
   if (!api || typeof api.getMemoryStats !== "function") {
     setStatusLine(memoryStatusEl, { text: "状态：preload missing", enabled: false });
     memoryCountsEl.textContent = "chat - · notes -";
+    settingsMemorySummaryEl.textContent = "preload missing";
     memoryAutoEnabledEl.checked = false;
     memoryAutoEnabledEl.disabled = true;
     memoryAutoModeEl.disabled = true;
@@ -716,14 +736,18 @@ async function refreshMemorySection() {
   }
 
   let enabled = false;
+  let noteCount = 0;
   try {
     const stats = await api.getMemoryStats();
     enabled = Boolean(stats?.enabled);
+    noteCount = Number(stats?.noteCount ?? 0) || 0;
     setStatusLine(memoryStatusEl, { text: enabled ? "状态：已启用" : "状态：未启用（SQLite 不可用）", enabled });
     memoryCountsEl.textContent = `chat ${Number(stats?.chatCount ?? 0) || 0} · notes ${Number(stats?.noteCount ?? 0) || 0}`;
+    settingsMemorySummaryEl.textContent = enabled ? `notes ${noteCount}` : "off";
   } catch {
     setStatusLine(memoryStatusEl, { text: "状态：unknown", enabled: false });
     memoryCountsEl.textContent = "chat - · notes -";
+    settingsMemorySummaryEl.textContent = "unknown";
   }
 
   // Config (optional; older preloads won't have it).
@@ -766,6 +790,8 @@ async function refreshMemorySection() {
     memoryInjectLimitEl.disabled = !enabled;
   }
 
+  // Only render the note list when the Memory page is open (keeps root page snappy).
+  if (getSettingsRoute() !== "memory") return;
   if (!api || typeof api.listMemoryNotes !== "function") return;
   try {
     const res = await api.listMemoryNotes(14);
@@ -1422,46 +1448,43 @@ function boot() {
   // --- View navigation -------------------------------------------------------
   settingsBtn.addEventListener("click", () => {
     setView("settings");
-    restoreLastSettingsCard();
-    void loadLlmConfigIntoForm();
+    setSettingsRoute("root");
     void refreshLlmRuntime();
     void refreshMemorySection();
   });
-  backBtn.addEventListener("click", () => setView("chat"));
+  backBtn.addEventListener("click", () => {
+    if (app.getAttribute("data-view") !== "settings") {
+      setView("chat");
+      return;
+    }
+    const route = getSettingsRoute();
+    if (route !== "root") {
+      setSettingsRoute("root");
+      return;
+    }
+    setView("chat");
+  });
 
-  // Accordion-style settings cards: open one, close the rest.
-  // This keeps settings from being "dumped" on users all at once.
-  const settingsCards = Array.from(document.querySelectorAll('details[data-accordion="settings"]')).filter(
-    (d): d is HTMLDetailsElement => d instanceof HTMLDetailsElement
-  );
-  for (const card of settingsCards) {
-    card.addEventListener("toggle", () => {
-      if (!card.open) return;
-      if (card.id) {
-        setActiveSettingsNav(card.id);
-        try {
-          window.localStorage.setItem("sama.settings.lastCard", card.id);
-        } catch {}
-      }
-      for (const other of settingsCards) {
-        if (other === card) continue;
-        other.open = false;
-      }
-    });
-  }
-
-  // Settings jump-nav: open a section directly (no scrolling hunt).
-  const navButtons = Array.from(document.querySelectorAll('button.segBtn[data-open-card]')).filter(
+  // Settings navigation (iOS-like): pick a category, then show a full-page detail panel.
+  const routeButtons = Array.from(document.querySelectorAll('button[data-settings-route]')).filter(
     (b): b is HTMLButtonElement => b instanceof HTMLButtonElement
   );
-  for (const b of navButtons) {
+  for (const b of routeButtons) {
     b.addEventListener("click", () => {
-      const target = String(b.getAttribute("data-open-card") ?? "");
-      if (!target) return;
-      openSettingsCard(target);
+      const route = normalizeSettingsRoute(b.getAttribute("data-settings-route"));
+      setSettingsRoute(route);
+      if (route === "llm") {
+        void loadLlmConfigIntoForm();
+        void refreshLlmRuntime();
+      } else if (route === "memory") {
+        void refreshMemorySection();
+      } else if (route === "vrma") {
+        void refreshVrmaLibrary();
+      } else if (route === "motion") {
+        updateMotionFormFromState();
+      }
     });
   }
-  setActiveSettingsNav(null);
 
   // --- Motion / VRMA settings (in Settings view) -----------------------------
   updateMotionFormFromState();

@@ -335,72 +335,181 @@
 
       /* Settings */
       .settingsWrap {
-        overflow: auto;
-        padding: 14px;
+        position: relative;
+        overflow: hidden;
+        padding: 0;
         box-sizing: border-box;
       }
-      .settingsTop {
-        position: sticky;
-        top: 0;
-        z-index: 6;
-        padding: 12px 0 12px 0;
-        margin: -14px -14px 12px -14px;
-        padding: 14px;
-        background: rgba(250, 249, 245, 0.92);
-        border-bottom: 1px solid rgba(20, 20, 19, 0.08);
-        backdrop-filter: blur(10px);
+      .settingsRouter {
+        position: relative;
+        height: 100%;
+        overflow: hidden;
       }
-      .settingsHeader {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin: 0;
+      .settingsPage {
+        position: absolute;
+        inset: 0;
+        overflow: auto;
+        padding: 14px 14px 20px 14px;
+        box-sizing: border-box;
+        transition: transform 240ms cubic-bezier(0.2, 0.85, 0.2, 1), opacity 200ms ease;
+        will-change: transform, opacity;
+      }
+
+      .settingsHero {
+        padding: 8px 4px 14px 4px;
       }
       .settingsTitle {
-        font: 20px/1.1 var(--font-display);
+        font: 22px/1.06 var(--font-display);
         letter-spacing: 0.2px;
       }
       .settingsSubtitle {
-        margin-top: 6px;
+        margin-top: 8px;
         color: rgba(20, 20, 19, 0.55);
         font-size: 13px;
+        line-height: 1.35;
       }
-      .settingsNav {
-        margin-top: 12px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+
+      .pageHeader {
+        padding: 8px 4px 10px 4px;
       }
-      .segBtn {
-        height: 30px;
-        padding: 0 10px;
-        border-radius: 999px;
+      .pageTitle {
+        font: 20px/1.08 var(--font-display);
+        letter-spacing: 0.2px;
+      }
+      .pageSub {
+        margin-top: 8px;
+        color: rgba(20, 20, 19, 0.55);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .listGroup {
+        border-radius: 18px;
         border: 1px solid rgba(20, 20, 19, 0.12);
-        background: rgba(255, 255, 255, 0.65);
-        color: rgba(20, 20, 19, 0.82);
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: var(--shadow2);
+        overflow: hidden;
+      }
+      .listGroup + .listGroup {
+        margin-top: 12px;
+      }
+      .listRow {
+        width: 100%;
+        border: none;
+        background: transparent;
+        padding: 12px 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+      .listRow + .listRow {
+        border-top: 1px solid rgba(20, 20, 19, 0.08);
+      }
+      .listRow:hover {
+        background: rgba(20, 20, 19, 0.03);
+      }
+      .listRow:active {
+        background: rgba(20, 20, 19, 0.05);
+      }
+      .listRow:focus-visible {
+        outline: none;
+        box-shadow: inset 0 0 0 2px rgba(217, 119, 87, 0.45);
+      }
+      .rowIcon {
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        color: rgba(255, 255, 255, 0.95);
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.4px;
+        box-shadow: 0 10px 18px rgba(20, 20, 19, 0.12);
+      }
+      .rowIcon[data-variant="llm"] {
+        background: linear-gradient(135deg, rgba(106, 155, 204, 0.95), rgba(120, 140, 93, 0.95));
+      }
+      .rowIcon[data-variant="memory"] {
+        background: linear-gradient(135deg, rgba(217, 119, 87, 0.95), rgba(106, 155, 204, 0.92));
+      }
+      .rowIcon[data-variant="vrma"] {
+        background: linear-gradient(135deg, rgba(120, 140, 93, 0.95), rgba(217, 119, 87, 0.92));
+      }
+      .rowIcon[data-variant="motion"] {
+        background: linear-gradient(135deg, rgba(20, 20, 19, 0.78), rgba(106, 155, 204, 0.9));
+      }
+      .rowIcon[data-variant="keys"] {
+        background: linear-gradient(135deg, rgba(20, 20, 19, 0.72), rgba(217, 119, 87, 0.9));
+      }
+      .rowMain {
+        min-width: 0;
+        flex: 1;
+        display: grid;
+        gap: 4px;
+      }
+      .rowTitle {
+        font: 14px/1.1 var(--font-display);
+        letter-spacing: 0.2px;
+        color: rgba(20, 20, 19, 0.92);
+      }
+      .rowDesc {
+        font-size: 12px;
+        color: rgba(20, 20, 19, 0.55);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rowRight {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        flex: 0 0 auto;
+        color: rgba(20, 20, 19, 0.6);
+      }
+      .rowValue {
         font: 12px/1 var(--font-display);
         letter-spacing: 0.2px;
-        cursor: pointer;
-        transition: transform 120ms ease, background 120ms ease, box-shadow 120ms ease;
-        user-select: none;
+        color: rgba(20, 20, 19, 0.56);
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
-      .segBtn:hover {
-        transform: translateY(-1px);
-        background: rgba(255, 255, 255, 0.8);
-        box-shadow: 0 12px 24px rgba(20, 20, 19, 0.1);
+      .chev {
+        font-size: 18px;
+        line-height: 1;
+        opacity: 0.6;
       }
-      .segBtn:active {
-        transform: translateY(0px);
+
+      /* Router states (single-column push navigation). */
+      #settingsRouter[data-route="root"] #settingsRootPage {
+        transform: translateX(0%);
+        opacity: 1;
+        pointer-events: auto;
       }
-      .segBtn:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.18);
-        border-color: rgba(217, 119, 87, 0.5);
+      #settingsRouter[data-route="root"] .settingsDetailPage {
+        transform: translateX(100%);
+        opacity: 1;
+        pointer-events: none;
       }
-      .segBtn[data-active="1"] {
-        border-color: rgba(217, 119, 87, 0.46);
-        background: rgba(217, 119, 87, 0.12);
-        color: rgba(20, 20, 19, 0.9);
+      #settingsRouter:not([data-route="root"]) #settingsRootPage {
+        transform: translateX(-14%);
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #settingsRouter[data-route="llm"] #settingsLlmPage,
+      #settingsRouter[data-route="memory"] #settingsMemoryPage,
+      #settingsRouter[data-route="vrma"] #settingsVrmaPage,
+      #settingsRouter[data-route="motion"] #settingsMotionPage,
+      #settingsRouter[data-route="shortcuts"] #settingsShortcutsPage {
+        transform: translateX(0%);
+        opacity: 1;
+        pointer-events: auto;
       }
 
       .card {
@@ -799,26 +908,93 @@
         <!-- Settings view -->
         <div id="settingsView" class="view" aria-label="Settings">
           <div class="settingsWrap">
-            <div class="settingsTop">
-              <div class="settingsHeader">
-                <div>
+            <div id="settingsRouter" class="settingsRouter" data-route="root">
+              <!-- Root (iOS-like categories) -->
+              <div id="settingsRootPage" class="settingsPage settingsRootPage" aria-label="Settings Home">
+                <div class="settingsHero">
                   <div class="settingsTitle">设置</div>
-                  <div class="settingsSubtitle">轻量、按需配置。改完就走，不打扰。</div>
+                  <div class="settingsSubtitle">像 iOS 设置一样：先选分类，再进入细节。</div>
+                </div>
+
+                <div class="listGroup" aria-label="Core">
+                  <button class="listRow" type="button" data-settings-route="llm">
+                    <div class="rowIcon" data-variant="llm" aria-hidden="true">LLM</div>
+                    <div class="rowMain">
+                      <div class="rowTitle">LLM</div>
+                      <div class="rowDesc">Provider / Key / Base URL</div>
+                    </div>
+                    <div class="rowRight">
+                      <div class="rowValue" id="settingsLlmSummary">—</div>
+                      <div class="chev" aria-hidden="true">›</div>
+                    </div>
+                  </button>
+
+                  <button class="listRow" type="button" data-settings-route="memory">
+                    <div class="rowIcon" data-variant="memory" aria-hidden="true">MEM</div>
+                    <div class="rowMain">
+                      <div class="rowTitle">长期记忆</div>
+                      <div class="rowDesc">notes / 自动记忆 / 注入</div>
+                    </div>
+                    <div class="rowRight">
+                      <div class="rowValue" id="settingsMemorySummary">—</div>
+                      <div class="chev" aria-hidden="true">›</div>
+                    </div>
+                  </button>
+                </div>
+
+                <div class="listGroup" aria-label="Motion">
+                  <button class="listRow" type="button" data-settings-route="vrma">
+                    <div class="rowIcon" data-variant="vrma" aria-hidden="true">VR</div>
+                    <div class="rowMain">
+                      <div class="rowTitle">动作（VRMA）</div>
+                      <div class="rowDesc">上传 / 播放 / Idle / Walk / 动作库</div>
+                    </div>
+                    <div class="rowRight">
+                      <div class="rowValue">—</div>
+                      <div class="chev" aria-hidden="true">›</div>
+                    </div>
+                  </button>
+
+                  <button class="listRow" type="button" data-settings-route="motion">
+                    <div class="rowIcon" data-variant="motion" aria-hidden="true">FX</div>
+                    <div class="rowMain">
+                      <div class="rowTitle">程序动作（兜底）</div>
+                      <div class="rowDesc">Idle / Walk 的强度与速度</div>
+                    </div>
+                    <div class="rowRight">
+                      <div class="rowValue">—</div>
+                      <div class="chev" aria-hidden="true">›</div>
+                    </div>
+                  </button>
+                </div>
+
+                <div class="listGroup" aria-label="Other">
+                  <button class="listRow" type="button" data-settings-route="shortcuts">
+                    <div class="rowIcon" data-variant="keys" aria-hidden="true">⌘</div>
+                    <div class="rowMain">
+                      <div class="rowTitle">快捷键</div>
+                      <div class="rowDesc">Ctrl+Shift+C / Ctrl+Alt+O / Ctrl+Alt+P</div>
+                    </div>
+                    <div class="rowRight">
+                      <div class="rowValue">—</div>
+                      <div class="chev" aria-hidden="true">›</div>
+                    </div>
+                  </button>
+                </div>
+
+                <div class="help" style="margin-top: 12px; padding: 0 4px">
+                  提示：左上角返回键会在「详情页 → 分类页 → 聊天页」之间智能返回。
                 </div>
               </div>
 
-              <div class="settingsNav" aria-label="Settings sections">
-                <button class="segBtn" type="button" data-open-card="llmCard">LLM</button>
-                <button class="segBtn" type="button" data-open-card="memoryCard">长期记忆</button>
-                <button class="segBtn" type="button" data-open-card="vrmaCard">VRMA</button>
-                <button class="segBtn" type="button" data-open-card="motionCard">程序动作</button>
-                <button class="segBtn" type="button" data-open-card="shortcutsCard">快捷键</button>
-              </div>
-            </div>
-
-            <details id="llmCard" class="card" data-accordion="settings">
-              <summary class="cardTitle">LLM</summary>
-              <div class="fieldGrid">
+              <!-- Detail pages -->
+              <div id="settingsLlmPage" class="settingsPage settingsDetailPage" aria-label="LLM Settings">
+                <div class="pageHeader">
+                  <div class="pageTitle">LLM</div>
+                  <div class="pageSub">选择 Provider，并按需展开具体配置。</div>
+                </div>
+                <div class="card">
+                  <div class="fieldGrid">
                 <div class="field">
                   <div class="label">Provider</div>
                   <select id="provider" class="select">
@@ -911,11 +1087,16 @@
                 <button id="saveLlm" class="btn btnPrimary" type="button">保存</button>
                 <button id="reloadLlm" class="btn" type="button">重新读取</button>
               </div>
-            </details>
+                </div>
+              </div>
 
-            <details id="memoryCard" class="card" data-accordion="settings">
-              <summary class="cardTitle">长期记忆</summary>
-              <div class="fieldGrid">
+              <div id="settingsMemoryPage" class="settingsPage settingsDetailPage" aria-label="Memory Settings">
+                <div class="pageHeader">
+                  <div class="pageTitle">长期记忆</div>
+                  <div class="pageSub">本地 SQLite。可手动记住，也可自动从对话提取（更像 agent）。</div>
+                </div>
+                <div class="card">
+                  <div class="fieldGrid">
                 <div class="help">
                   聊天记录会保存在本机（SQLite）。你也可以手动添加“记忆”，让 SAMA 在之后的对话中参考。
                   在聊天里发送：<span class="kbd">记住: ...</span> 也可以。
@@ -983,11 +1164,17 @@
                   </div>
                 </div>
               </details>
-            </details>
+                  </div>
+                </div>
+              </div>
 
-            <details id="vrmaCard" class="card" data-accordion="settings">
-              <summary class="cardTitle">动作（VRMA）</summary>
-              <div class="fieldGrid">
+              <div id="settingsVrmaPage" class="settingsPage settingsDetailPage" aria-label="VRMA Settings">
+                <div class="pageHeader">
+                  <div class="pageTitle">动作（VRMA）</div>
+                  <div class="pageSub">上传后即可播放，也可以设为 Idle/Walk 槽位并自动切换。</div>
+                </div>
+                <div class="card">
+                  <div class="fieldGrid">
                 <div class="help">加载 .vrma 后可播放，并可设为 Idle/Walk 槽位自动切换；也可保存到动作库。</div>
 
                 <div class="actionsRow">
@@ -1028,15 +1215,21 @@
                     <div class="label">动作库</div>
                     <button id="refreshVrmaLib" class="btn btnSm" type="button">刷新</button>
                   </div>
-                  <div id="vrmaLibEmpty" class="help">动作库为空。</div>
-                  <div id="vrmaLibList" class="libraryList"></div>
+                <div id="vrmaLibEmpty" class="help">动作库为空。</div>
+                <div id="vrmaLibList" class="libraryList"></div>
                 </div>
               </div>
-            </details>
+                  </div>
+                </div>
+              </div>
 
-            <details id="motionCard" class="card" data-accordion="settings">
-              <summary class="cardTitle">程序动作（兜底）</summary>
-              <div class="fieldGrid">
+              <div id="settingsMotionPage" class="settingsPage settingsDetailPage" aria-label="Motion Settings">
+                <div class="pageHeader">
+                  <div class="pageTitle">程序动作（兜底）</div>
+                  <div class="pageSub">当没有 VRMA Idle/Walk 时会更明显；也可作为轻微的“呼吸感”。</div>
+                </div>
+                <div class="card">
+                  <div class="fieldGrid">
                 <div class="help">当没有 VRMA Idle/Walk 时会更明显；也可作为轻微的“呼吸感”。</div>
 
                 <label class="toggle"><input id="idleEnabled" type="checkbox" checked />启用 Idle</label>
@@ -1062,17 +1255,25 @@
                   <input id="walkStride" class="range" type="range" min="0" max="1" step="0.01" value="0.75" />
                   <div class="rangeValue" id="walkStrideValue">0.75</div>
                 </div>
+                  </div>
+                </div>
               </div>
-            </details>
 
-            <details id="shortcutsCard" class="card" data-accordion="settings">
-              <summary class="cardTitle">快捷键</summary>
-              <div class="help">
+              <div id="settingsShortcutsPage" class="settingsPage settingsDetailPage" aria-label="Shortcuts Settings">
+                <div class="pageHeader">
+                  <div class="pageTitle">快捷键</div>
+                  <div class="pageSub">只保留最常用的几个，不做复杂映射，避免学习成本。</div>
+                </div>
+
+                <div class="card">
+                  <div class="help">
                 <div><span class="kbd">Ctrl+Shift+C</span> 快速发送（仅输入框，回复只在气泡）</div>
                 <div style="margin-top: 6px"><span class="kbd">Ctrl+Alt+O</span> 打开主界面（本窗口）</div>
                 <div style="margin-top: 6px"><span class="kbd">Ctrl+Alt+P</span> 切换 click-through</div>
+                  </div>
+                </div>
               </div>
-            </details>
+            </div>
           </div>
           <div class="composer" style="border-top: none; background: transparent">
             <div style="height: 8px"></div>
