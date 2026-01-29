@@ -179,6 +179,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   let clipCache = new WeakMap<any, THREE.AnimationClip>();
   let mixer: THREE.AnimationMixer | null = null;
   let activeAction: THREE.AnimationAction | null = null;
+  let activeClipSource: THREE.AnimationClip | null = null;
   let activeAnimation: MotionState["animation"] = "NONE";
   let locomotion: MotionState["locomotion"] = "IDLE";
   let restHipsLocal: THREE.Vector3 | null = null;
@@ -361,6 +362,29 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     }
   };
 
+  const getHipsNode = () => {
+    if (!vrm) return null;
+    const humanoid: any = (vrm as any).humanoid;
+    const node =
+      humanoid?.getNormalizedBoneNode?.("hips") ??
+      humanoid?.getBoneNode?.("hips") ??
+      humanoid?.normalizedHumanBones?.hips?.node ??
+      null;
+    return node && (node as any).isObject3D ? (node as THREE.Object3D) : null;
+  };
+
+  const alignClipToCurrentHips = (clip: THREE.AnimationClip) => {
+    if (!vrm) return clip;
+    const hipsNode = getHipsNode();
+    if (!hipsNode) return clip;
+
+    const anchor = hipsNode.position.clone();
+    const aligned = clip.clone();
+    (aligned as any).__samaAligned = true;
+    reanchorPositionTracks(aligned, vrm, anchor);
+    return aligned;
+  };
+
   const setActiveClip = (kind: MotionState["animation"], clip: THREE.AnimationClip | null) => {
     if (!vrm) return;
 
@@ -371,18 +395,20 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
         } catch {}
       }
       activeAction = null;
+      activeClipSource = null;
       activeAnimation = "NONE";
       return;
     }
 
     if (!mixer) mixer = new THREE.AnimationMixer(vrm.scene);
 
-    const nextAction = mixer.clipAction(clip);
-    if (activeAction === nextAction && activeAnimation === kind) {
-      applyAnimationConfig(nextAction);
+    if (activeAction && activeAnimation === kind && activeClipSource === clip) {
+      applyAnimationConfig(activeAction);
       return;
     }
 
+    const nextClip = alignClipToCurrentHips(clip);
+    const nextAction = mixer.clipAction(nextClip);
     nextAction.reset();
     nextAction.enabled = true;
     nextAction.setLoop(THREE.LoopRepeat, Infinity);
@@ -390,20 +416,36 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     applyAnimationConfig(nextAction);
 
     if (activeAction && activeAction !== nextAction) {
+      const prevAction = activeAction;
+      const prevClip = typeof prevAction.getClip === "function" ? prevAction.getClip() : null;
       try {
         activeAction.crossFadeTo(nextAction, 0.22, false);
       } catch {
         try {
-          activeAction.stop();
+          prevAction.stop();
         } catch {}
+      }
+      if (prevClip && (prevClip as any).__samaAligned) {
+        setTimeout(() => {
+          try {
+            prevAction.stop();
+          } catch {}
+          try {
+            mixer?.uncacheAction(prevClip, vrm?.scene);
+          } catch {}
+        }, 320);
       }
     }
 
     activeAction = nextAction;
+    activeClipSource = clip;
     activeAnimation = kind;
   };
 
-  const syncAnimationForMovement = (nowMs: number, moving: boolean) => {
+  const syncAnimationForMovement = (
+    nowMs: number,
+    moving: { moving: boolean; actionMoving: boolean; dragMoving: boolean }
+  ) => {
     if (!vrmAnimationConfig.enabled) {
       setActiveClip("NONE", null);
       return;
@@ -419,7 +461,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     }
 
     // 2) Locomotion loops (idle/walk) if user assigned them
-    if (moving) {
+    if (moving.moving) {
       const vrma = vrmAnimationWalk ? getClipFromVrmAnimation(vrmAnimationWalk) : null;
       if (vrma) {
         setActiveClip("WALK", vrma);
@@ -428,6 +470,19 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       if (embeddedWalkClip) {
         setActiveClip("WALK", embeddedWalkClip);
         return;
+      }
+
+      // Dragging without a walk clip: keep idle clip to avoid vertical bobbing.
+      if (!moving.actionMoving && moving.dragMoving) {
+        const idleVrma = vrmAnimationIdle ? getClipFromVrmAnimation(vrmAnimationIdle) : null;
+        if (idleVrma) {
+          setActiveClip("IDLE", idleVrma);
+          return;
+        }
+        if (embeddedIdleClip) {
+          setActiveClip("IDLE", embeddedIdleClip);
+          return;
+        }
       }
     } else {
       const vrma = vrmAnimationIdle ? getClipFromVrmAnimation(vrmAnimationIdle) : null;
@@ -561,13 +616,19 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     walk = createWalkController(vrm, walkConfigOverride);
 
     fitCameraToModel();
-    syncAnimationForMovement(safeNowMs(), false);
+    syncAnimationForMovement(safeNowMs(), { moving: false, actionMoving: false, dragMoving: false });
   };
 
   await load(vrmBytes);
 
   const clock = new THREE.Clock();
   let running = false;
+
+  const computeMovementState = (now: number) => {
+    const actionMoving = now < actionMoveUntil;
+    const dragMoving = dragging && now - lastDragAt < 140;
+    return { moving: actionMoving || dragMoving, actionMoving, dragMoving };
+  };
 
   function tick() {
     if (!running) return;
@@ -579,21 +640,19 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       const now = safeNowMs();
 
       // Movement detection: window moving (APPROACH/RETREAT) or user dragging -> switch to WALK.
-      const actionMoving = now < actionMoveUntil;
-      const dragRecent = dragging && now - lastDragAt < 140;
-      const moving = actionMoving || dragRecent;
-      locomotion = moving ? "WALK" : "IDLE";
+      const movement = computeMovementState(now);
+      locomotion = movement.moving ? "WALK" : "IDLE";
 
-      const dragIntensity = dragRecent ? Math.min(1, lastDragMag / 22) : 0;
-      const targetIntensity = actionMoving ? 1 : dragIntensity;
+      const dragIntensity = movement.dragMoving ? Math.min(1, lastDragMag / 22) : 0;
+      const targetIntensity = movement.actionMoving ? 1 : dragIntensity;
       moveIntensity = THREE.MathUtils.lerp(moveIntensity, targetIntensity, 1 - Math.exp(-14 * dt));
 
-      syncAnimationForMovement(now, moving);
+      syncAnimationForMovement(now, movement);
 
       // When a short movement stops, keep ticking the walk controller briefly at zero intensity
       // so legs/hips can converge back to rest (prevents ending up "floating").
-      if (wasMoving && !moving) walkResetUntil = now + 900;
-      wasMoving = moving;
+      if (wasMoving && !movement.moving) walkResetUntil = now + 900;
+      wasMoving = movement.moving;
 
       if (mixer) {
         try {
@@ -692,10 +751,10 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       if (!bytes.byteLength) {
         vrmAnimationLastLoaded = null;
         vrmAnimationAction = null;
-        const now = safeNowMs();
-        syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
-        return false;
-      }
+      const now = safeNowMs();
+      syncAnimationForMovement(now, computeMovementState(now));
+      return false;
+    }
 
       try {
         vrmAnimationLastLoaded = await loadVrmAnimationFromBytes(bytes);
@@ -706,7 +765,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
         vrmAnimationAction = null;
       }
       const now = safeNowMs();
-      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      syncAnimationForMovement(now, computeMovementState(now));
       return !!vrmAnimationLastLoaded;
     },
     speak: (durationMs) => {
@@ -792,7 +851,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
       if (activeAction) applyAnimationConfig(activeAction);
       const now = safeNowMs();
-      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      syncAnimationForMovement(now, computeMovementState(now));
     },
     getVrmAnimationConfig: () => ({ ...vrmAnimationConfig }),
     clearVrmAnimation: () => {
@@ -800,7 +859,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       vrmAnimationAction = null;
       if (activeAnimation === "ACTION") setActiveClip("NONE", null);
       const now = safeNowMs();
-      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      syncAnimationForMovement(now, computeMovementState(now));
     },
     setVrmAnimationSlotFromLast: (slot) => {
       if (!vrmAnimationLastLoaded) return false;
@@ -810,14 +869,14 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       // After promoting to a locomotion slot, exit manual override so auto-switch works.
       vrmAnimationAction = null;
       const now = safeNowMs();
-      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      syncAnimationForMovement(now, computeMovementState(now));
       return true;
     },
     clearVrmAnimationSlot: (slot) => {
       if (slot === "idle") vrmAnimationIdle = null;
       else vrmAnimationWalk = null;
       const now = safeNowMs();
-      syncAnimationForMovement(now, now < actionMoveUntil || (dragging && now - lastDragAt < 140));
+      syncAnimationForMovement(now, computeMovementState(now));
     },
     getVrmAnimationSlotsStatus: () => ({
       hasLastLoaded: !!vrmAnimationLastLoaded,
