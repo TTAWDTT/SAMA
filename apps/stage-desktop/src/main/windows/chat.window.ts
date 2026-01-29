@@ -38,7 +38,7 @@ export function createChatWindow(opts: CreateChatWindowOpts) {
     show: false,
     resizable: true,
     alwaysOnTop: false,
-    backgroundColor: "#0b0f14",
+    backgroundColor: "#f6f7fb",
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: opts.preloadPath,

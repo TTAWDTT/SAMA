@@ -6,15 +6,17 @@
     <title>Pet</title>
     <style>
       :root {
-        color-scheme: dark;
-        --bg: rgba(10, 14, 18, 0.72);
-        --bg-strong: rgba(10, 14, 18, 0.86);
-        --border: rgba(255, 255, 255, 0.12);
-        --border-soft: rgba(255, 255, 255, 0.08);
-        --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.72);
-        --muted2: rgba(255, 255, 255, 0.6);
-        --shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+        color-scheme: light;
+        --bg: rgba(255, 255, 255, 0.86);
+        --bg-strong: rgba(255, 255, 255, 0.94);
+        --border: rgba(15, 23, 42, 0.12);
+        --border-soft: rgba(15, 23, 42, 0.08);
+        --text: rgba(15, 23, 42, 0.92);
+        --muted: rgba(15, 23, 42, 0.64);
+        --muted2: rgba(15, 23, 42, 0.5);
+        --accent: rgba(37, 99, 235, 0.95);
+        --accent-soft: rgba(37, 99, 235, 0.12);
+        --shadow: 0 14px 44px rgba(15, 23, 42, 0.14);
         --radius: 14px;
       }
       html,
@@ -37,14 +39,14 @@
         top: 10px;
         padding: 6px 8px;
         border-radius: 10px;
-        background: rgba(18, 22, 28, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.9);
+        background: rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        color: rgba(15, 23, 42, 0.9);
         font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
           "Courier New", monospace;
         pointer-events: none;
         user-select: none;
-        text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+        text-shadow: none;
         display: none; /* enabled via Debug toggle */
       }
 
@@ -56,9 +58,9 @@
         width: 86px;
         height: 26px;
         border-radius: 999px;
-        background: rgba(18, 22, 28, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: rgba(255, 255, 255, 0.85);
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        color: rgba(15, 23, 42, 0.82);
         font: 12px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
           "Courier New", monospace;
         display: flex;
@@ -86,14 +88,14 @@
         transform: translateX(-50%);
         padding: 8px 12px;
         border-radius: 999px;
-        background: rgba(18, 22, 28, 0.62);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        color: rgba(15, 23, 42, 0.92);
         font: 12px/1.25 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
           -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
         pointer-events: none;
         user-select: none;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
         display: none;
         white-space: pre-wrap;
       }
@@ -106,17 +108,15 @@
         max-width: min(360px, calc(100vw - 40px));
         padding: 10px 12px;
         border-radius: 16px;
-        background: rgba(18, 22, 28, 0.74);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: rgba(255, 255, 255, 0.92);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        color: rgba(15, 23, 42, 0.92);
         font: 14px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
           -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
         letter-spacing: 0.15px;
         white-space: pre-wrap;
         word-break: break-word;
-        text-shadow: 0 1px 10px rgba(0, 0, 0, 0.38);
-        box-shadow: 0 14px 44px rgba(0, 0, 0, 0.44);
-        backdrop-filter: blur(10px);
+        box-shadow: 0 14px 44px rgba(15, 23, 42, 0.18);
         pointer-events: none;
         user-select: none;
         opacity: 0;
@@ -130,9 +130,9 @@
         left: 50%;
         width: 12px;
         height: 12px;
-        background: rgba(18, 22, 28, 0.74);
-        border-right: 1px solid rgba(255, 255, 255, 0.12);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.92);
+        border-right: 1px solid rgba(15, 23, 42, 0.14);
+        border-bottom: 1px solid rgba(15, 23, 42, 0.14);
         transform: translateX(-50%) rotate(45deg);
         bottom: -7px;
         opacity: 0.95;
@@ -142,8 +142,8 @@
         bottom: auto;
         border-right: none;
         border-bottom: none;
-        border-left: 1px solid rgba(255, 255, 255, 0.12);
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        border-left: 1px solid rgba(15, 23, 42, 0.14);
+        border-top: 1px solid rgba(15, 23, 42, 0.14);
       }
       #inlineBubble[data-placement="bottom"] {
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(-10px) scale(0.985);
@@ -160,7 +160,7 @@
       #dropOverlay {
         position: fixed;
         inset: 0;
-        background: rgba(6, 8, 10, 0.22);
+        background: rgba(15, 23, 42, 0.06);
         pointer-events: none;
         opacity: 0;
         transition: opacity 120ms ease;
@@ -174,13 +174,13 @@
       #dropCard {
         pointer-events: none;
         border-radius: 18px;
-        background: rgba(10, 14, 18, 0.78);
-        border: 1px solid rgba(255, 255, 255, 0.16);
-        box-shadow: 0 18px 70px rgba(0, 0, 0, 0.55);
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        box-shadow: 0 18px 70px rgba(15, 23, 42, 0.14);
         padding: 14px 16px 12px 16px;
         text-align: center;
         width: min(340px, calc(100vw - 44px));
-        color: rgba(255, 255, 255, 0.92);
+        color: rgba(15, 23, 42, 0.92);
         font: 13px/1.45 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
           -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
       }
@@ -190,7 +190,7 @@
         margin-bottom: 6px;
       }
       #dropHint {
-        color: rgba(255, 255, 255, 0.72);
+        color: rgba(15, 23, 42, 0.62);
         font-size: 12px;
       }
 
@@ -232,9 +232,9 @@
         height: 26px;
         border-radius: 10px;
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
-        color: rgba(255, 255, 255, 0.85);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: rgba(15, 23, 42, 0.04);
+        color: rgba(15, 23, 42, 0.78);
         cursor: pointer;
         font: 16px/1 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
           -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
@@ -243,10 +243,10 @@
         justify-content: center;
       }
       #bootClose:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(15, 23, 42, 0.06);
       }
       #bootStatus {
-        color: rgba(255, 255, 255, 0.78);
+        color: rgba(15, 23, 42, 0.64);
         margin-bottom: 10px;
         white-space: pre-wrap;
       }
@@ -258,33 +258,33 @@
       }
       #bootPick {
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        background: rgba(15, 23, 42, 0.04);
+        color: rgba(15, 23, 42, 0.9);
         border-radius: 10px;
         padding: 8px 10px;
         font: inherit;
         cursor: pointer;
       }
       #bootPick:hover {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(15, 23, 42, 0.06);
       }
       #bootPickAnim {
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.14);
+        background: rgba(15, 23, 42, 0.04);
+        color: rgba(15, 23, 42, 0.9);
         border-radius: 10px;
         padding: 8px 10px;
         font: inherit;
         cursor: pointer;
       }
       #bootPickAnim:hover {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(15, 23, 42, 0.06);
       }
       #bootHint {
         margin-top: 8px;
-        color: rgba(255, 255, 255, 0.62);
+        color: rgba(15, 23, 42, 0.56);
         font-size: 12px;
       }
 
@@ -294,7 +294,6 @@
         background: var(--bg);
         border: 1px solid var(--border);
         box-shadow: var(--shadow);
-        backdrop-filter: blur(10px);
         color: var(--text);
         font: 13px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
           -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
@@ -308,9 +307,8 @@
         padding: 12px 12px 10px 12px;
         position: sticky;
         top: 0;
-        background: linear-gradient(to bottom, rgba(10, 14, 18, 0.92), rgba(10, 14, 18, 0.62));
-        backdrop-filter: blur(10px);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.92);
+        border-bottom: 1px solid var(--border-soft);
       }
       .panelTitle {
         font-weight: 700;
@@ -318,16 +316,16 @@
       }
       .panelToggle {
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.04);
+        color: var(--text);
         border-radius: 10px;
         padding: 6px 9px;
         font: inherit;
         cursor: pointer;
       }
       .panelToggle:hover {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(15, 23, 42, 0.06);
       }
       .panelBody {
         display: grid;
@@ -346,15 +344,16 @@
         gap: 6px;
         padding: 6px 10px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: rgba(255, 255, 255, 0.86);
+        background: rgba(15, 23, 42, 0.04);
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        color: rgba(15, 23, 42, 0.78);
         font-size: 12px;
         font-variant-numeric: tabular-nums;
       }
       .chipStrong {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.14);
+        background: rgba(15, 23, 42, 0.06);
+        border-color: rgba(15, 23, 42, 0.14);
+        color: rgba(15, 23, 42, 0.88);
       }
 
       .dockGrid {
@@ -367,9 +366,9 @@
       }
       .dockBtn {
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--border);
+        background: rgba(15, 23, 42, 0.04);
+        color: var(--text);
         border-radius: 12px;
         padding: 10px 10px;
         font: inherit;
@@ -378,21 +377,21 @@
         white-space: nowrap;
       }
       .dockBtn:hover {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(15, 23, 42, 0.06);
       }
       .dockBtn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
       }
       .dockBtnPrimary {
-        background: rgba(139, 233, 253, 0.16);
-        border-color: rgba(139, 233, 253, 0.28);
+        background: rgba(37, 99, 235, 0.1);
+        border-color: rgba(37, 99, 235, 0.26);
       }
       .dockBtnPrimary:hover {
-        background: rgba(139, 233, 253, 0.22);
+        background: rgba(37, 99, 235, 0.14);
       }
       .dockBtnPrimary:disabled {
-        background: rgba(139, 233, 253, 0.1);
+        background: rgba(37, 99, 235, 0.08);
       }
 
       .segmented {
@@ -401,25 +400,25 @@
         gap: 6px;
         padding: 6px;
         border-radius: 14px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(15, 23, 42, 0.03);
+        border: 1px solid rgba(15, 23, 42, 0.1);
       }
       .segBtn {
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.06);
-        color: rgba(255, 255, 255, 0.88);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: rgba(15, 23, 42, 0.03);
+        color: rgba(15, 23, 42, 0.86);
         border-radius: 10px;
         padding: 8px 8px;
         font: inherit;
         cursor: pointer;
       }
       .segBtn[data-active="1"] {
-        background: rgba(255, 255, 255, 0.12);
-        border-color: rgba(255, 255, 255, 0.18);
+        background: rgba(37, 99, 235, 0.1);
+        border-color: rgba(37, 99, 235, 0.22);
       }
       .segBtn:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(15, 23, 42, 0.05);
       }
       .segBtn:disabled {
         opacity: 0.55;
@@ -428,8 +427,8 @@
 
       .details {
         border-radius: 14px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(15, 23, 42, 0.03);
+        border: 1px solid rgba(15, 23, 42, 0.1);
         overflow: hidden;
       }
       .details > summary {
@@ -438,7 +437,7 @@
         user-select: none;
         padding: 10px 10px;
         font-weight: 800;
-        color: rgba(255, 255, 255, 0.9);
+        color: rgba(15, 23, 42, 0.88);
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -457,16 +456,16 @@
         padding: 8px 10px 10px 10px;
         display: grid;
         gap: 10px;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
       }
 
       .panelSection {
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
         padding-top: 8px;
       }
       .panelSectionTitle {
         font-weight: 700;
-        color: rgba(255, 255, 255, 0.85);
+        color: rgba(15, 23, 42, 0.84);
         margin-bottom: 6px;
       }
       .panelRow {
@@ -476,11 +475,11 @@
         align-items: center;
       }
       .panelRowLabel {
-        color: rgba(255, 255, 255, 0.82);
+        color: rgba(15, 23, 42, 0.78);
       }
       .panelRowValue {
         text-align: right;
-        color: rgba(255, 255, 255, 0.75);
+        color: rgba(15, 23, 42, 0.62);
         font-variant-numeric: tabular-nums;
       }
       .panelRow input[type="range"] {
@@ -493,16 +492,16 @@
       }
       .panelBtn {
         appearance: none;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.08);
-        color: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: rgba(15, 23, 42, 0.04);
+        color: rgba(15, 23, 42, 0.9);
         border-radius: 10px;
         padding: 7px 10px;
         font: inherit;
         cursor: pointer;
       }
       .panelBtn:hover {
-        background: rgba(255, 255, 255, 0.12);
+        background: rgba(15, 23, 42, 0.06);
       }
       .panelBtn:disabled {
         opacity: 0.55;
@@ -512,7 +511,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        color: rgba(255, 255, 255, 0.85);
+        color: rgba(15, 23, 42, 0.78);
       }
     </style>
   </head>

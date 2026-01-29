@@ -207,13 +207,13 @@ function renderNoPreloadHelp() {
   body.className = "panelBody";
 
   const p1 = document.createElement("div");
-  p1.style.color = "rgba(255, 255, 255, 0.86)";
+  p1.style.color = "rgba(15, 23, 42, 0.9)";
   p1.textContent = isElectron
     ? "当前窗口是 Electron，但 preload API 缺失（可能是 preload 文件路径错误，或 preload 脚本运行报错）。"
     : "当前页面似乎是在浏览器中打开的（不是 Electron），因此无法使用 preload API。";
 
   const p2 = document.createElement("div");
-  p2.style.color = "rgba(255, 255, 255, 0.72)";
+  p2.style.color = "rgba(15, 23, 42, 0.64)";
   p2.style.fontSize = "12px";
   p2.textContent =
     "正确用法：运行 `pnpm dev` 后，去系统托盘找到 SAMA 图标 → 选择 `Open Controls`（或按 Ctrl+Alt+O）。不要直接用浏览器打开 http://localhost:5173/controls/index.html。";
@@ -222,9 +222,9 @@ function renderNoPreloadHelp() {
   diag.style.margin = "0";
   diag.style.padding = "10px 12px";
   diag.style.borderRadius = "12px";
-  diag.style.border = "1px solid rgba(255, 255, 255, 0.12)";
-  diag.style.background = "rgba(0, 0, 0, 0.22)";
-  diag.style.color = "rgba(255, 255, 255, 0.78)";
+  diag.style.border = "1px solid rgba(15, 23, 42, 0.12)";
+  diag.style.background = "rgba(15, 23, 42, 0.04)";
+  diag.style.color = "rgba(15, 23, 42, 0.78)";
   diag.style.fontSize = "12px";
   diag.style.whiteSpace = "pre-wrap";
   diag.textContent = `env: ${isElectron ? "electron" : "browser"}\nlocation: ${location.href}\nuserAgent: ${navigator.userAgent}`;
