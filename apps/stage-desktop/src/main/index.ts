@@ -538,6 +538,11 @@ async function bootstrap() {
   const memory = new MemoryService({ dbPath: join(app.getPath("userData"), "memory.db") });
   await memory.init();
 
+  // Restore chat history across restarts (long-term memory foundation).
+  try {
+    chatLog = memory.getRecentChatLogEntries(260);
+  } catch {}
+
   let moveCancel = { canceled: false };
   const moveTo = (p: Point, durationMs: number) => {
     moveCancel.canceled = true;

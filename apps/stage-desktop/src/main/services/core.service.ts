@@ -75,6 +75,13 @@ export class CoreService {
     this.#llm = opts.llm;
     this.#memory = opts.memory;
     this.#onAction = opts.onAction;
+
+    // Long-term memory v1: persist chat history locally and restore it on boot
+    // so conversations continue across restarts.
+    try {
+      const persisted = this.#memory.getRecentChatHistory(40);
+      if (persisted.length) this.#chatHistory = persisted;
+    } catch {}
   }
 
   get state() {
@@ -299,6 +306,11 @@ export class CoreService {
   }
 
   async handleChat(req: ChatRequest): Promise<ChatResponse> {
+    // Persist user message before LLM call so it survives crashes/restarts.
+    try {
+      this.#memory.logChatMessage({ ts: req.ts, role: "user", content: req.message });
+    } catch {}
+
     const ctx = {
       state: this.#state,
       isNight: this.#lastSensor?.isNight ?? false,
@@ -321,16 +333,21 @@ export class CoreService {
     this.#onAction(thinking, { proactive: false });
 
     const reply = await this.#llm.chatReply(ctx, req.message);
+    const replyTs = Date.now();
 
     this.#chatHistory.push({ role: "user", content: req.message });
     this.#chatHistory.push({ role: "assistant", content: reply });
     this.#chatHistory = this.#chatHistory.slice(-40);
 
+    try {
+      this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: reply });
+    } catch {}
+
     // Chat reply is rendered as a bubble near the character (separate from the input UI).
     const bubble = truncateByCodepoints(normalizeBubbleText(reply), 180);
     const cmd: ActionCommand = {
       type: "ACTION_COMMAND",
-      ts: Date.now(),
+      ts: replyTs,
       action: "IDLE",
       expression: pickChatExpression(ctx.isNight, ctx.mood),
       bubbleKind: "text",
@@ -340,6 +357,6 @@ export class CoreService {
     this.#memory.logAction(cmd);
     this.#onAction(cmd, { proactive: false });
 
-    return { type: "CHAT_RESPONSE", ts: Date.now(), message: reply };
+    return { type: "CHAT_RESPONSE", ts: replyTs, message: reply };
   }
 }
