@@ -1,10 +1,13 @@
 import type { ActionCommand } from "@sama/shared";
 import { createCaptionController } from "./caption";
 
-const bubble = document.getElementById("bubble") as HTMLDivElement | null;
-if (!bubble) throw new Error("missing #bubble");
+const bubble = document.getElementById("bubble");
+if (!(bubble instanceof HTMLDivElement)) throw new Error("missing #bubble");
 
-const caption = createCaptionController(bubble);
+const thinking = document.getElementById("thinking");
+if (!(thinking instanceof HTMLDivElement)) throw new Error("missing #thinking");
+
+const caption = createCaptionController({ bubbleEl: bubble, thinkingEl: thinking });
 
 const BC_NAME = "sama:pet-bus";
 const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(BC_NAME) : null;

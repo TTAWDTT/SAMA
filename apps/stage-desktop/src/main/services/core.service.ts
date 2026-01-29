@@ -306,15 +306,16 @@ export class CoreService {
       history: this.#chatHistory
     };
 
-    // UX: show an immediate "thinking" bubble so users get feedback even if the LLM takes time.
-    // This also helps validate the bubble rendering pipeline end-to-end.
+    // UX: show an immediate "thinking" indicator near the avatar so users get feedback
+    // even if the LLM takes time. The reply bubble will replace it automatically.
     const thinking: ActionCommand = {
       type: "ACTION_COMMAND",
       ts: Date.now(),
       action: "IDLE",
       expression: ctx.isNight ? "TIRED" : "NEUTRAL",
-      bubble: "嗯…",
-      durationMs: 1200
+      bubbleKind: "thinking",
+      bubble: null,
+      durationMs: 25_000
     };
     this.#memory.logAction(thinking);
     this.#onAction(thinking, { proactive: false });
@@ -332,6 +333,7 @@ export class CoreService {
       ts: Date.now(),
       action: "IDLE",
       expression: pickChatExpression(ctx.isNight, ctx.mood),
+      bubbleKind: "text",
       bubble,
       durationMs: bubbleDurationForText(bubble)
     };

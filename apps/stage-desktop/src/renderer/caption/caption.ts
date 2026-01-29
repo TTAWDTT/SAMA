@@ -1,19 +1,25 @@
 import type { ActionCommand } from "@sama/shared";
 
-export function createCaptionController(el: HTMLDivElement) {
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n));
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+type Anchor = { nx: number; ny: number };
+
+export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinkingEl: HTMLDivElement }) {
+  const bubbleEl = opts.bubbleEl;
+  const thinkingEl = opts.thinkingEl;
+
   let hideTimer: number | null = null;
-  let anchor = { nx: 0.5, ny: 0.22 };
-  let visible = false;
+  let anchor: Anchor = { nx: 0.5, ny: 0.22 };
+  let bubbleVisible = false;
+  let thinkingVisible = false;
 
-  function clamp01(n: number) {
-    return Math.max(0, Math.min(1, n));
-  }
-
-  function clamp(n: number, min: number, max: number) {
-    return Math.max(min, Math.min(max, n));
-  }
-
-  function layout() {
+  function layoutOne(el: HTMLDivElement, vars: { x: string; y: string }) {
     const vw = Math.max(1, window.innerWidth || 1);
     const vh = Math.max(1, window.innerHeight || 1);
 
@@ -27,67 +33,103 @@ export function createCaptionController(el: HTMLDivElement) {
     const anchorX = clamp(anchor.nx, 0, 1) * vw;
     const anchorY = clamp(anchor.ny, 0, 1) * vh;
 
-    // Decide whether the bubble should appear above or below the anchor point.
     // Default: above; if too close to the top edge, flip to below.
     let placement: "top" | "bottom" = "top";
     if (anchorY < bh + margin + gap) placement = "bottom";
     if (anchorY > vh - bh - margin - gap) placement = "top";
 
-    // Clamp x so the bubble stays fully within view (centered around x).
     const x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
-
-    // For placement:
-    // - top: bubble's bottom is near the anchor (translateY(-100%))
-    // - bottom: bubble's top is near the anchor (translateY(0))
     const y =
       placement === "top"
         ? clamp(anchorY, bh + margin + gap, vh - margin)
         : clamp(anchorY, margin, vh - bh - margin - gap);
 
     el.dataset.placement = placement;
-    el.style.setProperty("--bx", `${x.toFixed(2)}px`);
-    el.style.setProperty("--by", `${y.toFixed(2)}px`);
+    el.style.setProperty(vars.x, `${x.toFixed(2)}px`);
+    el.style.setProperty(vars.y, `${y.toFixed(2)}px`);
   }
 
-  function hide() {
-    el.classList.remove("show");
-    el.textContent = "";
-    visible = false;
+  function layout() {
+    if (bubbleVisible) layoutOne(bubbleEl, { x: "--bx", y: "--by" });
+    if (thinkingVisible) layoutOne(thinkingEl, { x: "--tx", y: "--ty" });
   }
 
-  function show(text: string) {
-    el.textContent = text;
-    el.classList.add("show");
-    visible = true;
-    // Layout after DOM updates so we can measure bubble size.
-    requestAnimationFrame(() => {
-      layout();
-    });
-  }
-
-  function scheduleHide(durationMs: number) {
+  function stopHideTimer() {
     if (hideTimer) window.clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+
+  function hideBubble() {
+    bubbleEl.classList.remove("show");
+    bubbleEl.textContent = "";
+    bubbleVisible = false;
+  }
+
+  function hideThinking() {
+    thinkingEl.classList.remove("show");
+    thinkingVisible = false;
+  }
+
+  function showBubble(text: string) {
+    hideThinking();
+    stopHideTimer();
+
+    bubbleEl.textContent = text;
+    bubbleEl.classList.add("show");
+    bubbleVisible = true;
+
+    requestAnimationFrame(() => layout());
+  }
+
+  function showThinking(durationMs: number) {
+    hideBubble();
+    stopHideTimer();
+
+    thinkingEl.classList.add("show");
+    thinkingVisible = true;
+
+    requestAnimationFrame(() => layout());
+
+    // Safety valve: don't get stuck forever if something goes wrong.
+    const ms = Math.max(800, Number(durationMs) || 0);
     hideTimer = window.setTimeout(() => {
-      hide();
-    }, Math.max(50, durationMs));
+      hideThinking();
+      hideTimer = null;
+    }, ms);
+  }
+
+  function scheduleHideBubble(durationMs: number) {
+    stopHideTimer();
+    const ms = Math.max(50, Number(durationMs) || 0);
+    hideTimer = window.setTimeout(() => {
+      hideBubble();
+      hideTimer = null;
+    }, ms);
   }
 
   window.addEventListener("resize", () => {
-    if (!visible) return;
+    if (!bubbleVisible && !thinkingVisible) return;
     layout();
   });
 
   return {
-    setAnchor: (a: { nx: number; ny: number }) => {
-      const nx = clamp01(Number(a?.nx ?? 0.5));
-      const ny = clamp01(Number(a?.ny ?? 0.22));
-      anchor = { nx, ny };
-      if (visible) layout();
+    setAnchor: (a: Anchor) => {
+      anchor = { nx: clamp01(Number(a?.nx ?? 0.5)), ny: clamp01(Number(a?.ny ?? 0.22)) };
+      layout();
     },
     onCommand: (cmd: ActionCommand) => {
-      if (!cmd.bubble) return;
-      show(cmd.bubble);
-      scheduleHide(cmd.durationMs || 3000);
+      if (cmd.bubbleKind === "thinking") {
+        showThinking(cmd.durationMs || 25_000);
+        return;
+      }
+
+      // Normal text bubble
+      if (cmd.bubble) {
+        showBubble(cmd.bubble);
+        scheduleHideBubble(cmd.durationMs || 3000);
+        return;
+      }
     }
   };
 }
+

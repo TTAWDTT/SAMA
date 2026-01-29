@@ -57,6 +57,12 @@ export function createChatWindow(opts: CreateChatWindowOpts) {
     void win.loadFile(getRendererUrl("chat/index.html"));
   }
 
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => {
+    win.show();
+    win.focus();
+    try {
+      win.moveTop();
+    } catch {}
+  });
   return win;
 }

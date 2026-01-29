@@ -14,12 +14,19 @@ export class ShortcutsService {
   }
 
   start() {
-    globalShortcut.register("Control+Alt+P", () => this.#deps.toggleClickThrough());
+    const okClickThrough = globalShortcut.register("Control+Alt+P", () => this.#deps.toggleClickThrough());
+    if (!okClickThrough) console.warn("[shortcuts] failed to register Control+Alt+P");
+
     // Quick send (minimal input window)
-    globalShortcut.register("Control+Shift+C", () => this.#deps.openChat());
+    const okQuick = globalShortcut.register("CommandOrControl+Shift+C", () => this.#deps.openChat());
+    if (!okQuick) console.warn("[shortcuts] failed to register Ctrl+Shift+C (CommandOrControl+Shift+C)");
+
     // Back-compat: keep the old shortcut as an alias.
-    globalShortcut.register("Control+Alt+C", () => this.#deps.openChat());
-    globalShortcut.register("Control+Alt+O", () => this.#deps.openControls());
+    const okOld = globalShortcut.register("Control+Alt+C", () => this.#deps.openChat());
+    if (!okOld) console.warn("[shortcuts] failed to register Control+Alt+C");
+
+    const okMain = globalShortcut.register("Control+Alt+O", () => this.#deps.openControls());
+    if (!okMain) console.warn("[shortcuts] failed to register Control+Alt+O");
   }
 
   dispose() {

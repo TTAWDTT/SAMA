@@ -390,6 +390,11 @@ async function bootstrap() {
     }
   });
 
+  ipcMain.handle(IPC_HANDLES.chatLogGet, async () => {
+    const msg: ChatLogMessage = { type: "CHAT_LOG_SYNC", ts: Date.now(), entries: chatLog };
+    return msg;
+  });
+
   ipcMain.handle(IPC_HANDLES.vrmGet, async (_evt) => {
     // IMPORTANT:
     // Do NOT trigger a blocking file picker here.
@@ -457,13 +462,35 @@ async function bootstrap() {
   let chatLog: ChatLogEntry[] = [];
   // Caption window now overlays the pet window (same bounds) so the bubble can be anchored to the character.
 
+  const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+  const placeQuickSendNearCursor = (win: BrowserWindow) => {
+    try {
+      const cursor = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(cursor);
+      const wa = display.workArea;
+      const [w, h] = win.getSize();
+      const margin = 12;
+
+      // Prefer above the cursor so it feels like a "palette"; clamp to workArea.
+      const x = Math.round(clamp(cursor.x - w / 2, wa.x + margin, wa.x + wa.width - w - margin));
+      const y = Math.round(clamp(cursor.y - h - 18, wa.y + margin, wa.y + wa.height - h - margin));
+      win.setPosition(x, y);
+    } catch {}
+  };
+
   const openChat = () => {
     if (chatWindow && !chatWindow.isDestroyed()) {
       chatWindow.show();
       chatWindow.focus();
+      try {
+        chatWindow.moveTop();
+      } catch {}
+      placeQuickSendNearCursor(chatWindow);
       return;
     }
     chatWindow = createChatWindow({ preloadPath });
+    chatWindow.once("ready-to-show", () => placeQuickSendNearCursor(chatWindow!));
     chatWindow.on("closed", () => {
       chatWindow = null;
     });
@@ -573,7 +600,7 @@ async function bootstrap() {
 
       // Ensure caption bubble stays visible above the pet window on Windows.
       // Some z-order edge cases can put two always-on-top windows in an unexpected stacking order.
-      if (cmd.bubble) {
+      if (cmd.bubble || cmd.bubbleKind === "thinking") {
         try {
           if (!captionWindow.isDestroyed()) {
             captionWindow.showInactive();
@@ -748,15 +775,23 @@ async function bootstrap() {
     homePosition = { x: nx, y: ny };
   });
 
-  ipcMain.handle(IPC_HANDLES.chatInvoke, async (_evt, payload: ChatRequest) => {
+  ipcMain.handle(IPC_HANDLES.chatInvoke, async (evt, payload: ChatRequest) => {
     const parsed = ChatRequestSchema.safeParse(payload);
     if (!parsed.success) return { type: "CHAT_RESPONSE", ts: Date.now(), message: "消息格式不对…" };
 
     const appendChat = (entry: ChatLogEntry) => {
       chatLog.push(entry);
       if (chatLog.length > 260) chatLog = chatLog.slice(-220);
-      if (controlsWindow && !controlsWindow.isDestroyed()) {
-        const msg: ChatLogMessage = { type: "CHAT_LOG_APPEND", ts: Date.now(), entry };
+
+      const msg: ChatLogMessage = { type: "CHAT_LOG_APPEND", ts: Date.now(), entry };
+
+      // Always notify the sender window first (covers cases where controlsWindow is closed or re-created).
+      try {
+        evt.sender.send(IPC_CHANNELS.chatLog, msg);
+      } catch {}
+
+      // Also notify the main chat UI if it's a different window.
+      if (controlsWindow && !controlsWindow.isDestroyed() && controlsWindow.webContents.id !== evt.sender.id) {
         controlsWindow.webContents.send(IPC_CHANNELS.chatLog, msg);
       }
     };

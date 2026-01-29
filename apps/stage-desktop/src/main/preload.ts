@@ -36,6 +36,7 @@ const IPC_HANDLES = {
   vrmGet: "handle:vrm-get",
   vrmPick: "handle:vrm-pick",
   chatInvoke: "handle:chat-invoke",
+  chatLogGet: "handle:chat-log-get",
   appInfoGet: "handle:app-info-get",
   llmConfigGet: "handle:llm-config-get",
   llmConfigSet: "handle:llm-config-set"
@@ -47,6 +48,7 @@ export type StageDesktopAPI = {
   sendDragDelta: (d: DragDelta) => void;
   onClickThroughChanged: (cb: (enabled: boolean) => void) => Unsubscribe;
   onChatLog: (cb: (msg: ChatLogMessage) => void) => Unsubscribe;
+  getChatLog: () => Promise<ChatLogMessage>;
   getVrmBytes: () => Promise<Uint8Array>;
   pickVrmBytes: () => Promise<Uint8Array>;
   getAppInfo: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
@@ -87,6 +89,7 @@ const api: StageDesktopAPI = {
   },
   sendUserInteraction: (i) => ipcRenderer.send(IPC_CHANNELS.userInteraction, i),
   sendDragDelta: (d) => ipcRenderer.send(IPC_CHANNELS.dragDelta, d),
+  getChatLog: async () => ipcRenderer.invoke(IPC_HANDLES.chatLogGet),
   getVrmBytes: () => ipcRenderer.invoke(IPC_HANDLES.vrmGet),
   pickVrmBytes: () => ipcRenderer.invoke(IPC_HANDLES.vrmPick),
   getAppInfo: async () => {

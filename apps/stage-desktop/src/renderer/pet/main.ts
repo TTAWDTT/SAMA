@@ -327,7 +327,10 @@ async function boot() {
   const startCaptionAnchorTracking = (durationMs: number) => {
     const now = Date.now();
     const ms = Math.max(400, Number(durationMs) || 0);
-    anchorUntilTs = Math.max(anchorUntilTs, now + ms);
+    // Replace the active window rather than extending forever:
+    // - thinking indicator -> replace with reply bubble
+    // - bubble -> replace with next bubble
+    anchorUntilTs = now + ms;
     postCaptionAnchor();
     if (anchorTimer !== null) return;
     anchorTimer = window.setInterval(() => {
@@ -455,7 +458,9 @@ async function boot() {
       if (msg.action === "NOTIFY_ACTION") {
         scene.notifyAction(msg.cmd);
         scene.setExpression(msg.cmd.expression);
-        if (msg.cmd.bubble) {
+        if (msg.cmd.bubbleKind === "thinking") {
+          startCaptionAnchorTracking(msg.cmd.durationMs || 25_000);
+        } else if (msg.cmd.bubble) {
           scene.speak(msg.cmd.durationMs);
           const a = scene.getBubbleAnchor?.();
           if (a) setInlineBubbleAnchor(a);
@@ -624,7 +629,9 @@ async function boot() {
   (window as any).stageDesktop?.onActionCommand?.((cmd: ActionCommand) => {
     scene.notifyAction(cmd);
     scene.setExpression(cmd.expression);
-    if (cmd.bubble) {
+    if (cmd.bubbleKind === "thinking") {
+      startCaptionAnchorTracking(cmd.durationMs || 25_000);
+    } else if (cmd.bubble) {
       scene.speak(cmd.durationMs);
       const a = scene.getBubbleAnchor?.();
       if (a) setInlineBubbleAnchor(a);

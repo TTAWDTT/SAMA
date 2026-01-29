@@ -63,12 +63,12 @@ export class TrayService {
             }
           },
           {
-            label: "Open Chat",
+            label: "Quick Send (Ctrl+Shift+C)",
             type: "normal",
             click: () => this.#deps.openChat()
           },
           {
-            label: "Open Controls",
+            label: "Open Main (Chat)",
             type: "normal",
             click: () => this.#deps.openControls()
           },

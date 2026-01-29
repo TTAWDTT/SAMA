@@ -10,6 +10,7 @@ type LlmConfig = {
 type StageDesktopApi = {
   getAppInfo?: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
   onChatLog?: (cb: (msg: ChatLogMessage) => void) => () => void;
+  getChatLog?: () => Promise<ChatLogMessage>;
   chatInvoke?: (message: string) => Promise<any>;
   sendUserInteraction?: (i: any) => void;
   getLlmConfig?: () => Promise<{ stored: LlmConfig | null; effective: LlmConfig | null; provider: string }>;
@@ -271,6 +272,17 @@ async function sendMessage() {
     const message = err instanceof Error ? err.message : String(err);
     showToast(`发送失败：${message}`, { timeoutMs: 5200 });
   }
+
+  // Extra robustness: if the push channel is missing (or a message was missed),
+  // pull the current log once so the timeline doesn't stay empty.
+  try {
+    if (typeof api.getChatLog === "function") {
+      const sync = await api.getChatLog();
+      if (sync && sync.type === "CHAT_LOG_SYNC") {
+        renderAll(Array.isArray((sync as any).entries) ? (sync as any).entries : []);
+      }
+    }
+  } catch {}
 }
 
 async function refreshLlmBadge() {
@@ -385,6 +397,21 @@ function boot() {
       getApi()?.sendUserInteraction?.({ type: "USER_INTERACTION", ts: Date.now(), event: "CLOSE_CHAT" });
     } catch {}
   });
+
+  // Always render something immediately so the timeline is never a blank void.
+  renderEmpty();
+  // Pull current log once at startup (avoids any race with did-finish-load).
+  void (async () => {
+    try {
+      if (api && typeof api.getChatLog === "function") {
+        const sync = await api.getChatLog();
+        if (sync && sync.type === "CHAT_LOG_SYNC") {
+          renderAll(Array.isArray((sync as any).entries) ? (sync as any).entries : []);
+        }
+      }
+    } catch {}
+  })();
+
   if (api && typeof api.onChatLog === "function") {
     api.onChatLog((msg: ChatLogMessage) => {
       if (!msg || typeof msg !== "object") return;
@@ -401,8 +428,6 @@ function boot() {
       }
     });
   } else {
-    // Still usable in dev, but without sync.
-    renderEmpty();
     showToast("preload API 缺失：无法同步聊天记录", { timeoutMs: 5200 });
   }
 }

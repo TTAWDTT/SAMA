@@ -16,6 +16,7 @@ export const ActionCommandSchema = z.object({
   ts: z.number(),
   action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"]),
   expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED"]),
+  bubbleKind: z.enum(["text", "thinking"]).optional(),
   bubble: z.string().nullable().optional(),
   durationMs: z.number()
 });
@@ -55,4 +56,3 @@ export const ChatResponseSchema = z.object({
   ts: z.number(),
   message: z.string()
 });
-
