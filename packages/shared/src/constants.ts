@@ -5,6 +5,7 @@ export const IPC_CHANNELS = {
   clickThroughChanged: "bus:click-through-changed",
   chatRequest: "bus:chat-request",
   chatResponse: "bus:chat-response",
+  chatLog: "bus:chat-log",
   petControl: "bus:pet-control",
   petControlResult: "bus:pet-control-result",
   petStatus: "bus:pet-status",

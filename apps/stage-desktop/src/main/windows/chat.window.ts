@@ -33,12 +33,15 @@ export function createChatWindow(opts: CreateChatWindowOpts) {
   })();
 
   const win = new BrowserWindow({
-    width: 420,
-    height: 640,
+    width: 520,
+    height: 180,
+    minWidth: 380,
+    minHeight: 140,
     show: false,
     resizable: true,
-    alwaysOnTop: false,
-    backgroundColor: "#f6f7fb",
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: "#faf9f5",
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: opts.preloadPath,

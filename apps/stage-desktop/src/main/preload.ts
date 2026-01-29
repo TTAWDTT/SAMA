@@ -3,6 +3,7 @@ import type {
   ActionCommand,
   ChatRequest,
   ChatResponse,
+  ChatLogMessage,
   PetControlMessage,
   PetControlResult,
   PetStateMessage,
@@ -23,6 +24,7 @@ const IPC_CHANNELS = {
   clickThroughChanged: "bus:click-through-changed",
   chatRequest: "bus:chat-request",
   chatResponse: "bus:chat-response",
+  chatLog: "bus:chat-log",
   petControl: "bus:pet-control",
   petControlResult: "bus:pet-control-result",
   petStatus: "bus:pet-status",
@@ -44,6 +46,7 @@ export type StageDesktopAPI = {
   sendUserInteraction: (i: UserInteraction) => void;
   sendDragDelta: (d: DragDelta) => void;
   onClickThroughChanged: (cb: (enabled: boolean) => void) => Unsubscribe;
+  onChatLog: (cb: (msg: ChatLogMessage) => void) => Unsubscribe;
   getVrmBytes: () => Promise<Uint8Array>;
   pickVrmBytes: () => Promise<Uint8Array>;
   getAppInfo: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
@@ -71,6 +74,11 @@ const api: StageDesktopAPI = {
     const handler = (_evt: Electron.IpcRendererEvent, payload: ActionCommand) => cb(payload);
     ipcRenderer.on(IPC_CHANNELS.actionCommand, handler);
     return () => ipcRenderer.off(IPC_CHANNELS.actionCommand, handler);
+  },
+  onChatLog: (cb) => {
+    const handler = (_evt: Electron.IpcRendererEvent, payload: ChatLogMessage) => cb(payload);
+    ipcRenderer.on(IPC_CHANNELS.chatLog, handler);
+    return () => ipcRenderer.off(IPC_CHANNELS.chatLog, handler);
   },
   onClickThroughChanged: (cb) => {
     const handler = (_evt: Electron.IpcRendererEvent, enabled: boolean) => cb(Boolean(enabled));

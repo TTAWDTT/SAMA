@@ -1,344 +1,407 @@
-import type { ActionCommand } from "@sama/shared";
-import type { PetControlMessage, PetControlResult, PetStateMessage, PetStatusMessage } from "@sama/shared";
-import { attachPetControls } from "../pet/controls";
-import type { IdleConfig } from "../pet/idle";
-import { DEFAULT_IDLE_CONFIG } from "../pet/idle";
-import type { ModelTransform, MotionState, PetScene, VrmAnimationConfig, VrmAnimationSlotsStatus } from "../pet/scene";
-import type { WalkConfig } from "../pet/walk";
-import { DEFAULT_WALK_CONFIG } from "../pet/walk";
+import type { ChatLogEntry, ChatLogMessage } from "@sama/shared";
 
-const bannerEl = document.getElementById("banner");
-const banner = bannerEl instanceof HTMLDivElement ? bannerEl : null;
-
-const rootEl = document.getElementById("root");
-if (!(rootEl instanceof HTMLDivElement)) throw new Error("missing #root");
-const root = rootEl;
-
-let bannerTimer: number | null = null;
-function showBanner(msg: string, opts?: { timeoutMs?: number }) {
-  if (!banner) return;
-  if (!msg) {
-    banner.style.display = "none";
-    return;
-  }
-  banner.textContent = msg;
-  banner.style.display = "block";
-  if (bannerTimer !== null) window.clearTimeout(bannerTimer);
-  const ms = Math.max(900, Number(opts?.timeoutMs ?? 2600));
-  bannerTimer = window.setTimeout(() => {
-    banner.style.display = "none";
-    bannerTimer = null;
-  }, ms);
-}
-
-function formatErr(err: unknown) {
-  if (err instanceof Error) return err.message;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-}
-
-type RemoteState = {
-  vrmLoaded: boolean;
-  motion: MotionState;
-  slots: VrmAnimationSlotsStatus;
+type LlmConfig = {
+  provider?: string;
+  openai?: { apiKey?: string; model?: string; baseUrl?: string };
+  deepseek?: { apiKey?: string; model?: string; baseUrl?: string };
+  aistudio?: { apiKey?: string; model?: string; baseUrl?: string };
 };
 
-const remoteState: RemoteState = {
-  vrmLoaded: false,
-  motion: { locomotion: "IDLE", animation: "NONE" },
-  slots: { hasLastLoaded: false, hasIdle: false, hasWalk: false, hasAction: false }
+type StageDesktopApi = {
+  getAppInfo?: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
+  onChatLog?: (cb: (msg: ChatLogMessage) => void) => () => void;
+  chatInvoke?: (message: string) => Promise<any>;
+  getLlmConfig?: () => Promise<{ stored: LlmConfig | null; effective: LlmConfig | null; provider: string }>;
+  setLlmConfig?: (cfg: LlmConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
 };
 
-// A local mirror of the last applied configs so the UI can show meaningful initial values.
-let modelTransform: ModelTransform = { scale: 1, yawDeg: 0, offsetX: 0, offsetY: 0, offsetZ: 0 };
-let idleConfig: IdleConfig = { ...DEFAULT_IDLE_CONFIG };
-let walkConfig: WalkConfig = { ...DEFAULT_WALK_CONFIG };
-let vrmAnimationConfig: VrmAnimationConfig = { enabled: true, paused: false, speed: 1 };
-
-const pendingResults = new Map<string, { resolve: (v: PetControlResult) => void; reject: (e: unknown) => void }>();
-
-function createReqId() {
-  return `req_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
-}
-
-const BC_NAME = "sama:pet-bus";
-const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(BC_NAME) : null;
-let warnedFallback = false;
-
-function getApi() {
+function getApi(): StageDesktopApi {
   return (window as any).stageDesktop as any;
 }
 
-function sendViaBroadcast(payload: unknown) {
-  if (!bc) return false;
-  try {
-    bc.postMessage(payload);
-    return true;
-  } catch {
-    return false;
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function formatTime(ts: number) {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function isNearBottom(el: HTMLElement, thresholdPx = 90) {
+  const gap = el.scrollHeight - (el.scrollTop + el.clientHeight);
+  return gap < thresholdPx;
+}
+
+function scrollToBottom(el: HTMLElement) {
+  el.scrollTop = el.scrollHeight;
+}
+
+const app = (() => {
+  const el = document.getElementById("app");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #app");
+  return el;
+})();
+
+const settingsBtn = (() => {
+  const el = document.getElementById("settingsBtn");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #settingsBtn");
+  return el;
+})();
+
+const backBtn = (() => {
+  const el = document.getElementById("backBtn");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #backBtn");
+  return el;
+})();
+
+const llmText = (() => {
+  const el = document.getElementById("llmText");
+  if (!(el instanceof HTMLSpanElement)) throw new Error("missing #llmText");
+  return el;
+})();
+
+const timeline = (() => {
+  const el = document.getElementById("timeline");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #timeline");
+  return el;
+})();
+
+const input = (() => {
+  const el = document.getElementById("chatInput");
+  if (!(el instanceof HTMLTextAreaElement)) throw new Error("missing #chatInput");
+  return el;
+})();
+
+const sendBtn = (() => {
+  const el = document.getElementById("sendBtn");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #sendBtn");
+  return el;
+})();
+
+const toast = (() => {
+  const el = document.getElementById("toast");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #toast");
+  return el;
+})();
+
+const providerEl = (() => {
+  const el = document.getElementById("provider");
+  if (!(el instanceof HTMLSelectElement)) throw new Error("missing #provider");
+  return el;
+})();
+const openaiKeyEl = (() => {
+  const el = document.getElementById("openaiKey");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #openaiKey");
+  return el;
+})();
+const openaiModelEl = (() => {
+  const el = document.getElementById("openaiModel");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #openaiModel");
+  return el;
+})();
+const openaiBaseUrlEl = (() => {
+  const el = document.getElementById("openaiBaseUrl");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #openaiBaseUrl");
+  return el;
+})();
+const deepseekKeyEl = (() => {
+  const el = document.getElementById("deepseekKey");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #deepseekKey");
+  return el;
+})();
+const deepseekModelEl = (() => {
+  const el = document.getElementById("deepseekModel");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #deepseekModel");
+  return el;
+})();
+const deepseekBaseUrlEl = (() => {
+  const el = document.getElementById("deepseekBaseUrl");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #deepseekBaseUrl");
+  return el;
+})();
+const aistudioKeyEl = (() => {
+  const el = document.getElementById("aistudioKey");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #aistudioKey");
+  return el;
+})();
+const aistudioModelEl = (() => {
+  const el = document.getElementById("aistudioModel");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #aistudioModel");
+  return el;
+})();
+const aistudioBaseUrlEl = (() => {
+  const el = document.getElementById("aistudioBaseUrl");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #aistudioBaseUrl");
+  return el;
+})();
+const saveLlmEl = (() => {
+  const el = document.getElementById("saveLlm");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #saveLlm");
+  return el;
+})();
+const reloadLlmEl = (() => {
+  const el = document.getElementById("reloadLlm");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #reloadLlm");
+  return el;
+})();
+
+let toastTimer: number | null = null;
+function showToast(message: string, opts?: { timeoutMs?: number }) {
+  toast.textContent = message;
+  toast.setAttribute("data-show", message ? "1" : "0");
+  if (toastTimer !== null) window.clearTimeout(toastTimer);
+  const ms = clamp(Number(opts?.timeoutMs ?? 2200), 500, 9000);
+  toastTimer = window.setTimeout(() => {
+    toastTimer = null;
+    toast.setAttribute("data-show", "0");
+  }, ms);
+}
+
+function setView(view: "chat" | "settings") {
+  app.setAttribute("data-view", view);
+  if (view === "chat") {
+    input.focus();
   }
 }
 
-function sendControl(msg: PetControlMessage) {
-  const api = getApi();
-  if (api && typeof api.sendPetControl === "function") {
-    api.sendPetControl(msg);
-    return true;
-  }
-
-  // Fallback: when preload is missing (or broken), still allow Controls <-> Pet communication in dev
-  // by using BroadcastChannel between renderer windows. This keeps VRM/VRMA import usable.
-  const ok = sendViaBroadcast(msg);
-  if (!ok) {
-    showBanner("preload API 不可用：无法控制 Pet（请检查 preload / contextIsolation）。", { timeoutMs: 3800 });
-    return false;
-  }
-
-  if (!warnedFallback) {
-    warnedFallback = true;
-    showBanner("preload API 缺失：已切换为降级模式（BroadcastChannel，仅部分功能可用）。", { timeoutMs: 5200 });
-  }
-  return true;
+function renderEmpty() {
+  timeline.innerHTML = "";
+  const empty = document.createElement("div");
+  empty.className = "empty";
+  const title = document.createElement("div");
+  title.className = "emptyTitle";
+  title.textContent = "SAMA";
+  const desc = document.createElement("div");
+  desc.className = "emptyDesc";
+  desc.textContent = "在这里发消息。SAMA 会同时在气泡和本窗口里回复。";
+  empty.append(title, desc);
+  timeline.appendChild(empty);
 }
 
-type LoadControlMessage = Extract<PetControlMessage, { action: "LOAD_VRM_BYTES" | "LOAD_VRMA_BYTES" }>;
-
-function sendControlWithResult(msg: Omit<LoadControlMessage, "requestId">) {
-  const requestId = createReqId();
-  const full = { ...(msg as any), requestId } as PetControlMessage;
-  return new Promise<PetControlResult>((resolve, reject) => {
-    let timer: number | null = null;
-    const wrappedResolve = (v: PetControlResult) => {
-      if (timer !== null) window.clearTimeout(timer);
-      resolve(v);
-    };
-    const wrappedReject = (e: unknown) => {
-      if (timer !== null) window.clearTimeout(timer);
-      reject(e);
-    };
-
-    pendingResults.set(requestId, { resolve: wrappedResolve, reject: wrappedReject });
-    timer = window.setTimeout(() => {
-      pendingResults.delete(requestId);
-      wrappedReject(new Error("Pet 无响应：请求超时（请检查桌宠窗口是否正常运行）"));
-    }, 12_000);
-
-    const ok = sendControl(full);
-    if (!ok) {
-      pendingResults.delete(requestId);
-      wrappedReject(new Error("preload API 不可用：无法发送请求到 Pet"));
-    }
-  });
-}
-
-const remoteScene: PetScene = {
-  start: () => {},
-  setExpression: (_expr: ActionCommand["expression"]) => {},
-  loadVrmBytes: async (bytes: Uint8Array) => {
-    const res = await sendControlWithResult({ type: "PET_CONTROL", ts: Date.now(), action: "LOAD_VRM_BYTES", bytes });
-    if (!res.ok) throw new Error(res.message || "VRM 加载失败");
-  },
-  loadVrmAnimationBytes: async (bytes: Uint8Array) => {
-    const res = await sendControlWithResult({ type: "PET_CONTROL", ts: Date.now(), action: "LOAD_VRMA_BYTES", bytes });
-    if (!res.ok) return false;
-    return true;
-  },
-  speak: (_durationMs?: number) => sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "SPEAK" }),
-  refitCamera: () => sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "REFIT_CAMERA" }),
-  setIdleConfig: (cfg: Partial<IdleConfig>) => {
-    idleConfig = { ...idleConfig, ...cfg };
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_IDLE_CONFIG", config: cfg });
-  },
-  getIdleConfig: () => (remoteState.vrmLoaded ? { ...idleConfig } : null),
-  setWalkConfig: (cfg: Partial<WalkConfig>) => {
-    walkConfig = { ...walkConfig, ...cfg };
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_WALK_CONFIG", config: cfg });
-  },
-  getWalkConfig: () => (remoteState.vrmLoaded ? { ...walkConfig } : null),
-  setModelTransform: (t: Partial<ModelTransform>) => {
-    modelTransform = { ...modelTransform, ...t };
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_MODEL_TRANSFORM", transform: t });
-  },
-  getModelTransform: () => ({ ...modelTransform }),
-  setVrmAnimationConfig: (cfg: Partial<VrmAnimationConfig>) => {
-    vrmAnimationConfig = { ...vrmAnimationConfig, ...cfg };
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_VRMA_CONFIG", config: cfg });
-  },
-  getVrmAnimationConfig: () => ({ ...vrmAnimationConfig }),
-  clearVrmAnimation: () => sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "CLEAR_VRMA_ACTION" }),
-  setVrmAnimationSlotFromLast: (slot: "idle" | "walk") => {
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "ASSIGN_VRMA_SLOT_FROM_LAST", slot });
-    // Return a best-effort value; UI will reflect truth via `PET_STATE`.
-    return true;
-  },
-  clearVrmAnimationSlot: (slot: "idle" | "walk") =>
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "CLEAR_VRMA_SLOT", slot }),
-  getVrmAnimationSlotsStatus: () => ({ ...remoteState.slots }),
-  notifyAction: (cmd: ActionCommand) =>
-    sendControl({ type: "PET_CONTROL", ts: Date.now(), action: "NOTIFY_ACTION", cmd }),
-  setDragging: (_dragging: boolean) => {},
-  notifyDragDelta: (_dx: number, _dy: number) => {},
-  getMotionState: () => ({ ...remoteState.motion })
-};
-
-function renderNoPreloadHelp() {
-  const isElectron = /\bElectron\b/i.test(navigator.userAgent);
-  root.replaceChildren();
+function createMessageEl(entry: ChatLogEntry) {
+  const row = document.createElement("div");
+  row.className = `msgRow ${entry.role === "user" ? "user" : "assistant"}`;
 
   const card = document.createElement("div");
-  card.className = "panel";
-  card.style.maxWidth = "780px";
-  card.style.margin = "0 auto";
+  card.className = `msg ${entry.role === "user" ? "user" : "assistant"}`;
 
   const header = document.createElement("div");
-  header.className = "panelHeader";
+  header.className = "msgHeader";
 
-  const title = document.createElement("div");
-  title.className = "panelTitle";
-  title.textContent = "控制台未连接到桌宠";
+  const who = document.createElement("div");
+  who.className = "msgWho";
+  who.textContent = entry.role === "user" ? "你" : "SAMA";
 
-  header.appendChild(title);
-  card.appendChild(header);
+  const time = document.createElement("div");
+  time.className = "msgTime";
+  time.textContent = formatTime(entry.ts);
 
   const body = document.createElement("div");
-  body.className = "panelBody";
+  body.className = "msgBody";
+  body.textContent = entry.content;
 
-  const p1 = document.createElement("div");
-  p1.style.color = "rgba(15, 23, 42, 0.9)";
-  p1.textContent = isElectron
-    ? "当前窗口是 Electron，但 preload API 缺失（可能是 preload 文件路径错误，或 preload 脚本运行报错）。"
-    : "当前页面似乎是在浏览器中打开的（不是 Electron），因此无法使用 preload API。";
-
-  const p2 = document.createElement("div");
-  p2.style.color = "rgba(15, 23, 42, 0.64)";
-  p2.style.fontSize = "12px";
-  p2.textContent =
-    "正确用法：运行 `pnpm dev` 后，去系统托盘找到 SAMA 图标 → 选择 `Open Controls`（或按 Ctrl+Alt+O）。不要直接用浏览器打开 http://localhost:5173/controls/index.html。";
-
-  const diag = document.createElement("pre");
-  diag.style.margin = "0";
-  diag.style.padding = "10px 12px";
-  diag.style.borderRadius = "12px";
-  diag.style.border = "1px solid rgba(15, 23, 42, 0.12)";
-  diag.style.background = "rgba(15, 23, 42, 0.04)";
-  diag.style.color = "rgba(15, 23, 42, 0.78)";
-  diag.style.fontSize = "12px";
-  diag.style.whiteSpace = "pre-wrap";
-  diag.textContent = `env: ${isElectron ? "electron" : "browser"}\nlocation: ${location.href}\nuserAgent: ${navigator.userAgent}`;
-
-  body.append(p1, p2, diag);
-  card.appendChild(body);
-  root.appendChild(card);
+  header.append(who, time);
+  card.append(header, body);
+  row.appendChild(card);
+  return row;
 }
 
-function boot() {
-  const api = getApi();
-  const hasPreload = Boolean(api && typeof api.sendPetControl === "function");
-  const hasBroadcast = Boolean(bc);
+let chatEntries: ChatLogEntry[] = [];
 
-  if (!hasPreload && !hasBroadcast) {
-    showBanner("preload API 缺失：控制台无法连接到 Pet。", { timeoutMs: 5200 });
-    renderNoPreloadHelp();
+function renderAll(entries: ChatLogEntry[]) {
+  chatEntries = [...entries];
+  if (chatEntries.length === 0) {
+    renderEmpty();
     return;
   }
 
-  if (!hasPreload && hasBroadcast) {
-    showBanner("preload API 缺失：控制台将使用降级模式（BroadcastChannel，仅部分功能可用）。", { timeoutMs: 5200 });
+  timeline.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (const e of chatEntries) frag.appendChild(createMessageEl(e));
+  timeline.appendChild(frag);
+  scrollToBottom(timeline);
+}
+
+function appendOne(entry: ChatLogEntry) {
+  const shouldStick = isNearBottom(timeline);
+
+  // Replace empty state if present
+  if (chatEntries.length === 0) timeline.innerHTML = "";
+
+  chatEntries.push(entry);
+  // Keep the DOM manageable.
+  if (chatEntries.length > 500) chatEntries = chatEntries.slice(-420);
+
+  timeline.appendChild(createMessageEl(entry));
+  if (shouldStick) scrollToBottom(timeline);
+}
+
+function autosizeInput() {
+  input.style.height = "0px";
+  input.style.height = `${Math.max(44, Math.min(168, input.scrollHeight))}px`;
+}
+
+function updateSendEnabled() {
+  sendBtn.disabled = !input.value.trim();
+}
+
+async function sendMessage() {
+  const api = getApi();
+  if (!api || typeof api.chatInvoke !== "function") {
+    showToast("preload API 缺失：无法发送消息");
+    return;
   }
 
-  // Receive status toasts
-  const unsubs: Array<() => void> = [];
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = "";
+  autosizeInput();
+  updateSendEnabled();
+  input.focus();
 
-  if (hasPreload && typeof api.onPetStatus === "function") {
-    unsubs.push(
-      api.onPetStatus((s: PetStatusMessage) => {
-        showBanner(s.message, { timeoutMs: s.level === "error" ? 5000 : 2400 });
-      })
-    );
+  try {
+    // The main process will broadcast CHAT_LOG_APPEND immediately (user message),
+    // then broadcast assistant reply later. This keeps all windows in sync.
+    await api.chatInvoke(msg);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`发送失败：${message}`, { timeoutMs: 5200 });
+  }
+}
+
+async function refreshLlmBadge() {
+  const api = getApi();
+  if (!api || typeof api.getAppInfo !== "function") {
+    llmText.textContent = "LLM: preload missing";
+    return;
+  }
+  try {
+    const info = await api.getAppInfo();
+    const provider = String(info?.llmProvider ?? "unknown") || "unknown";
+    llmText.textContent = `LLM: ${provider}`;
+  } catch {
+    llmText.textContent = "LLM: unknown";
+  }
+}
+
+async function loadLlmConfigIntoForm() {
+  const api = getApi();
+  if (!api || typeof api.getLlmConfig !== "function") {
+    showToast("preload API 缺失：无法读取 LLM 配置", { timeoutMs: 4200 });
+    return;
   }
 
-  if (hasPreload && typeof api.onPetState === "function") {
-    unsubs.push(
-      api.onPetState((s: PetStateMessage) => {
-        remoteState.vrmLoaded = Boolean(s.vrmLoaded);
-        remoteState.motion = s.motion;
-        remoteState.slots = s.slots;
-      })
-    );
+  try {
+    const res = await api.getLlmConfig();
+    const cfg: LlmConfig = (res?.stored ?? null) || {};
+
+    providerEl.value = String(cfg.provider ?? "auto") || "auto";
+
+    openaiKeyEl.value = String(cfg.openai?.apiKey ?? "");
+    openaiModelEl.value = String(cfg.openai?.model ?? "");
+    openaiBaseUrlEl.value = String(cfg.openai?.baseUrl ?? "");
+
+    deepseekKeyEl.value = String(cfg.deepseek?.apiKey ?? "");
+    deepseekModelEl.value = String(cfg.deepseek?.model ?? "");
+    deepseekBaseUrlEl.value = String(cfg.deepseek?.baseUrl ?? "");
+
+    aistudioKeyEl.value = String(cfg.aistudio?.apiKey ?? "");
+    aistudioModelEl.value = String(cfg.aistudio?.model ?? "");
+    aistudioBaseUrlEl.value = String(cfg.aistudio?.baseUrl ?? "");
+
+    showToast("已读取 LLM 配置", { timeoutMs: 1400 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`读取失败：${message}`, { timeoutMs: 5200 });
+  }
+}
+
+async function saveLlmConfigFromForm() {
+  const api = getApi();
+  if (!api || typeof api.setLlmConfig !== "function") {
+    showToast("preload API 缺失：无法保存 LLM 配置", { timeoutMs: 4200 });
+    return;
   }
 
-  if (hasPreload && typeof api.onPetControlResult === "function") {
-    unsubs.push(
-      api.onPetControlResult((res: PetControlResult) => {
-        const pending = pendingResults.get(res.requestId);
-        if (!pending) return;
-        pendingResults.delete(res.requestId);
-        pending.resolve(res);
-      })
-    );
-  }
+  const cfg: LlmConfig = {
+    provider: providerEl.value,
+    openai: { apiKey: openaiKeyEl.value, model: openaiModelEl.value, baseUrl: openaiBaseUrlEl.value },
+    deepseek: { apiKey: deepseekKeyEl.value, model: deepseekModelEl.value, baseUrl: deepseekBaseUrlEl.value },
+    aistudio: { apiKey: aistudioKeyEl.value, model: aistudioModelEl.value, baseUrl: aistudioBaseUrlEl.value }
+  };
 
-  if (bc) {
-    const handler = (evt: MessageEvent) => {
-      const payload: any = (evt as any).data;
-      if (!payload || typeof payload !== "object") return;
-
-      if (payload.type === "PET_STATUS") {
-        if (!hasPreload) {
-          const level = payload.level === "error" ? "error" : "info";
-          showBanner(String(payload.message ?? ""), { timeoutMs: level === "error" ? 5000 : 2400 });
-        }
-        return;
-      }
-
-      if (payload.type === "PET_STATE") {
-        remoteState.vrmLoaded = Boolean(payload.vrmLoaded);
-        remoteState.motion = payload.motion;
-        remoteState.slots = payload.slots;
-        return;
-      }
-
-      if (payload.type === "PET_CONTROL_RESULT") {
-        const requestId = String(payload.requestId ?? "");
-        if (!requestId) return;
-        const pending = pendingResults.get(requestId);
-        if (!pending) return;
-        pendingResults.delete(requestId);
-        pending.resolve(payload as PetControlResult);
-      }
-    };
-
-    bc.addEventListener("message", handler);
-    unsubs.push(() => bc.removeEventListener("message", handler));
-  }
-
-  attachPetControls({
-    scene: remoteScene,
-    root,
-    onInfo: (msg) => showBanner(msg)
-  });
-
-  // Cleanup on close (not strictly necessary, but keeps the renderer tidy in dev HMR).
-  window.addEventListener("beforeunload", () => {
-    for (const u of unsubs) {
-      try {
-        u();
-      } catch {}
+  try {
+    const res = await api.setLlmConfig(cfg);
+    if (!res?.ok) {
+      showToast(`保存失败：${String(res?.message ?? "unknown error")}`, { timeoutMs: 5200 });
+      return;
     }
-    for (const [, p] of pendingResults) p.reject(new Error("window closed"));
-    pendingResults.clear();
-    try {
-      bc?.close();
-    } catch {}
+    await refreshLlmBadge();
+    showToast(`已保存（provider=${String(res?.provider ?? "ok")}）`, { timeoutMs: 2000 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(`保存失败：${message}`, { timeoutMs: 5200 });
+  }
+}
+
+function boot() {
+  settingsBtn.addEventListener("click", () => {
+    setView("settings");
+    void loadLlmConfigIntoForm();
   });
+  backBtn.addEventListener("click", () => setView("chat"));
+
+  sendBtn.addEventListener("click", () => void sendMessage());
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void sendMessage();
+    }
+  });
+  input.addEventListener("input", () => {
+    autosizeInput();
+    updateSendEnabled();
+  });
+
+  saveLlmEl.addEventListener("click", () => void saveLlmConfigFromForm());
+  reloadLlmEl.addEventListener("click", () => void loadLlmConfigIntoForm());
+
+  autosizeInput();
+  updateSendEnabled();
+  input.focus();
+
+  void refreshLlmBadge();
+
+  const api = getApi();
+  if (api && typeof api.onChatLog === "function") {
+    api.onChatLog((msg: ChatLogMessage) => {
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "CHAT_LOG_SYNC") {
+        renderAll(Array.isArray((msg as any).entries) ? (msg as any).entries : []);
+        return;
+      }
+      if (msg.type === "CHAT_LOG_APPEND") {
+        const entry = (msg as any).entry as ChatLogEntry | undefined;
+        if (!entry || typeof entry !== "object") return;
+        if (typeof (entry as any).content !== "string") return;
+        appendOne(entry);
+        return;
+      }
+    });
+  } else {
+    // Still usable in dev, but without sync.
+    renderEmpty();
+    showToast("preload API 缺失：无法同步聊天记录", { timeoutMs: 5200 });
+  }
 }
 
 try {
   boot();
 } catch (err) {
-  showBanner(`控制台启动失败：${formatErr(err)}`, { timeoutMs: 7000 });
+  const message = err instanceof Error ? err.message : String(err);
+  showToast(`启动失败：${message}`, { timeoutMs: 9000 });
   throw err;
 }

@@ -3,264 +3,634 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SAMA 控制台</title>
+    <title>SAMA</title>
     <style>
+      /* Light theme (Anthropic-inspired brand palette) */
       :root {
         color-scheme: light;
-        --bg0: #f6f7fb;
-        --bg: rgba(255, 255, 255, 0.92);
-        --bg-strong: rgba(255, 255, 255, 0.98);
-        --border: rgba(15, 23, 42, 0.12);
-        --border-soft: rgba(15, 23, 42, 0.08);
-        --text: rgba(15, 23, 42, 0.92);
-        --muted: rgba(15, 23, 42, 0.64);
-        --muted2: rgba(15, 23, 42, 0.5);
-        --accent: rgba(37, 99, 235, 0.95);
-        --accent-soft: rgba(37, 99, 235, 0.12);
-        --shadow: 0 14px 44px rgba(15, 23, 42, 0.12);
-        --radius: 14px;
+
+        --ink: #141413;
+        --paper: #faf9f5;
+        --paper2: #f3f1e8;
+        --line: #e8e6dc;
+        --line2: rgba(20, 20, 19, 0.14);
+
+        --muted: rgba(20, 20, 19, 0.64);
+        --muted2: rgba(20, 20, 19, 0.48);
+
+        --accent: #d97757; /* orange */
+        --accent2: #6a9bcc; /* blue */
+        --accent3: #788c5d; /* green */
+
+        --shadow: 0 24px 70px rgba(20, 20, 19, 0.12);
+        --shadow2: 0 10px 30px rgba(20, 20, 19, 0.12);
+
+        --r-lg: 18px;
+        --r-md: 14px;
+        --r-sm: 12px;
+
+        --font-display: "Poppins", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+        --font-body: "Lora", "Microsoft YaHei UI", "Segoe UI", Georgia, serif;
       }
+
       html,
       body {
         width: 100%;
         height: 100%;
         margin: 0;
-        background: var(--bg0);
-        color: var(--text);
+        background: var(--paper);
+        color: var(--ink);
         overflow: hidden;
-        font: 13px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
-          -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+        font: 14px/1.45 var(--font-body);
       }
 
-      #wrap {
+      /* A soft, paper-like atmosphere (no purple bias) */
+      .bg {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(900px 520px at 12% 8%, rgba(217, 119, 87, 0.12), transparent 55%),
+          radial-gradient(900px 520px at 82% 12%, rgba(106, 155, 204, 0.12), transparent 56%),
+          radial-gradient(800px 520px at 76% 86%, rgba(120, 140, 93, 0.1), transparent 55%),
+          linear-gradient(180deg, var(--paper), var(--paper2));
+      }
+      .bg::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.08;
+        background-image: radial-gradient(rgba(20, 20, 19, 0.7) 1px, transparent 1px);
+        background-size: 18px 18px;
+        mix-blend-mode: multiply;
+        filter: blur(0.2px);
+      }
+
+      #app {
         height: 100%;
         display: grid;
         grid-template-rows: auto 1fr;
       }
 
-      #banner {
-        padding: 10px 12px;
-        border-bottom: 1px solid var(--border-soft);
-        background: rgba(255, 255, 255, 0.82);
-        font: 12px/1.3 inherit;
-        color: var(--text);
-        display: none;
-        white-space: pre-wrap;
-      }
-
-      #root {
-        padding: 14px 14px 18px 14px;
-        overflow: auto;
-        max-width: 980px;
-        margin: 0 auto;
-      }
-
-      /* Panel styles (shared with pet) */
-      .panel {
-        pointer-events: auto;
-        border-radius: var(--radius);
-        background: var(--bg-strong);
-        border: 1px solid var(--border);
-        box-shadow: var(--shadow);
-        color: var(--text);
-        font: inherit;
-        overflow: hidden;
-      }
-      .panelHeader {
+      /* Top bar stays extremely minimal (user asked for "only a chat window") */
+      .topbar {
+        height: 48px;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 12px 12px 10px 12px;
-        background: rgba(255, 255, 255, 0.92);
-        border-bottom: 1px solid var(--border-soft);
-      }
-      .panelTitle {
-        font-weight: 800;
-        letter-spacing: 0.2px;
-      }
-      .panelToggle {
-        appearance: none;
-        border: 1px solid var(--border);
-        background: rgba(15, 23, 42, 0.04);
-        color: var(--text);
-        border-radius: 10px;
-        padding: 6px 9px;
-        font: inherit;
-        cursor: pointer;
-      }
-      .panelToggle:hover {
-        background: rgba(15, 23, 42, 0.06);
-      }
-      .panelToggle:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.18);
-        border-color: rgba(37, 99, 235, 0.32);
-      }
-      .panelBody {
-        display: grid;
         gap: 10px;
-        padding: 10px 12px 12px 12px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+        background: rgba(250, 249, 245, 0.78);
+        border-bottom: 1px solid rgba(20, 20, 19, 0.08);
+        backdrop-filter: blur(10px);
+      }
+      .topbarSpacer {
+        flex: 1;
       }
 
-      .dockStatus {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-      .chip {
+      .iconBtn {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.65);
+        box-shadow: 0 10px 24px rgba(20, 20, 19, 0.08);
+        color: rgba(20, 20, 19, 0.9);
+        cursor: pointer;
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.04);
-        border: 1px solid rgba(15, 23, 42, 0.1);
-        color: rgba(15, 23, 42, 0.78);
-        font-size: 12px;
-        font-variant-numeric: tabular-nums;
+        justify-content: center;
+        transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
       }
-      .chipStrong {
-        background: rgba(15, 23, 42, 0.06);
-        border-color: rgba(15, 23, 42, 0.14);
-        color: rgba(15, 23, 42, 0.88);
+      .iconBtn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 30px rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.78);
+      }
+      .iconBtn:active {
+        transform: translateY(0px);
+      }
+      .iconBtn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.22), 0 14px 30px rgba(20, 20, 19, 0.12);
+        border-color: rgba(217, 119, 87, 0.55);
+      }
+      .iconBtn svg {
+        width: 18px;
+        height: 18px;
       }
 
-      .dockGrid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
+      .badge {
+        display: inline-flex;
+        align-items: center;
         gap: 8px;
-      }
-      .dockSpan2 {
-        grid-column: 1 / -1;
-      }
-      .dockBtn {
-        appearance: none;
-        border: 1px solid var(--border);
-        background: rgba(15, 23, 42, 0.04);
-        color: var(--text);
-        border-radius: 12px;
-        padding: 10px 10px;
-        font: inherit;
-        cursor: pointer;
-        text-align: center;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.58);
+        color: rgba(20, 20, 19, 0.82);
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        user-select: none;
         white-space: nowrap;
       }
-      .dockBtn:hover {
-        background: rgba(15, 23, 42, 0.06);
-      }
-      .dockBtn:focus-visible {
-        outline: none;
-        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.18);
-        border-color: rgba(37, 99, 235, 0.32);
-      }
-      .dockBtn:disabled {
-        opacity: 0.55;
-        cursor: not-allowed;
-      }
-      .dockBtnPrimary {
-        background: rgba(37, 99, 235, 0.1);
-        border-color: rgba(37, 99, 235, 0.26);
-      }
-      .dockBtnPrimary:hover {
-        background: rgba(37, 99, 235, 0.14);
-      }
-      .dockBtnPrimary:disabled {
-        background: rgba(37, 99, 235, 0.08);
+      .badgeDot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgba(217, 119, 87, 0.75);
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.16);
       }
 
-      .details {
-        border-radius: 14px;
-        background: rgba(15, 23, 42, 0.03);
-        border: 1px solid rgba(15, 23, 42, 0.1);
+      /* Views */
+      .stage {
+        position: relative;
+        height: 100%;
         overflow: hidden;
       }
-      .details > summary {
-        list-style: none;
-        cursor: pointer;
-        user-select: none;
-        padding: 10px 10px;
-        font-weight: 800;
-        color: rgba(15, 23, 42, 0.88);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-      .details > summary::-webkit-details-marker {
-        display: none;
-      }
-      .details > summary::after {
-        content: "▾";
-        opacity: 0.8;
-      }
-      .details[open] > summary::after {
-        content: "▴";
-      }
-      .detailsBody {
-        padding: 8px 10px 10px 10px;
+
+      .view {
+        position: absolute;
+        inset: 0;
         display: grid;
-        gap: 10px;
-        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        grid-template-rows: 1fr auto;
+        opacity: 0;
+        transform: translateY(10px);
+        pointer-events: none;
+        transition: opacity 160ms ease, transform 220ms cubic-bezier(0.2, 0.85, 0.2, 1);
       }
 
-      .panelRow {
+      #app[data-view="chat"] #chatView,
+      #app[data-view="settings"] #settingsView {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      /* Chat */
+      .timeline {
+        overflow: auto;
+        padding: 16px 14px 20px 14px;
+        box-sizing: border-box;
+      }
+
+      .empty {
+        height: 100%;
         display: grid;
-        grid-template-columns: 110px 1fr 56px;
-        gap: 8px;
-        align-items: center;
+        place-items: center;
+        color: rgba(20, 20, 19, 0.55);
+        text-align: center;
+        padding: 28px;
+        box-sizing: border-box;
       }
-      .panelRowLabel {
-        color: rgba(15, 23, 42, 0.78);
+      .emptyTitle {
+        font: 22px/1.15 var(--font-display);
+        letter-spacing: 0.2px;
+        margin-bottom: 10px;
       }
-      .panelRowValue {
-        text-align: right;
-        color: rgba(15, 23, 42, 0.62);
+      .emptyDesc {
+        max-width: 520px;
+        font-size: 13px;
+        color: rgba(20, 20, 19, 0.54);
+      }
+
+      .msgRow {
+        display: flex;
+        margin: 0 0 10px 0;
+      }
+      .msgRow.user {
+        justify-content: flex-end;
+      }
+
+      .msg {
+        max-width: min(680px, 86%);
+        padding: 12px 13px;
+        border-radius: 16px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 12px 28px rgba(20, 20, 19, 0.08);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .msg.assistant {
+        border-top-left-radius: 10px;
+      }
+      .msg.user {
+        border-top-right-radius: 10px;
+        border-color: rgba(106, 155, 204, 0.32);
+        background:
+          linear-gradient(180deg, rgba(106, 155, 204, 0.12), rgba(255, 255, 255, 0.76));
+      }
+
+      .msgHeader {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 6px;
+      }
+      .msgWho {
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        color: rgba(20, 20, 19, 0.62);
+      }
+      .msg.user .msgWho {
+        color: rgba(20, 20, 19, 0.58);
+      }
+      .msgTime {
+        font-size: 11px;
+        color: rgba(20, 20, 19, 0.42);
         font-variant-numeric: tabular-nums;
       }
-      .panelRow input[type="range"] {
-        width: 100%;
+      .msgBody {
+        color: rgba(20, 20, 19, 0.92);
+        font-size: 14px;
       }
 
-      .panelButtons {
-        display: flex;
-        flex-wrap: wrap;
+      .composer {
+        padding: 12px;
+        box-sizing: border-box;
+        border-top: 1px solid rgba(20, 20, 19, 0.08);
+        background: rgba(250, 249, 245, 0.72);
+        backdrop-filter: blur(12px);
+      }
+
+      .composerCard {
+        border-radius: var(--r-lg);
+        border: 1px solid rgba(20, 20, 19, 0.14);
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: var(--shadow2);
+        padding: 10px;
+        display: grid;
         gap: 8px;
       }
-      .panelBtn {
-        appearance: none;
-        border: 1px solid var(--border);
-        background: rgba(15, 23, 42, 0.04);
-        color: var(--text);
-        border-radius: 10px;
-        padding: 7px 10px;
-        font: inherit;
-        cursor: pointer;
+
+      .composerRow {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: end;
       }
-      .panelBtn:hover {
-        background: rgba(15, 23, 42, 0.06);
-      }
-      .panelBtn:focus-visible {
+
+      #chatInput {
+        width: 100%;
+        min-height: 44px;
+        max-height: 168px;
+        resize: none;
+        border-radius: 14px;
+        border: 1px solid rgba(20, 20, 19, 0.14);
+        padding: 10px 12px;
+        box-sizing: border-box;
+        background: rgba(255, 255, 255, 0.92);
+        color: rgba(20, 20, 19, 0.92);
         outline: none;
-        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.18);
-        border-color: rgba(37, 99, 235, 0.32);
+        font: 14px/1.45 var(--font-body);
+        box-shadow: inset 0 0 0 1px rgba(20, 20, 19, 0.03);
       }
-      .panelBtn:disabled {
+      #chatInput:focus-visible {
+        border-color: rgba(217, 119, 87, 0.5);
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.18), inset 0 0 0 1px rgba(20, 20, 19, 0.03);
+      }
+
+      #sendBtn {
+        height: 44px;
+        padding: 0 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(217, 119, 87, 0.42);
+        background: rgba(217, 119, 87, 0.14);
+        color: rgba(20, 20, 19, 0.9);
+        cursor: pointer;
+        font: 13px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+      }
+      #sendBtn:hover {
+        background: rgba(217, 119, 87, 0.18);
+        border-color: rgba(217, 119, 87, 0.55);
+        transform: translateY(-1px);
+      }
+      #sendBtn:active {
+        transform: translateY(0px);
+      }
+      #sendBtn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.22);
+      }
+      #sendBtn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
+        transform: none;
       }
 
-      .panelCheck {
+      .composerHint {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        color: rgba(20, 20, 19, 0.5);
+        font-size: 12px;
+        user-select: none;
+      }
+      .kbd {
+        font: 11px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 20, 19, 0.14);
+        background: rgba(255, 255, 255, 0.6);
+        color: rgba(20, 20, 19, 0.72);
+        white-space: nowrap;
+      }
+
+      /* Settings */
+      .settingsWrap {
+        overflow: auto;
+        padding: 14px;
+        box-sizing: border-box;
+      }
+      .settingsHeader {
         display: flex;
         align-items: center;
-        gap: 8px;
-        color: rgba(15, 23, 42, 0.78);
+        gap: 10px;
+        margin: 4px 0 14px 0;
+      }
+      .settingsTitle {
+        font: 20px/1.1 var(--font-display);
+        letter-spacing: 0.2px;
+      }
+      .settingsSubtitle {
+        margin-top: 6px;
+        color: rgba(20, 20, 19, 0.55);
+        font-size: 13px;
+      }
+
+      .card {
+        border-radius: var(--r-lg);
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.72);
+        box-shadow: var(--shadow2);
+        padding: 14px;
+      }
+      .card + .card {
+        margin-top: 12px;
+      }
+      .cardTitle {
+        font: 14px/1.1 var(--font-display);
+        letter-spacing: 0.2px;
+        margin-bottom: 10px;
+      }
+      .fieldGrid {
+        display: grid;
+        gap: 10px;
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+      .label {
+        color: rgba(20, 20, 19, 0.74);
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.2px;
+      }
+      .input,
+      .select {
+        height: 40px;
+        border-radius: 12px;
+        border: 1px solid rgba(20, 20, 19, 0.14);
+        background: rgba(255, 255, 255, 0.9);
+        padding: 0 10px;
+        color: rgba(20, 20, 19, 0.92);
+        outline: none;
+        font: 13px/1 var(--font-body);
+      }
+      .input:focus-visible,
+      .select:focus-visible {
+        border-color: rgba(217, 119, 87, 0.55);
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.18);
+      }
+      .help {
+        color: rgba(20, 20, 19, 0.52);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .actionsRow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .btn {
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(20, 20, 19, 0.14);
+        background: rgba(20, 20, 19, 0.04);
+        color: rgba(20, 20, 19, 0.9);
+        cursor: pointer;
+        font: 13px/1 var(--font-display);
+        letter-spacing: 0.2px;
+      }
+      .btn:hover {
+        background: rgba(20, 20, 19, 0.06);
+      }
+      .btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.18);
+        border-color: rgba(217, 119, 87, 0.45);
+      }
+      .btnPrimary {
+        border-color: rgba(217, 119, 87, 0.42);
+        background: rgba(217, 119, 87, 0.14);
+      }
+      .btnPrimary:hover {
+        background: rgba(217, 119, 87, 0.18);
+        border-color: rgba(217, 119, 87, 0.55);
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 18px;
+        transform: translateX(-50%) translateY(12px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 160ms ease, transform 180ms cubic-bezier(0.2, 0.85, 0.2, 1);
+        padding: 10px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 20, 19, 0.14);
+        background: rgba(255, 255, 255, 0.86);
+        box-shadow: var(--shadow2);
+        color: rgba(20, 20, 19, 0.9);
+        font: 12px/1.1 var(--font-display);
+        max-width: calc(100% - 28px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .toast[data-show="1"] {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0px);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .iconBtn,
+        #sendBtn,
+        .view,
+        .toast {
+          transition: none !important;
+        }
+        .bg::after {
+          display: none;
+        }
       }
     </style>
   </head>
   <body>
-    <div id="wrap">
-      <div id="banner"></div>
-      <div id="root"></div>
+    <div class="bg"></div>
+    <div id="app" data-view="chat">
+      <div class="topbar">
+        <button id="settingsBtn" class="iconBtn" type="button" aria-label="Settings">
+          <!-- simple gear icon (inline to avoid asset dependencies) -->
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M12 15.6a3.6 3.6 0 1 0 0-7.2 3.6 3.6 0 0 0 0 7.2Z"
+              stroke="currentColor"
+              stroke-width="1.7"
+            />
+            <path
+              d="M19.4 13.2c.04-.39.04-.8 0-1.2l1.53-1.19a.6.6 0 0 0 .14-.77l-1.45-2.5a.6.6 0 0 0-.73-.27l-1.8.73a7.3 7.3 0 0 0-1.03-.6l-.27-1.92A.6.6 0 0 0 14.2 3h-2.9a.6.6 0 0 0-.59.5l-.27 1.92c-.36.16-.71.36-1.03.6l-1.8-.73a.6.6 0 0 0-.73.27l-1.45 2.5a.6.6 0 0 0 .14.77L4.6 12c-.04.39-.04.8 0 1.2l-1.53 1.19a.6.6 0 0 0-.14.77l1.45 2.5c.16.27.48.38.77.27l1.8-.73c.32.24.67.44 1.03.6l.27 1.92c.05.29.3.5.59.5h2.9c.29 0 .54-.21.59-.5l.27-1.92c.36-.16.71-.36 1.03-.6l1.8.73c.29.11.61 0 .77-.27l1.45-2.5a.6.6 0 0 0-.14-.77l-1.53-1.19Z"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+
+        <div class="topbarSpacer"></div>
+
+        <div id="llmBadge" class="badge" title="当前对话模型来源">
+          <span class="badgeDot" aria-hidden="true"></span>
+          <span id="llmText">LLM: —</span>
+        </div>
+      </div>
+
+      <div class="stage">
+        <!-- Chat view -->
+        <div id="chatView" class="view" aria-label="Chat">
+          <div id="timeline" class="timeline" role="log" aria-live="polite"></div>
+          <div class="composer">
+            <div class="composerCard">
+              <div class="composerRow">
+                <textarea id="chatInput" placeholder="给 SAMA 发一条消息…" spellcheck="false"></textarea>
+                <button id="sendBtn" type="button" disabled>发送</button>
+              </div>
+              <div class="composerHint">
+                <span>Enter 发送 · Shift+Enter 换行</span>
+                <span class="kbd">Ctrl+Shift+C 快速发送</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings view -->
+        <div id="settingsView" class="view" aria-label="Settings">
+          <div class="settingsWrap">
+            <div class="settingsHeader">
+              <button id="backBtn" class="iconBtn" type="button" aria-label="Back">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M14.5 5.5L8 12l6.5 6.5"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <div>
+                <div class="settingsTitle">设置</div>
+                <div class="settingsSubtitle">尽量少的按钮，但把体验打磨顺。</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="cardTitle">LLM</div>
+              <div class="fieldGrid">
+                <div class="field">
+                  <div class="label">Provider</div>
+                  <select id="provider" class="select">
+                    <option value="auto">auto（自动）</option>
+                    <option value="off">off（禁用）</option>
+                    <option value="openai">openai</option>
+                    <option value="deepseek">deepseek</option>
+                    <option value="aistudio">aistudio (Gemini)</option>
+                  </select>
+                  <div class="help">推荐保持 auto：有 key 就用，没有就 fallback。</div>
+                </div>
+                <div class="field">
+                  <div class="label">OpenAI API Key</div>
+                  <input id="openaiKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
+                </div>
+                <div class="field">
+                  <div class="label">OpenAI Model</div>
+                  <input id="openaiModel" class="input" type="text" autocomplete="off" placeholder="gpt-4o-mini" />
+                </div>
+                <div class="field">
+                  <div class="label">OpenAI Base URL（可选）</div>
+                  <input id="openaiBaseUrl" class="input" type="text" autocomplete="off" placeholder="https://api.openai.com/v1" />
+                  <div class="help">如果你用 OpenAI-compatible 网关（本地或私有），在这里填。</div>
+                </div>
+                <div class="field" style="margin-top: 4px">
+                  <div class="label">DeepSeek API Key</div>
+                  <input id="deepseekKey" class="input" type="password" autocomplete="off" placeholder="sk-..." />
+                </div>
+                <div class="field">
+                  <div class="label">DeepSeek Model</div>
+                  <input id="deepseekModel" class="input" type="text" autocomplete="off" placeholder="deepseek-chat" />
+                </div>
+                <div class="field">
+                  <div class="label">DeepSeek Base URL（可选）</div>
+                  <input id="deepseekBaseUrl" class="input" type="text" autocomplete="off" placeholder="https://api.deepseek.com/v1" />
+                </div>
+                <div class="field" style="margin-top: 4px">
+                  <div class="label">AIStudio API Key</div>
+                  <input id="aistudioKey" class="input" type="password" autocomplete="off" placeholder="AIza..." />
+                  <div class="help">AIStudio 默认走 Gemini generateContent；如你有 OpenAI-compatible 网关，可填 Base URL。</div>
+                </div>
+                <div class="field">
+                  <div class="label">AIStudio Model</div>
+                  <input id="aistudioModel" class="input" type="text" autocomplete="off" placeholder="gemini-1.5-flash" />
+                </div>
+                <div class="field">
+                  <div class="label">AIStudio Base URL（可选）</div>
+                  <input id="aistudioBaseUrl" class="input" type="text" autocomplete="off" placeholder="(留空 = Gemini 官方接口)" />
+                </div>
+              </div>
+              <div class="actionsRow">
+                <button id="saveLlm" class="btn btnPrimary" type="button">保存</button>
+                <button id="reloadLlm" class="btn" type="button">重新读取</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="cardTitle">快捷键</div>
+              <div class="help">
+                <div><span class="kbd">Ctrl+Shift+C</span> 快速发送（仅输入框，回复只在气泡）</div>
+                <div style="margin-top: 6px"><span class="kbd">Ctrl+Alt+O</span> 打开主界面（本窗口）</div>
+                <div style="margin-top: 6px"><span class="kbd">Ctrl+Alt+P</span> 切换 click-through</div>
+              </div>
+            </div>
+          </div>
+          <div class="composer" style="border-top: none; background: transparent">
+            <div style="height: 8px"></div>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <div id="toast" class="toast"></div>
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

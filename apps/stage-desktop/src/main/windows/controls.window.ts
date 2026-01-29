@@ -38,7 +38,7 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
     show: false,
     resizable: true,
     alwaysOnTop: false,
-    backgroundColor: "#f6f7fb",
+    backgroundColor: "#faf9f5",
     ...(icon ? { icon } : {}),
     webPreferences: {
       preload: opts.preloadPath,

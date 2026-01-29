@@ -7,6 +7,8 @@ import { IPC_CHANNELS, IPC_HANDLES } from "@sama/shared";
 import { ChatRequestSchema, UserInteractionSchema } from "@sama/shared";
 import type {
   ActionCommand,
+  ChatLogEntry,
+  ChatLogMessage,
   ChatRequest,
   PetControlMessage,
   PetControlResult,
@@ -452,6 +454,7 @@ async function bootstrap() {
   let controlsWindow: import("electron").BrowserWindow | null = null;
   let lastPetState: PetStateMessage | null = null;
   let lastPetWindowState: PetWindowStateMessage | null = null;
+  let chatLog: ChatLogEntry[] = [];
   // Caption window now overlays the pet window (same bounds) so the bubble can be anchored to the character.
 
   const openChat = () => {
@@ -477,6 +480,9 @@ async function bootstrap() {
     controlsWindow.webContents.once("did-finish-load", () => {
       if (lastPetState) controlsWindow?.webContents.send(IPC_CHANNELS.petState, lastPetState);
       if (lastPetWindowState) controlsWindow?.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+      // Sync chat history for the main chat UI.
+      const msg: ChatLogMessage = { type: "CHAT_LOG_SYNC", ts: Date.now(), entries: chatLog };
+      controlsWindow?.webContents.send(IPC_CHANNELS.chatLog, msg);
     });
     controlsWindow.on("closed", () => {
       controlsWindow = null;
@@ -745,7 +751,34 @@ async function bootstrap() {
   ipcMain.handle(IPC_HANDLES.chatInvoke, async (_evt, payload: ChatRequest) => {
     const parsed = ChatRequestSchema.safeParse(payload);
     if (!parsed.success) return { type: "CHAT_RESPONSE", ts: Date.now(), message: "消息格式不对…" };
-    return core.handleChat(parsed.data);
+
+    const appendChat = (entry: ChatLogEntry) => {
+      chatLog.push(entry);
+      if (chatLog.length > 260) chatLog = chatLog.slice(-220);
+      if (controlsWindow && !controlsWindow.isDestroyed()) {
+        const msg: ChatLogMessage = { type: "CHAT_LOG_APPEND", ts: Date.now(), entry };
+        controlsWindow.webContents.send(IPC_CHANNELS.chatLog, msg);
+      }
+    };
+
+    // Broadcast user message immediately so the main chat UI feels responsive (even before LLM returns).
+    const userEntry: ChatLogEntry = {
+      id: `u_${parsed.data.ts}_${Math.random().toString(16).slice(2)}`,
+      ts: parsed.data.ts,
+      role: "user",
+      content: parsed.data.message
+    };
+    appendChat(userEntry);
+
+    const resp = await core.handleChat(parsed.data);
+    const assistantEntry: ChatLogEntry = {
+      id: `a_${resp.ts}_${Math.random().toString(16).slice(2)}`,
+      ts: resp.ts,
+      role: "assistant",
+      content: resp.message
+    };
+    appendChat(assistantEntry);
+    return resp;
   });
 
   petWindow.on("closed", () => app.quit());

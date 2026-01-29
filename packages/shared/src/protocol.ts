@@ -34,6 +34,18 @@ export type UserInteraction =
 export type ChatRequest = { type: "CHAT_REQUEST"; ts: number; message: string };
 export type ChatResponse = { type: "CHAT_RESPONSE"; ts: number; message: string };
 
+// Chat log (for UI). This is separate from the "bubble" UX.
+export type ChatLogEntry = {
+  id: string;
+  ts: number;
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatLogMessage =
+  | { type: "CHAT_LOG_SYNC"; ts: number; entries: ChatLogEntry[] }
+  | { type: "CHAT_LOG_APPEND"; ts: number; entry: ChatLogEntry };
+
 // Pet control protocol (controls window -> main -> pet renderer)
 export type PetMotionState = {
   locomotion: "IDLE" | "WALK";
@@ -136,6 +148,7 @@ export type AnyBusMessage =
   | UserInteraction
   | ChatRequest
   | ChatResponse
+  | ChatLogMessage
   | PetControlMessage
   | PetControlResult
   | PetStatusMessage
