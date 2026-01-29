@@ -116,6 +116,8 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   const tmpRayHit = new THREE.Vector3();
   const tmpBubbleWorld = new THREE.Vector3();
   const tmpBubbleNdc = new THREE.Vector3();
+  const tmpFitWorld = new THREE.Vector3();
+  const tmpFitWorld2 = new THREE.Vector3();
 
   const applyView = () => {
     const radius = Math.max(0.35, Number(viewBaseDistance) || 0);
@@ -186,6 +188,11 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
   // Movement signals (to switch idle <-> walk)
   let dragging = false;
+  // While dragging (or during short animation transitions), clamp hips Y to avoid
+  // visible vertical "popping"/floating caused by VRMA root translation.
+  let dragLockHipsY: number | null = null;
+  let lockHipsYUntil = 0;
+  let lockHipsYValue: number | null = null;
   let lastDragAt = 0;
   let lastDragMag = 0;
   let actionMoveUntil = 0;
@@ -416,6 +423,18 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     applyAnimationConfig(nextAction);
 
     if (activeAction && activeAction !== nextAction) {
+      // When cross-fading between clips, tiny differences in translation tracks can
+      // create a noticeable vertical "bump". Clamp hips Y briefly to keep the
+      // avatar feeling anchored to the window.
+      try {
+        const hipsNode = getHipsNode();
+        if (hipsNode) {
+          const now = safeNowMs();
+          lockHipsYValue = hipsNode.position.y;
+          lockHipsYUntil = Math.max(lockHipsYUntil, now + 260);
+        }
+      } catch {}
+
       const prevAction = activeAction;
       const prevClip = typeof prevAction.getClip === "function" ? prevAction.getClip() : null;
       try {
@@ -516,10 +535,56 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     box.getSize(size);
     box.getCenter(center);
 
-    // Place the model at the origin (XZ centered), with feet on y=0
-    vrm.scene.position.x += -center.x;
-    vrm.scene.position.z += -center.z;
-    vrm.scene.position.y += -box.min.y;
+    // Place the model so it "feels" centered:
+    // - Prefer hips for X/Z anchor (more stable than bbox when hair/accessories skew bounds).
+    // - Prefer feet for ground when bbox includes extra geometry below the soles (e.g., a hidden plane).
+    let anchorX = center.x;
+    let anchorZ = center.z;
+    let groundY = box.min.y;
+    try {
+      const humanoid: any = (vrm as any).humanoid;
+      const getNode = (name: string) =>
+        humanoid?.getNormalizedBoneNode?.(name) ??
+        humanoid?.getBoneNode?.(name) ??
+        humanoid?.normalizedHumanBones?.[name]?.node ??
+        null;
+
+      const hips = getNode("hips");
+      if (hips && typeof hips.getWorldPosition === "function") {
+        hips.getWorldPosition(tmpFitWorld);
+        anchorX = tmpFitWorld.x;
+        anchorZ = tmpFitWorld.z;
+      }
+
+      const lFoot = getNode("leftFoot");
+      const rFoot = getNode("rightFoot");
+      const footYs: number[] = [];
+      if (lFoot && typeof lFoot.getWorldPosition === "function") {
+        lFoot.getWorldPosition(tmpFitWorld);
+        if (Number.isFinite(tmpFitWorld.y)) footYs.push(tmpFitWorld.y);
+      }
+      if (rFoot && typeof rFoot.getWorldPosition === "function") {
+        rFoot.getWorldPosition(tmpFitWorld2);
+        if (Number.isFinite(tmpFitWorld2.y)) footYs.push(tmpFitWorld2.y);
+      }
+      if (footYs.length) {
+        const footY = Math.min(...footYs);
+        // If bbox min is far below the feet, treat it as an outlier and anchor to feet instead.
+        const diff = footY - box.min.y;
+        const threshold = Math.max(0.03, size.y * 0.06);
+        if (diff > threshold) {
+          // Foot bones are usually around the ankle, so drop a small pad to approximate the sole.
+          groundY = footY - Math.max(0.015, size.y * 0.03);
+        }
+      }
+    } catch {}
+
+    const dx = -anchorX;
+    const dy = -groundY;
+    const dz = -anchorZ;
+    vrm.scene.position.x += dx;
+    vrm.scene.position.y += dy;
+    vrm.scene.position.z += dz;
 
     // Eye height heuristic
     const scale = Math.max(0.05, Number(modelTransform.scale) || 1);
@@ -529,14 +594,24 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     fixationTarget.y = eyeBaseY;
     lookTargetObj.position.y = eyeBaseY;
 
-    // Frame the model in camera
-    viewTarget.set(0, scaledHeight * 0.62, 0);
+    // Frame the model in camera (slightly below center so the character feels "grounded").
+    // NOTE: camera distance below must consider this target offset, otherwise the feet/top can clip.
+    viewTarget.set(0, scaledHeight * 0.56, 0);
 
     const vFovRad = THREE.MathUtils.degToRad(camera.fov);
     const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * camera.aspect);
     const scaledWidth = Math.max(0.2, (size.x * scale) || 0.2);
-    const halfH = Math.max(0.1, scaledHeight / 2);
-    const halfW = Math.max(0.1, scaledWidth / 2);
+
+    // Use bbox extents RELATIVE TO viewTarget, not just half-size,
+    // otherwise asymmetric framing (target != center) can clip.
+    const minX = (box.min.x + dx) * scale;
+    const maxX = (box.max.x + dx) * scale;
+    const minY = (box.min.y + dy) * scale;
+    const maxY = (box.max.y + dy) * scale;
+
+    const halfW = Math.max(0.1, Math.max(Math.abs(minX - viewTarget.x), Math.abs(maxX - viewTarget.x)));
+    const halfH = Math.max(0.1, Math.max(Math.abs(minY - viewTarget.y), Math.abs(maxY - viewTarget.y)));
+
     const distH = halfH / Math.max(0.001, Math.tan(vFovRad / 2));
     const distW = halfW / Math.max(0.001, Math.tan(hFovRad / 2));
     viewBaseDistance = Math.max(1.0, Math.max(distH, distW) * 1.12);
@@ -680,6 +755,19 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
         // Overlay procedural idle only if user enables it (see idle.overlayOnAnimation).
         idle?.apply(dt, t, { hasAnimation: true });
       }
+
+      // Clamp hips Y while dragging or during a short transition window.
+      try {
+        const hipsNode = getHipsNode();
+        if (hipsNode) {
+          if (dragging && dragLockHipsY !== null) {
+            hipsNode.position.y = dragLockHipsY;
+          } else if (lockHipsYValue !== null) {
+            if (now < lockHipsYUntil) hipsNode.position.y = lockHipsYValue;
+            else lockHipsYValue = null;
+          }
+        }
+      } catch {}
 
       // Expressions and eye targets should be set BEFORE vrm.update() so the update applies them immediately.
       updateExpressions(vrm, expressionWeights, expression as any);
@@ -899,8 +987,21 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       }
     },
     setDragging: (v) => {
-      dragging = Boolean(v);
-      if (!dragging) lastDragMag = 0;
+      const next = Boolean(v);
+      if (next === dragging) return;
+      dragging = next;
+      if (dragging) {
+        // Remember the current hips height and keep it stable while dragging.
+        try {
+          const hipsNode = getHipsNode();
+          dragLockHipsY = hipsNode ? hipsNode.position.y : null;
+        } catch {
+          dragLockHipsY = null;
+        }
+      } else {
+        lastDragMag = 0;
+        dragLockHipsY = null;
+      }
     },
     notifyDragDelta: (dx, dy) => {
       lastDragAt = safeNowMs();
