@@ -48,8 +48,16 @@ export function setupChat(opts: {
     updateSendEnabled();
     setStatus("发送中…");
     try {
-      await window.stageDesktop.chatInvoke(msg);
-      setStatus("已发送。SAMA 会用气泡回复。");
+      const resp = await window.stageDesktop.chatInvoke(msg);
+      const reply = String((resp as any)?.message ?? "").trim();
+      const compact = reply.replace(/\s+/g, "");
+
+      // Keep replies in bubbles, but surface a tiny diagnostic hint if the response looks "stuck".
+      if (compact === "我听到了" || compact === "我听见了" || compact === "收到" || compact === "嗯") {
+        setStatus(`已返回：${reply}（提示：回复过短/重复时，检查 LLM 配置或看看 Controls 的 LLM 状态）`);
+      } else {
+        setStatus("已发送。SAMA 会用气泡回复。");
+      }
     } catch (err) {
       setStatus("发送失败：我这边好像卡了一下…");
       console.warn(err);

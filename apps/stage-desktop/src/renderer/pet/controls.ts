@@ -336,11 +336,12 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   const statusRow = document.createElement("div");
   statusRow.className = "dockStatus";
   const chipModel = chip("模型：—", true);
+  const chipLLM = chip("LLM：—");
   const chipMotion = chip("状态：—", true);
   const chipClickThrough = chip("穿透：—");
   const chipWindow = chip("窗口：—");
   const chipVrma = chip("VRMA：—");
-  statusRow.append(chipModel, chipMotion, chipClickThrough, chipWindow, chipVrma);
+  statusRow.append(chipModel, chipLLM, chipMotion, chipClickThrough, chipWindow, chipVrma);
   body.appendChild(statusRow);
 
   // Quick actions
@@ -406,7 +407,7 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   body.appendChild(dock);
 
   const vrmaHelp = document.createElement("div");
-  vrmaHelp.style.color = "rgba(255, 255, 255, 0.7)";
+  vrmaHelp.style.color = "rgba(15, 23, 42, 0.62)";
   vrmaHelp.style.fontSize = "12px";
   vrmaHelp.textContent =
     "提示：加载 VRMA 后，点「设为 Idle/Walk」即可自动切换。你也可以把 VRMA 保存到“动作库”里并用自定义名字管理。";
@@ -445,14 +446,14 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   body.appendChild(windowDetails.details);
 
   const windowHint = document.createElement("div");
-  windowHint.style.color = "rgba(255, 255, 255, 0.72)";
+  windowHint.style.color = "rgba(15, 23, 42, 0.62)";
   windowHint.style.fontSize = "12px";
   windowHint.textContent =
     "可通过拖拽桌宠窗口边缘缩放；也可以在这里精确设置宽高（即使穿透开启也可调）。窗口大小会自动记住。";
   windowDetails.body.appendChild(windowHint);
 
   const windowSizeLine = document.createElement("div");
-  windowSizeLine.style.color = "rgba(255, 255, 255, 0.86)";
+  windowSizeLine.style.color = "rgba(15, 23, 42, 0.78)";
   windowSizeLine.style.fontSize = "12px";
   windowSizeLine.textContent = "当前：—";
   windowDetails.body.appendChild(windowSizeLine);
@@ -489,11 +490,11 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   widthInput.value = "420";
   widthInput.style.width = "100%";
   widthInput.style.boxSizing = "border-box";
-  widthInput.style.border = "1px solid rgba(255, 255, 255, 0.14)";
-  widthInput.style.background = "rgba(255, 255, 255, 0.06)";
+  widthInput.style.border = "1px solid rgba(15, 23, 42, 0.12)";
+  widthInput.style.background = "rgba(255, 255, 255, 0.92)";
   widthInput.style.borderRadius = "10px";
   widthInput.style.padding = "8px 10px";
-  widthInput.style.color = "rgba(255, 255, 255, 0.92)";
+  widthInput.style.color = "rgba(15, 23, 42, 0.92)";
   widthInput.style.outline = "none";
   widthInput.style.font = "inherit";
 
@@ -506,11 +507,11 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   heightInput.value = "640";
   heightInput.style.width = "100%";
   heightInput.style.boxSizing = "border-box";
-  heightInput.style.border = "1px solid rgba(255, 255, 255, 0.14)";
-  heightInput.style.background = "rgba(255, 255, 255, 0.06)";
+  heightInput.style.border = "1px solid rgba(15, 23, 42, 0.12)";
+  heightInput.style.background = "rgba(255, 255, 255, 0.92)";
   heightInput.style.borderRadius = "10px";
   heightInput.style.padding = "8px 10px";
-  heightInput.style.color = "rgba(255, 255, 255, 0.92)";
+  heightInput.style.color = "rgba(15, 23, 42, 0.92)";
   heightInput.style.outline = "none";
   heightInput.style.font = "inherit";
 
@@ -670,7 +671,7 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   body.appendChild(libraryDetails.details);
 
   const libHint = document.createElement("div");
-  libHint.style.color = "rgba(255, 255, 255, 0.72)";
+  libHint.style.color = "rgba(15, 23, 42, 0.62)";
   libHint.style.fontSize = "12px";
   libHint.textContent = "流程：先「加载 VRMA…」→ 在这里输入名字 → 点「保存」→ 以后可按名字一键播放/切换。";
   libraryDetails.body.appendChild(libHint);
@@ -688,11 +689,11 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   nameInput.spellcheck = false;
   nameInput.style.width = "100%";
   nameInput.style.boxSizing = "border-box";
-  nameInput.style.border = "1px solid rgba(255, 255, 255, 0.14)";
-  nameInput.style.background = "rgba(255, 255, 255, 0.06)";
+  nameInput.style.border = "1px solid rgba(15, 23, 42, 0.12)";
+  nameInput.style.background = "rgba(255, 255, 255, 0.92)";
   nameInput.style.borderRadius = "10px";
   nameInput.style.padding = "8px 10px";
-  nameInput.style.color = "rgba(255, 255, 255, 0.92)";
+  nameInput.style.color = "rgba(15, 23, 42, 0.92)";
   nameInput.style.outline = "none";
   nameInput.style.font = "inherit";
 
@@ -777,7 +778,7 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
 
     if (items.length === 0) {
       const empty = document.createElement("div");
-      empty.style.color = "rgba(255, 255, 255, 0.62)";
+      empty.style.color = "rgba(15, 23, 42, 0.56)";
       empty.style.fontSize = "12px";
       empty.textContent = "动作库为空。";
       libList.appendChild(empty);
@@ -786,9 +787,9 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
 
     for (const item of items) {
       const card = document.createElement("div");
-      card.style.border = "1px solid rgba(255, 255, 255, 0.1)";
+      card.style.border = "1px solid rgba(15, 23, 42, 0.12)";
       card.style.borderRadius = "12px";
-      card.style.background = "rgba(255, 255, 255, 0.04)";
+      card.style.background = "rgba(255, 255, 255, 0.72)";
       card.style.padding = "10px";
 
       const header = document.createElement("div");
@@ -804,7 +805,7 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
 
       const meta = document.createElement("div");
       meta.style.fontSize = "12px";
-      meta.style.color = "rgba(255, 255, 255, 0.62)";
+      meta.style.color = "rgba(15, 23, 42, 0.56)";
       meta.textContent = formatBytes(item.bytes.byteLength);
 
       header.append(nameEl, meta);
@@ -1466,7 +1467,7 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
     walkDetails.body.appendChild(resetWalkBtn);
   } else {
     const hint = document.createElement("div");
-    hint.style.color = "rgba(255, 255, 255, 0.72)";
+    hint.style.color = "rgba(15, 23, 42, 0.62)";
     hint.textContent = "当前 VRM 未加载，或不支持 Humanoid 行走骨骼。";
     walkDetails.body.appendChild(hint);
   }
@@ -1491,6 +1492,17 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
   // Live status refresh (chips + button enablement)
   let clickThrough: boolean | null = null;
   const api: any = (window as any).stageDesktop;
+  let llmProvider: string | null = null;
+  void (async () => {
+    try {
+      if (!api || typeof api.getAppInfo !== "function") return;
+      const info = await api.getAppInfo();
+      const name = String(info?.llmProvider ?? "").trim();
+      llmProvider = name || "unknown";
+    } catch {
+      llmProvider = "unknown";
+    }
+  })();
   const unsubClickThrough =
     api && typeof api.onClickThroughChanged === "function"
       ? api.onClickThroughChanged((enabled: boolean) => {
@@ -1502,6 +1514,10 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
     const modelOk = hasVrmLoaded(opts.scene);
     chipModel.textContent = `模型：${modelOk ? "已加载" : "未加载"}`;
     chipModel.className = `chip chipStrong${modelOk ? "" : ""}`;
+
+    const llmLabel = llmProvider ?? "?";
+    chipLLM.textContent = `LLM：${llmLabel === "fallback" ? "fallback（离线）" : llmLabel}`;
+    chipLLM.className = `chip${llmLabel === "fallback" ? "" : " chipStrong"}`;
 
     const motion = opts.scene.getMotionState();
     chipMotion.textContent = `状态：${motion.locomotion} / ${motion.animation}`;
