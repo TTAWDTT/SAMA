@@ -1,4 +1,6 @@
-import { Menu, Tray, nativeImage } from "electron";
+import { Menu, Tray, nativeImage, app } from "electron";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 export type TrayDeps = {
   toggleClickThrough: () => void;
@@ -11,7 +13,23 @@ export type TrayDeps = {
 };
 
 function createTrayIcon() {
-  // tiny 16x16 PNG (white dot) to avoid shipping binary assets
+  // Prefer a shipped tray icon (transparent, with outline for taskbar visibility).
+  // Fall back to a tiny 16x16 PNG (white dot) to avoid startup failures if the asset is missing.
+  try {
+    const appPath = app.getAppPath();
+    const candidates = [
+      join(appPath, "assets/icons/tray.ico"),
+      join(appPath, "assets/icons/tray.png"),
+      join(process.cwd(), "apps/stage-desktop/assets/icons/tray.ico"),
+      join(process.cwd(), "apps/stage-desktop/assets/icons/tray.png")
+    ];
+    for (const p of candidates) {
+      if (!existsSync(p)) continue;
+      const img = nativeImage.createFromPath(p);
+      if (!img.isEmpty()) return img;
+    }
+  } catch {}
+
   const dataUrl =
     "data:image/png;base64," +
     "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAQAAAC1+jfqAAAAIUlEQVR42mP8z8Dwn4EIwDiqgYGB4T8GZQYqGgAAQf4E8pQ4uJQAAAAASUVORK5CYII=";

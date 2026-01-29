@@ -1,4 +1,5 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, app, nativeImage } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 export type CreateControlsWindowOpts = {
@@ -13,6 +14,24 @@ function getRendererUrl(route: string) {
 }
 
 export function createControlsWindow(opts: CreateControlsWindowOpts) {
+  const icon = (() => {
+    try {
+      const appPath = app.getAppPath();
+      const candidates = [
+        join(appPath, "assets/icons/app.ico"),
+        join(appPath, "assets/icons/logo.png"),
+        join(process.cwd(), "apps/stage-desktop/assets/icons/app.ico"),
+        join(process.cwd(), "apps/stage-desktop/assets/icons/logo.png")
+      ];
+      for (const p of candidates) {
+        if (!existsSync(p)) continue;
+        const img = nativeImage.createFromPath(p);
+        if (!img.isEmpty()) return img;
+      }
+    } catch {}
+    return undefined;
+  })();
+
   const win = new BrowserWindow({
     width: 420,
     height: 720,
@@ -20,6 +39,7 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
     resizable: true,
     alwaysOnTop: false,
     backgroundColor: "#0b0f14",
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: opts.preloadPath,
       contextIsolation: true,
@@ -37,4 +57,3 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
   win.once("ready-to-show", () => win.show());
   return win;
 }
-

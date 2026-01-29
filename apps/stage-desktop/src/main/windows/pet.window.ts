@@ -1,4 +1,5 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, app, nativeImage } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 export type CreateWindowOpts = {
@@ -17,6 +18,24 @@ function getRendererUrl(route: string) {
 }
 
 export function createPetWindow(opts: CreateWindowOpts) {
+  const icon = (() => {
+    try {
+      const appPath = app.getAppPath();
+      const candidates = [
+        join(appPath, "assets/icons/app.ico"),
+        join(appPath, "assets/icons/logo.png"),
+        join(process.cwd(), "apps/stage-desktop/assets/icons/app.ico"),
+        join(process.cwd(), "apps/stage-desktop/assets/icons/logo.png")
+      ];
+      for (const p of candidates) {
+        if (!existsSync(p)) continue;
+        const img = nativeImage.createFromPath(p);
+        if (!img.isEmpty()) return img;
+      }
+    } catch {}
+    return undefined;
+  })();
+
   const rawW = opts.initialSize?.width ?? PET_WINDOW_DEFAULT_SIZE.width;
   const rawH = opts.initialSize?.height ?? PET_WINDOW_DEFAULT_SIZE.height;
   const w = Math.max(PET_WINDOW_MIN_SIZE.width, Math.round(Number(rawW)));
@@ -35,6 +54,7 @@ export function createPetWindow(opts: CreateWindowOpts) {
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: "#00000000",
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: opts.preloadPath,
       contextIsolation: true,
