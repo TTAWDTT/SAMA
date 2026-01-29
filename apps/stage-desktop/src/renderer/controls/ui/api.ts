@@ -26,6 +26,8 @@ export type MemoryConfig = {
   injectLimit: number;
   autoRemember: boolean;
   autoMode: "rules" | "llm";
+  summaryEnabled: boolean;
+  llmRerank: boolean;
 };
 
 export type StageDesktopApi = {
@@ -53,7 +55,7 @@ export type StageDesktopApi = {
   setLlmConfig?: (cfg: LlmConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
 
   // Long-term memory (SQLite) helpers
-  getMemoryStats?: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number }>;
+  getMemoryStats?: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number; factCount: number }>;
   listMemoryNotes?: (
     limit: number
   ) => Promise<{ enabled: boolean; notes: { id: number; kind: string; content: string; updatedTs: number }[] }>;
@@ -62,8 +64,17 @@ export type StageDesktopApi = {
   updateMemoryNote?: (id: number, content: string) => Promise<{ ok: boolean }>;
   getMemoryConfig?: () => Promise<{ enabled: boolean; config: MemoryConfig }>;
   setMemoryConfig?: (partial: Partial<MemoryConfig>) => Promise<{ ok: boolean; config: MemoryConfig }>;
+  listMemoryFacts?: (
+    limit: number
+  ) => Promise<{ enabled: boolean; facts: { id: number; kind: string; key: string; value: string; updatedTs: number }[] }>;
+  upsertMemoryFact?: (fact: { key: string; kind: string; value: string }) => Promise<{ ok: boolean }>;
+  deleteMemoryFact?: (id: number) => Promise<{ ok: boolean }>;
+  updateMemoryFact?: (id: number, value: string) => Promise<{ ok: boolean }>;
+  getMemorySummary?: () => Promise<{ enabled: boolean; summary: string; summaryJson: any | null }>;
+  clearMemorySummary?: () => Promise<{ ok: boolean }>;
   clearChatHistory?: () => Promise<{ ok: boolean }>;
   clearMemoryNotes?: () => Promise<{ ok: boolean }>;
+  clearMemoryFacts?: () => Promise<{ ok: boolean }>;
 
   // App log forwarding (main -> controls)
   onAppLog?: (cb: (m: AppLogMessage) => void) => () => void;
