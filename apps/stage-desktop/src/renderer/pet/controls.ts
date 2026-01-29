@@ -1,4 +1,5 @@
 import type { ActionCommand } from "@sama/shared";
+import type { LLMConfig } from "../../main/protocol/types";
 import { DEFAULT_IDLE_CONFIG } from "./idle";
 import type { IdleConfig } from "./idle";
 import type { ModelTransform, PetScene, VrmAnimationConfig } from "./scene";
@@ -440,6 +441,272 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
       opts.onInfo?.("测试完成：如果还看不到气泡，请检查是否是浏览器打开/或窗口被遮挡。");
     });
   });
+
+  // LLM settings (persisted in userData via main process)
+  const llmDetails = createDetails("LLM（对话）", false);
+  body.appendChild(llmDetails.details);
+
+  const llmHint = document.createElement("div");
+  llmHint.style.color = "rgba(15, 23, 42, 0.62)";
+  llmHint.style.fontSize = "12px";
+  llmHint.style.whiteSpace = "pre-wrap";
+  llmHint.textContent =
+    "在这里配置对话模型（OpenAI / DeepSeek / Gemini / Ollama）。\n配置会保存在本机 userData，不会写进仓库 config.json。保存后立即生效。";
+  llmDetails.body.appendChild(llmHint);
+
+  const styleField = (el: HTMLInputElement | HTMLSelectElement) => {
+    el.style.width = "100%";
+    el.style.boxSizing = "border-box";
+    el.style.border = "1px solid rgba(15, 23, 42, 0.12)";
+    el.style.background = "rgba(255, 255, 255, 0.92)";
+    el.style.borderRadius = "10px";
+    el.style.padding = "8px 10px";
+    el.style.color = "rgba(15, 23, 42, 0.92)";
+    el.style.outline = "none";
+    (el as any).style.font = "inherit";
+  };
+
+  const rowField = (labelText: string, field: HTMLElement, hintText?: string) => {
+    const row = document.createElement("div");
+    row.className = "panelRow";
+    const label = document.createElement("div");
+    label.className = "panelRowLabel";
+    label.textContent = labelText;
+    const hint = document.createElement("div");
+    hint.className = "panelRowValue";
+    hint.textContent = hintText ?? "";
+    row.append(label, field, hint);
+    return { row, label, hint };
+  };
+
+  const providerSelect = document.createElement("select");
+  styleField(providerSelect);
+  const providerOptions: Array<{ value: LLMConfig["provider"] | "auto" | "off"; label: string }> = [
+    { value: "auto", label: "auto（自动选择已配置的）" },
+    { value: "off", label: "off（离线/规则回复）" },
+    { value: "openai", label: "openai（OpenAI / Ollama / OpenAI-compatible）" },
+    { value: "deepseek", label: "deepseek" },
+    { value: "aistudio", label: "aistudio（Gemini / AI Studio）" }
+  ];
+  for (const opt of providerOptions) {
+    const o = document.createElement("option");
+    o.value = String(opt.value);
+    o.textContent = opt.label;
+    providerSelect.appendChild(o);
+  }
+  llmDetails.body.appendChild(rowField("provider", providerSelect, "生效策略").row);
+
+  const openaiDetails = createDetails("OpenAI / Ollama（OpenAI-compatible）", false);
+  llmDetails.body.appendChild(openaiDetails.details);
+  const openaiBaseUrl = document.createElement("input");
+  openaiBaseUrl.type = "text";
+  openaiBaseUrl.placeholder = "https://api.openai.com/v1 或 http://localhost:11434/v1";
+  styleField(openaiBaseUrl);
+  openaiDetails.body.appendChild(rowField("baseUrl", openaiBaseUrl, "必填/常用").row);
+  const openaiModel = document.createElement("input");
+  openaiModel.type = "text";
+  openaiModel.placeholder = "gpt-4o-mini / qwen2.5:7b ...";
+  styleField(openaiModel);
+  openaiDetails.body.appendChild(rowField("model", openaiModel, "必填").row);
+  const openaiKeyRow = document.createElement("div");
+  openaiKeyRow.style.display = "grid";
+  openaiKeyRow.style.gridTemplateColumns = "1fr auto";
+  openaiKeyRow.style.gap = "8px";
+  const openaiApiKey = document.createElement("input");
+  openaiApiKey.type = "password";
+  openaiApiKey.placeholder = "sk-...（Ollama 本地可留空）";
+  styleField(openaiApiKey);
+  const openaiKeyToggle = document.createElement("button");
+  openaiKeyToggle.className = "panelBtn";
+  openaiKeyToggle.type = "button";
+  openaiKeyToggle.textContent = "显示";
+  openaiKeyToggle.addEventListener("click", () => {
+    const isPwd = openaiApiKey.type === "password";
+    openaiApiKey.type = isPwd ? "text" : "password";
+    openaiKeyToggle.textContent = isPwd ? "隐藏" : "显示";
+  });
+  openaiKeyRow.append(openaiApiKey, openaiKeyToggle);
+  openaiDetails.body.appendChild(rowField("apiKey", openaiKeyRow, "可选").row);
+
+  const deepseekDetails = createDetails("DeepSeek（OpenAI-compatible）", false);
+  llmDetails.body.appendChild(deepseekDetails.details);
+  const deepseekBaseUrl = document.createElement("input");
+  deepseekBaseUrl.type = "text";
+  deepseekBaseUrl.placeholder = "https://api.deepseek.com/v1";
+  styleField(deepseekBaseUrl);
+  deepseekDetails.body.appendChild(rowField("baseUrl", deepseekBaseUrl, "必填").row);
+  const deepseekModel = document.createElement("input");
+  deepseekModel.type = "text";
+  deepseekModel.placeholder = "deepseek-chat ...";
+  styleField(deepseekModel);
+  deepseekDetails.body.appendChild(rowField("model", deepseekModel, "必填").row);
+  const deepseekKeyRow = document.createElement("div");
+  deepseekKeyRow.style.display = "grid";
+  deepseekKeyRow.style.gridTemplateColumns = "1fr auto";
+  deepseekKeyRow.style.gap = "8px";
+  const deepseekApiKey = document.createElement("input");
+  deepseekApiKey.type = "password";
+  deepseekApiKey.placeholder = "sk-...";
+  styleField(deepseekApiKey);
+  const deepseekKeyToggle = document.createElement("button");
+  deepseekKeyToggle.className = "panelBtn";
+  deepseekKeyToggle.type = "button";
+  deepseekKeyToggle.textContent = "显示";
+  deepseekKeyToggle.addEventListener("click", () => {
+    const isPwd = deepseekApiKey.type === "password";
+    deepseekApiKey.type = isPwd ? "text" : "password";
+    deepseekKeyToggle.textContent = isPwd ? "隐藏" : "显示";
+  });
+  deepseekKeyRow.append(deepseekApiKey, deepseekKeyToggle);
+  deepseekDetails.body.appendChild(rowField("apiKey", deepseekKeyRow, "必填").row);
+
+  const aistudioDetails = createDetails("AI Studio / Gemini", false);
+  llmDetails.body.appendChild(aistudioDetails.details);
+  const aistudioModel = document.createElement("input");
+  aistudioModel.type = "text";
+  aistudioModel.placeholder = "gemini-1.5-flash / gemini-1.5-pro ...";
+  styleField(aistudioModel);
+  aistudioDetails.body.appendChild(rowField("model", aistudioModel, "必填").row);
+  const aistudioKeyRow = document.createElement("div");
+  aistudioKeyRow.style.display = "grid";
+  aistudioKeyRow.style.gridTemplateColumns = "1fr auto";
+  aistudioKeyRow.style.gap = "8px";
+  const aistudioApiKey = document.createElement("input");
+  aistudioApiKey.type = "password";
+  aistudioApiKey.placeholder = "AIza...";
+  styleField(aistudioApiKey);
+  const aistudioKeyToggle = document.createElement("button");
+  aistudioKeyToggle.className = "panelBtn";
+  aistudioKeyToggle.type = "button";
+  aistudioKeyToggle.textContent = "显示";
+  aistudioKeyToggle.addEventListener("click", () => {
+    const isPwd = aistudioApiKey.type === "password";
+    aistudioApiKey.type = isPwd ? "text" : "password";
+    aistudioKeyToggle.textContent = isPwd ? "隐藏" : "显示";
+  });
+  aistudioKeyRow.append(aistudioApiKey, aistudioKeyToggle);
+  aistudioDetails.body.appendChild(rowField("apiKey", aistudioKeyRow, "必填").row);
+
+  const aistudioBaseUrl = document.createElement("input");
+  aistudioBaseUrl.type = "text";
+  aistudioBaseUrl.placeholder = "可选：OpenAI-compatible 网关（留空则直接请求 Google）";
+  styleField(aistudioBaseUrl);
+  aistudioDetails.body.appendChild(rowField("baseUrl", aistudioBaseUrl, "可选").row);
+
+  const llmButtons = document.createElement("div");
+  llmButtons.className = "panelButtons";
+  const btnSaveLlm = document.createElement("button");
+  btnSaveLlm.className = "panelBtn";
+  btnSaveLlm.type = "button";
+  btnSaveLlm.textContent = "保存并生效";
+  const btnResetLlm = document.createElement("button");
+  btnResetLlm.className = "panelBtn";
+  btnResetLlm.type = "button";
+  btnResetLlm.textContent = "恢复离线（清空 Key）";
+  llmButtons.append(btnSaveLlm, btnResetLlm);
+  llmDetails.body.appendChild(llmButtons);
+
+  const llmStatus = document.createElement("div");
+  llmStatus.style.color = "rgba(15, 23, 42, 0.62)";
+  llmStatus.style.fontSize = "12px";
+  llmStatus.style.whiteSpace = "pre-wrap";
+  llmStatus.textContent = "LLM：—";
+  llmDetails.body.appendChild(llmStatus);
+
+  const loadLlmUi = async () => {
+    const api: any = (window as any).stageDesktop;
+    if (!api || typeof api.getLlmConfig !== "function") {
+      llmStatus.textContent = "LLM：preload API 缺失（请从托盘打开 Controls）";
+      return;
+    }
+
+    const res = await api.getLlmConfig();
+    const effective: LLMConfig | null = (res && (res.effective as any)) || null;
+    const p = String((effective as any)?.provider ?? "auto") || "auto";
+    providerSelect.value = p;
+
+    openaiBaseUrl.value = String(effective?.openai?.baseUrl ?? "");
+    openaiModel.value = String(effective?.openai?.model ?? "");
+    openaiApiKey.value = String(effective?.openai?.apiKey ?? "");
+
+    deepseekBaseUrl.value = String(effective?.deepseek?.baseUrl ?? "");
+    deepseekModel.value = String(effective?.deepseek?.model ?? "");
+    deepseekApiKey.value = String(effective?.deepseek?.apiKey ?? "");
+
+    aistudioModel.value = String(effective?.aistudio?.model ?? "");
+    aistudioApiKey.value = String(effective?.aistudio?.apiKey ?? "");
+    aistudioBaseUrl.value = String(effective?.aistudio?.baseUrl ?? "");
+
+    const provider = String(res?.provider ?? "");
+    const path = String(res?.storagePath ?? "");
+    llmStatus.textContent = `当前 provider: ${provider || "?"}\n存储位置: ${path || "(unknown)"}`;
+  };
+
+  const buildLlmConfigFromUi = (): LLMConfig => {
+    return {
+      provider: providerSelect.value as any,
+      openai: {
+        baseUrl: openaiBaseUrl.value,
+        model: openaiModel.value,
+        apiKey: openaiApiKey.value
+      },
+      deepseek: {
+        baseUrl: deepseekBaseUrl.value,
+        model: deepseekModel.value,
+        apiKey: deepseekApiKey.value
+      },
+      aistudio: {
+        baseUrl: aistudioBaseUrl.value,
+        model: aistudioModel.value,
+        apiKey: aistudioApiKey.value
+      }
+    };
+  };
+
+  btnSaveLlm.addEventListener("click", () => {
+    void withBusy(btnSaveLlm, async () => {
+      const api: any = (window as any).stageDesktop;
+      if (!api || typeof api.setLlmConfig !== "function") {
+        opts.onInfo?.("preload API 不可用：无法保存 LLM 配置（请从托盘打开 Controls）。");
+        return;
+      }
+
+      const cfg = buildLlmConfigFromUi();
+      const res = await api.setLlmConfig(cfg);
+      if (!res?.ok) {
+        opts.onInfo?.(`保存失败：${String(res?.message ?? "unknown")}`);
+        return;
+      }
+
+      llmProvider = String(res?.provider ?? llmProvider ?? "").trim() || llmProvider;
+      opts.onInfo?.(`已保存并生效（provider=${String(res?.provider ?? "?")}）`);
+      await loadLlmUi();
+    });
+  });
+
+  btnResetLlm.addEventListener("click", () => {
+    void withBusy(btnResetLlm, async () => {
+      providerSelect.value = "auto";
+      openaiApiKey.value = "";
+      deepseekApiKey.value = "";
+      aistudioApiKey.value = "";
+      const api: any = (window as any).stageDesktop;
+      if (!api || typeof api.setLlmConfig !== "function") {
+        opts.onInfo?.("preload API 不可用：无法保存 LLM 配置（请从托盘打开 Controls）。");
+        return;
+      }
+      const res = await api.setLlmConfig(buildLlmConfigFromUi());
+      if (!res?.ok) {
+        opts.onInfo?.(`重置失败：${String(res?.message ?? "unknown")}`);
+        return;
+      }
+      llmProvider = String(res?.provider ?? llmProvider ?? "").trim() || llmProvider;
+      opts.onInfo?.("已切换为离线/自动模式（Key 已清空）");
+      await loadLlmUi();
+    });
+  });
+
+  void loadLlmUi();
 
   // Window size controls (pet display window)
   const windowDetails = createDetails("窗口大小（展示）", true);
