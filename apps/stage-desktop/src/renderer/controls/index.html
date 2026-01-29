@@ -421,6 +421,157 @@
         margin-top: 10px;
       }
 
+      .divider {
+        height: 1px;
+        background: rgba(20, 20, 19, 0.1);
+        margin: 8px 0;
+      }
+
+      .inlineRow {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .btnSm {
+        height: 34px;
+        border-radius: 12px;
+        padding: 0 10px;
+        font-size: 12px;
+      }
+
+      .statusLine {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 8px;
+        padding: 9px 10px;
+        border-radius: 14px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.62);
+        color: rgba(20, 20, 19, 0.78);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .statusLeft {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .statusPill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(20, 20, 19, 0.03);
+        color: rgba(20, 20, 19, 0.78);
+        white-space: nowrap;
+      }
+      .statusDot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: rgba(106, 155, 204, 0.7);
+        box-shadow: 0 0 0 4px rgba(106, 155, 204, 0.14);
+      }
+      .statusText {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rangeRow {
+        display: grid;
+        grid-template-columns: 90px 1fr 64px;
+        gap: 10px;
+        align-items: center;
+      }
+      .rangeLabel {
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        color: rgba(20, 20, 19, 0.74);
+      }
+      .rangeValue {
+        text-align: right;
+        font-size: 12px;
+        color: rgba(20, 20, 19, 0.52);
+        font-variant-numeric: tabular-nums;
+      }
+      .range {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: rgba(20, 20, 19, 0.74);
+        font: 12px/1 var(--font-display);
+        letter-spacing: 0.2px;
+        user-select: none;
+      }
+      .toggle input {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent);
+      }
+
+      .library {
+        display: grid;
+        gap: 10px;
+      }
+      .libraryHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .libraryList {
+        display: grid;
+        gap: 8px;
+      }
+      .libItem {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 10px;
+        border-radius: 14px;
+        border: 1px solid rgba(20, 20, 19, 0.12);
+        background: rgba(255, 255, 255, 0.62);
+      }
+      .libLeft {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+      .libName {
+        font: 13px/1.15 var(--font-display);
+        letter-spacing: 0.2px;
+        color: rgba(20, 20, 19, 0.9);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .libMeta {
+        font-size: 11px;
+        color: rgba(20, 20, 19, 0.5);
+      }
+      .libActions {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
       .btn {
         height: 40px;
         padding: 0 12px;
@@ -447,6 +598,14 @@
       .btnPrimary:hover {
         background: rgba(217, 119, 87, 0.18);
         border-color: rgba(217, 119, 87, 0.55);
+      }
+      .btnDanger {
+        border-color: rgba(20, 20, 19, 0.16);
+        background: rgba(20, 20, 19, 0.04);
+      }
+      .btnDanger:hover {
+        border-color: rgba(20, 20, 19, 0.22);
+        background: rgba(20, 20, 19, 0.06);
       }
 
       .toast {
@@ -611,6 +770,86 @@
               <div class="actionsRow">
                 <button id="saveLlm" class="btn btnPrimary" type="button">保存</button>
                 <button id="reloadLlm" class="btn" type="button">重新读取</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="cardTitle">动作（VRMA）</div>
+              <div class="fieldGrid">
+                <div class="help">加载 .vrma 后可播放，并可设为 Idle/Walk 槽位自动切换；也可保存到动作库。</div>
+
+                <div class="actionsRow">
+                  <button id="pickVrma" class="btn btnPrimary" type="button">上传 VRMA…</button>
+                  <button id="stopVrma" class="btn" type="button" disabled>停止动作</button>
+                  <button id="setIdleFromLast" class="btn" type="button" disabled>设为 Idle</button>
+                  <button id="setWalkFromLast" class="btn" type="button" disabled>设为 Walk</button>
+                </div>
+
+                <div id="vrmaStatus" class="statusLine">
+                  <div class="statusLeft">
+                    <span class="statusDot" aria-hidden="true"></span>
+                    <span class="statusText">最近：—</span>
+                  </div>
+                  <span class="statusPill" id="slotStatus">idle - · walk - · act -</span>
+                </div>
+
+                <div class="rangeRow">
+                  <div class="rangeLabel">速度</div>
+                  <input id="vrmaSpeed" class="range" type="range" min="0" max="2" step="0.05" value="1" />
+                  <div class="rangeValue" id="vrmaSpeedValue">1.00x</div>
+                </div>
+                <label class="toggle"><input id="vrmaPaused" type="checkbox" />暂停（所有 VRMA/动画）</label>
+
+                <div class="divider"></div>
+
+                <div class="field">
+                  <div class="label">保存到动作库</div>
+                  <div class="inlineRow">
+                    <input id="vrmaSaveName" class="input" type="text" placeholder="例如：idle_v2 / wave / sit" />
+                    <button id="saveVrma" class="btn btnSm" type="button" disabled>保存</button>
+                  </div>
+                  <div class="help">动作库保存在本机（IndexedDB）。</div>
+                </div>
+
+                <div class="library">
+                  <div class="libraryHeader">
+                    <div class="label">动作库</div>
+                    <button id="refreshVrmaLib" class="btn btnSm" type="button">刷新</button>
+                  </div>
+                  <div id="vrmaLibEmpty" class="help">动作库为空。</div>
+                  <div id="vrmaLibList" class="libraryList"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="cardTitle">程序动作（兜底）</div>
+              <div class="fieldGrid">
+                <div class="help">当没有 VRMA Idle/Walk 时会更明显；也可作为轻微的“呼吸感”。</div>
+
+                <label class="toggle"><input id="idleEnabled" type="checkbox" checked />启用 Idle</label>
+                <div class="rangeRow">
+                  <div class="rangeLabel">Idle 强度</div>
+                  <input id="idleStrength" class="range" type="range" min="0" max="1" step="0.01" value="1" />
+                  <div class="rangeValue" id="idleStrengthValue">1.00</div>
+                </div>
+                <div class="rangeRow">
+                  <div class="rangeLabel">Idle 速度</div>
+                  <input id="idleSpeed" class="range" type="range" min="0.2" max="2" step="0.05" value="1" />
+                  <div class="rangeValue" id="idleSpeedValue">1.00x</div>
+                </div>
+
+                <label class="toggle"><input id="walkEnabled" type="checkbox" checked />启用 Walk</label>
+                <div class="rangeRow">
+                  <div class="rangeLabel">Walk 速度</div>
+                  <input id="walkSpeed" class="range" type="range" min="0.2" max="2" step="0.05" value="1" />
+                  <div class="rangeValue" id="walkSpeedValue">1.00x</div>
+                </div>
+                <div class="rangeRow">
+                  <div class="rangeLabel">步幅</div>
+                  <input id="walkStride" class="range" type="range" min="0" max="1" step="0.01" value="0.75" />
+                  <div class="rangeValue" id="walkStrideValue">0.75</div>
+                </div>
               </div>
             </div>
 

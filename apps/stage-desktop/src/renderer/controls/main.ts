@@ -1,4 +1,4 @@
-import type { ChatLogEntry, ChatLogMessage } from "@sama/shared";
+import type { ChatLogEntry, ChatLogMessage, PetControlMessage, PetControlResult, PetStateMessage } from "@sama/shared";
 
 type LlmConfig = {
   provider?: string;
@@ -13,6 +13,10 @@ type StageDesktopApi = {
   getChatLog?: () => Promise<ChatLogMessage>;
   chatInvoke?: (message: string) => Promise<any>;
   sendUserInteraction?: (i: any) => void;
+  // Pet control (VRMA / motion tuning)
+  sendPetControl?: (m: PetControlMessage) => void;
+  onPetControlResult?: (cb: (r: PetControlResult) => void) => () => void;
+  onPetState?: (cb: (s: PetStateMessage) => void) => () => void;
   getLlmConfig?: () => Promise<{ stored: LlmConfig | null; effective: LlmConfig | null; provider: string }>;
   setLlmConfig?: (cfg: LlmConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
 };
@@ -147,6 +151,130 @@ const saveLlmEl = (() => {
 const reloadLlmEl = (() => {
   const el = document.getElementById("reloadLlm");
   if (!(el instanceof HTMLButtonElement)) throw new Error("missing #reloadLlm");
+  return el;
+})();
+
+// Motion / VRMA controls (settings view)
+const pickVrmaBtn = (() => {
+  const el = document.getElementById("pickVrma");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #pickVrma");
+  return el;
+})();
+const stopVrmaBtn = (() => {
+  const el = document.getElementById("stopVrma");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #stopVrma");
+  return el;
+})();
+const setIdleFromLastBtn = (() => {
+  const el = document.getElementById("setIdleFromLast");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #setIdleFromLast");
+  return el;
+})();
+const setWalkFromLastBtn = (() => {
+  const el = document.getElementById("setWalkFromLast");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #setWalkFromLast");
+  return el;
+})();
+const vrmaStatusEl = (() => {
+  const el = document.getElementById("vrmaStatus");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #vrmaStatus");
+  return el;
+})();
+const slotStatusEl = (() => {
+  const el = document.getElementById("slotStatus");
+  if (!(el instanceof HTMLSpanElement)) throw new Error("missing #slotStatus");
+  return el;
+})();
+const vrmaSpeedEl = (() => {
+  const el = document.getElementById("vrmaSpeed");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #vrmaSpeed");
+  return el;
+})();
+const vrmaSpeedValueEl = (() => {
+  const el = document.getElementById("vrmaSpeedValue");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #vrmaSpeedValue");
+  return el;
+})();
+const vrmaPausedEl = (() => {
+  const el = document.getElementById("vrmaPaused");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #vrmaPaused");
+  return el;
+})();
+const vrmaSaveNameEl = (() => {
+  const el = document.getElementById("vrmaSaveName");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #vrmaSaveName");
+  return el;
+})();
+const saveVrmaEl = (() => {
+  const el = document.getElementById("saveVrma");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #saveVrma");
+  return el;
+})();
+const refreshVrmaLibEl = (() => {
+  const el = document.getElementById("refreshVrmaLib");
+  if (!(el instanceof HTMLButtonElement)) throw new Error("missing #refreshVrmaLib");
+  return el;
+})();
+const vrmaLibEmptyEl = (() => {
+  const el = document.getElementById("vrmaLibEmpty");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #vrmaLibEmpty");
+  return el;
+})();
+const vrmaLibListEl = (() => {
+  const el = document.getElementById("vrmaLibList");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #vrmaLibList");
+  return el;
+})();
+
+const idleEnabledEl = (() => {
+  const el = document.getElementById("idleEnabled");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #idleEnabled");
+  return el;
+})();
+const idleStrengthEl = (() => {
+  const el = document.getElementById("idleStrength");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #idleStrength");
+  return el;
+})();
+const idleStrengthValueEl = (() => {
+  const el = document.getElementById("idleStrengthValue");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #idleStrengthValue");
+  return el;
+})();
+const idleSpeedEl = (() => {
+  const el = document.getElementById("idleSpeed");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #idleSpeed");
+  return el;
+})();
+const idleSpeedValueEl = (() => {
+  const el = document.getElementById("idleSpeedValue");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #idleSpeedValue");
+  return el;
+})();
+
+const walkEnabledEl = (() => {
+  const el = document.getElementById("walkEnabled");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #walkEnabled");
+  return el;
+})();
+const walkSpeedEl = (() => {
+  const el = document.getElementById("walkSpeed");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #walkSpeed");
+  return el;
+})();
+const walkSpeedValueEl = (() => {
+  const el = document.getElementById("walkSpeedValue");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #walkSpeedValue");
+  return el;
+})();
+const walkStrideEl = (() => {
+  const el = document.getElementById("walkStride");
+  if (!(el instanceof HTMLInputElement)) throw new Error("missing #walkStride");
+  return el;
+})();
+const walkStrideValueEl = (() => {
+  const el = document.getElementById("walkStrideValue");
+  if (!(el instanceof HTMLDivElement)) throw new Error("missing #walkStrideValue");
   return el;
 })();
 
@@ -360,12 +488,630 @@ async function saveLlmConfigFromForm() {
   }
 }
 
+// --- Motion / VRMA (minimal but complete) -----------------------------------
+
+type VrmaLibraryItem = {
+  name: string;
+  bytes: ArrayBuffer;
+  createdAt: number;
+  updatedAt: number;
+};
+
+const VRMA_DB_NAME = "sama.vrma.library";
+const VRMA_DB_VERSION = 1;
+const VRMA_STORE = "vrma";
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.buffer instanceof ArrayBuffer) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+  return bytes.slice().buffer as ArrayBuffer;
+}
+
+function stripExtension(name: string) {
+  return name.replace(/\.[^/.]+$/, "");
+}
+
+function normalizeVrmaName(name: string) {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+function openVrmaDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(VRMA_DB_NAME, VRMA_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(VRMA_STORE)) {
+        db.createObjectStore(VRMA_STORE, { keyPath: "name" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error("indexedDB open failed"));
+  });
+}
+
+async function vrmaList(): Promise<VrmaLibraryItem[]> {
+  const db = await openVrmaDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(VRMA_STORE, "readonly");
+    const store = tx.objectStore(VRMA_STORE);
+    const req = store.getAll();
+    req.onsuccess = () => {
+      const items = (req.result as VrmaLibraryItem[]) ?? [];
+      items.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+      resolve(items);
+    };
+    req.onerror = () => reject(req.error ?? new Error("indexedDB getAll failed"));
+  });
+}
+
+async function vrmaGet(name: string): Promise<VrmaLibraryItem | null> {
+  const db = await openVrmaDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(VRMA_STORE, "readonly");
+    const store = tx.objectStore(VRMA_STORE);
+    const req = store.get(name);
+    req.onsuccess = () => resolve((req.result as VrmaLibraryItem) ?? null);
+    req.onerror = () => reject(req.error ?? new Error("indexedDB get failed"));
+  });
+}
+
+async function vrmaPut(item: VrmaLibraryItem): Promise<void> {
+  const db = await openVrmaDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(VRMA_STORE, "readwrite");
+    const store = tx.objectStore(VRMA_STORE);
+    const req = store.put(item);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error("indexedDB put failed"));
+  });
+}
+
+async function vrmaDelete(name: string): Promise<void> {
+  const db = await openVrmaDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(VRMA_STORE, "readwrite");
+    const store = tx.objectStore(VRMA_STORE);
+    const req = store.delete(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error ?? new Error("indexedDB delete failed"));
+  });
+}
+
+async function pickFileViaFileInput(accept: string): Promise<{ bytes: Uint8Array; fileName: string } | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.style.display = "none";
+    document.body.appendChild(input);
+
+    input.addEventListener(
+      "change",
+      async () => {
+        try {
+          const file = input.files?.[0];
+          if (!file) {
+            resolve(null);
+            return;
+          }
+          const buf = await file.arrayBuffer();
+          resolve({ bytes: new Uint8Array(buf), fileName: String(file.name ?? "") });
+        } catch {
+          resolve(null);
+        } finally {
+          input.remove();
+        }
+      },
+      { once: true }
+    );
+
+    input.click();
+  });
+}
+
+function fmtNum(n: number, digits: number) {
+  if (!Number.isFinite(n)) return "—";
+  return n.toFixed(clamp(digits, 0, 6));
+}
+
+type MotionUiSettingsV1 = {
+  version: 1;
+  vrma: { speed: number; paused: boolean };
+  idle: { enabled: boolean; strength: number; speed: number };
+  walk: { enabled: boolean; speed: number; stride: number };
+};
+
+const MOTION_UI_KEY = "sama.ui.motion.v1";
+
+function loadMotionUiSettings(): MotionUiSettingsV1 {
+  try {
+    const raw = localStorage.getItem(MOTION_UI_KEY);
+    const parsed = raw ? (JSON.parse(raw) as any) : null;
+    if (!parsed || parsed.version !== 1) throw new Error("bad version");
+    return {
+      version: 1,
+      vrma: {
+        speed: clamp(Number(parsed?.vrma?.speed ?? 1), 0, 2),
+        paused: Boolean(parsed?.vrma?.paused ?? false)
+      },
+      idle: {
+        enabled: Boolean(parsed?.idle?.enabled ?? true),
+        strength: clamp(Number(parsed?.idle?.strength ?? 1), 0, 1),
+        speed: clamp(Number(parsed?.idle?.speed ?? 1), 0.2, 2)
+      },
+      walk: {
+        enabled: Boolean(parsed?.walk?.enabled ?? true),
+        speed: clamp(Number(parsed?.walk?.speed ?? 1), 0.2, 2),
+        stride: clamp(Number(parsed?.walk?.stride ?? 0.75), 0, 1)
+      }
+    };
+  } catch {
+    return {
+      version: 1,
+      vrma: { speed: 1, paused: false },
+      idle: { enabled: true, strength: 1, speed: 1 },
+      walk: { enabled: true, speed: 1, stride: 0.75 }
+    };
+  }
+}
+
+function saveMotionUiSettings(s: MotionUiSettingsV1) {
+  try {
+    localStorage.setItem(MOTION_UI_KEY, JSON.stringify(s));
+  } catch {
+    // ignore
+  }
+}
+
+let motionUi = loadMotionUiSettings();
+
+let lastVrmaBytes: Uint8Array | null = null;
+let lastVrmaFileName = "";
+
+const pendingPetResults = new Map<string, { resolve: (r: PetControlResult) => void; reject: (e: unknown) => void }>();
+let petResultListenerInstalled = false;
+
+function createReqId() {
+  return `req_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
+}
+
+function installPetResultListener(api: StageDesktopApi) {
+  if (petResultListenerInstalled) return;
+  if (!api || typeof api.onPetControlResult !== "function") return;
+
+  petResultListenerInstalled = true;
+  api.onPetControlResult((res: PetControlResult) => {
+    const pending = pendingPetResults.get(res.requestId);
+    if (!pending) return;
+    pendingPetResults.delete(res.requestId);
+    pending.resolve(res);
+  });
+}
+
+function sendPetControl(msg: PetControlMessage) {
+  const api = getApi();
+  if (!api || typeof api.sendPetControl !== "function") {
+    showToast("preload API 缺失：无法控制动作/VRMA", { timeoutMs: 4200 });
+    return false;
+  }
+  api.sendPetControl(msg);
+  return true;
+}
+
+function sendPetControlWithResult(
+  msg: PetControlMessage,
+  opts?: { timeoutMs?: number }
+): Promise<PetControlResult> {
+  const api = getApi();
+  installPetResultListener(api);
+  const timeoutMs = clamp(Number(opts?.timeoutMs ?? 12_000), 800, 30_000);
+
+  const requestId = (msg as any).requestId ? String((msg as any).requestId) : createReqId();
+  (msg as any).requestId = requestId;
+
+  return new Promise((resolve, reject) => {
+    const ok = sendPetControl(msg);
+    if (!ok) {
+      reject(new Error("preload API missing"));
+      return;
+    }
+
+    let timer: number | null = null;
+    const done = (fn: (v: any) => void, v: any) => {
+      if (timer !== null) window.clearTimeout(timer);
+      pendingPetResults.delete(requestId);
+      fn(v);
+    };
+
+    pendingPetResults.set(requestId, { resolve: (r) => done(resolve, r), reject: (e) => done(reject, e) });
+    timer = window.setTimeout(() => {
+      done(reject, new Error("Pet 无响应：请求超时"));
+    }, timeoutMs);
+  });
+}
+
+function setVrmaStatusText(s: string) {
+  const el = vrmaStatusEl.querySelector(".statusText");
+  if (el) el.textContent = s;
+}
+
+function updateMotionFormFromState() {
+  vrmaSpeedEl.value = String(motionUi.vrma.speed);
+  vrmaPausedEl.checked = motionUi.vrma.paused;
+  vrmaSpeedValueEl.textContent = `${fmtNum(motionUi.vrma.speed, 2)}x`;
+
+  idleEnabledEl.checked = motionUi.idle.enabled;
+  idleStrengthEl.value = String(motionUi.idle.strength);
+  idleStrengthValueEl.textContent = fmtNum(motionUi.idle.strength, 2);
+  idleSpeedEl.value = String(motionUi.idle.speed);
+  idleSpeedValueEl.textContent = `${fmtNum(motionUi.idle.speed, 2)}x`;
+
+  walkEnabledEl.checked = motionUi.walk.enabled;
+  walkSpeedEl.value = String(motionUi.walk.speed);
+  walkSpeedValueEl.textContent = `${fmtNum(motionUi.walk.speed, 2)}x`;
+  walkStrideEl.value = String(motionUi.walk.stride);
+  walkStrideValueEl.textContent = fmtNum(motionUi.walk.stride, 2);
+}
+
+function applyMotionToPet() {
+  // Apply stored settings at startup so users don't have to reopen a separate panel.
+  sendPetControl({
+    type: "PET_CONTROL",
+    ts: Date.now(),
+    action: "SET_VRMA_CONFIG",
+    config: { speed: motionUi.vrma.speed, paused: motionUi.vrma.paused }
+  } as any);
+  sendPetControl({
+    type: "PET_CONTROL",
+    ts: Date.now(),
+    action: "SET_IDLE_CONFIG",
+    config: { enabled: motionUi.idle.enabled, strength: motionUi.idle.strength, speed: motionUi.idle.speed }
+  } as any);
+  sendPetControl({
+    type: "PET_CONTROL",
+    ts: Date.now(),
+    action: "SET_WALK_CONFIG",
+    config: { enabled: motionUi.walk.enabled, speed: motionUi.walk.speed, stride: motionUi.walk.stride }
+  } as any);
+}
+
+let pendingVrmaCfg: any = {};
+let vrmaCfgTimer: number | null = null;
+function queueVrmaConfig(partial: any) {
+  Object.assign(pendingVrmaCfg, partial);
+  if (vrmaCfgTimer !== null) return;
+  vrmaCfgTimer = window.setTimeout(() => {
+    vrmaCfgTimer = null;
+    const cfg = pendingVrmaCfg;
+    pendingVrmaCfg = {};
+    sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_VRMA_CONFIG", config: cfg } as any);
+  }, 60);
+}
+
+let pendingIdleCfg: any = {};
+let idleCfgTimer: number | null = null;
+function queueIdleConfig(partial: any) {
+  Object.assign(pendingIdleCfg, partial);
+  if (idleCfgTimer !== null) return;
+  idleCfgTimer = window.setTimeout(() => {
+    idleCfgTimer = null;
+    const cfg = pendingIdleCfg;
+    pendingIdleCfg = {};
+    sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_IDLE_CONFIG", config: cfg } as any);
+  }, 60);
+}
+
+let pendingWalkCfg: any = {};
+let walkCfgTimer: number | null = null;
+function queueWalkConfig(partial: any) {
+  Object.assign(pendingWalkCfg, partial);
+  if (walkCfgTimer !== null) return;
+  walkCfgTimer = window.setTimeout(() => {
+    walkCfgTimer = null;
+    const cfg = pendingWalkCfg;
+    pendingWalkCfg = {};
+    sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "SET_WALK_CONFIG", config: cfg } as any);
+  }, 60);
+}
+
+async function loadVrmaBytes(bytes: Uint8Array) {
+  const res = await sendPetControlWithResult({
+    type: "PET_CONTROL",
+    ts: Date.now(),
+    action: "LOAD_VRMA_BYTES",
+    bytes
+  } as any);
+
+  if (!res.ok) throw new Error(String(res.message ?? "load failed"));
+}
+
+async function refreshVrmaLibrary() {
+  try {
+    const items = await vrmaList();
+    vrmaLibListEl.innerHTML = "";
+
+    if (!items.length) {
+      vrmaLibEmptyEl.style.display = "block";
+      return;
+    }
+
+    vrmaLibEmptyEl.style.display = "none";
+    const frag = document.createDocumentFragment();
+
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "libItem";
+
+      const left = document.createElement("div");
+      left.className = "libLeft";
+
+      const name = document.createElement("div");
+      name.className = "libName";
+      name.textContent = item.name;
+
+      const meta = document.createElement("div");
+      meta.className = "libMeta";
+      meta.textContent = `updated ${new Date(item.updatedAt || item.createdAt).toLocaleString()}`;
+
+      left.append(name, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "libActions";
+
+      const playBtn = document.createElement("button");
+      playBtn.className = "btn btnSm";
+      playBtn.type = "button";
+      playBtn.textContent = "播放";
+      playBtn.addEventListener("click", async () => {
+        try {
+          const got = await vrmaGet(item.name);
+          if (!got) throw new Error("not found");
+          await loadVrmaBytes(new Uint8Array(got.bytes));
+          showToast(`已播放：${item.name}`, { timeoutMs: 1600 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          showToast(`播放失败：${msg}`, { timeoutMs: 5200 });
+        }
+      });
+
+      const idleBtn = document.createElement("button");
+      idleBtn.className = "btn btnSm";
+      idleBtn.type = "button";
+      idleBtn.textContent = "Idle";
+      idleBtn.addEventListener("click", async () => {
+        try {
+          const got = await vrmaGet(item.name);
+          if (!got) throw new Error("not found");
+          await loadVrmaBytes(new Uint8Array(got.bytes));
+          sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "ASSIGN_VRMA_SLOT_FROM_LAST", slot: "idle" } as any);
+          showToast(`已设为 Idle：${item.name}`, { timeoutMs: 2000 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          showToast(`设置失败：${msg}`, { timeoutMs: 5200 });
+        }
+      });
+
+      const walkBtn = document.createElement("button");
+      walkBtn.className = "btn btnSm";
+      walkBtn.type = "button";
+      walkBtn.textContent = "Walk";
+      walkBtn.addEventListener("click", async () => {
+        try {
+          const got = await vrmaGet(item.name);
+          if (!got) throw new Error("not found");
+          await loadVrmaBytes(new Uint8Array(got.bytes));
+          sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "ASSIGN_VRMA_SLOT_FROM_LAST", slot: "walk" } as any);
+          showToast(`已设为 Walk：${item.name}`, { timeoutMs: 2000 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          showToast(`设置失败：${msg}`, { timeoutMs: 5200 });
+        }
+      });
+
+      const renameBtn = document.createElement("button");
+      renameBtn.className = "btn btnSm";
+      renameBtn.type = "button";
+      renameBtn.textContent = "重命名";
+      renameBtn.addEventListener("click", async () => {
+        const next = normalizeVrmaName(window.prompt("新的名字：", item.name) ?? "");
+        if (!next) return;
+        if (next === item.name) return;
+        try {
+          const exists = await vrmaGet(next);
+          if (exists) {
+            const ok = window.confirm(`动作库已存在「${next}」。要覆盖吗？`);
+            if (!ok) return;
+          }
+          const got = await vrmaGet(item.name);
+          if (!got) throw new Error("not found");
+          await vrmaPut({ ...got, name: next, updatedAt: Date.now() });
+          await vrmaDelete(item.name);
+          await refreshVrmaLibrary();
+          showToast(`已重命名：${item.name} → ${next}`, { timeoutMs: 2000 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          showToast(`重命名失败：${msg}`, { timeoutMs: 5200 });
+        }
+      });
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btnSm btnDanger";
+      delBtn.type = "button";
+      delBtn.textContent = "删除";
+      delBtn.addEventListener("click", async () => {
+        const ok = window.confirm(`删除动作「${item.name}」？`);
+        if (!ok) return;
+        try {
+          await vrmaDelete(item.name);
+          await refreshVrmaLibrary();
+          showToast("已删除", { timeoutMs: 1400 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          showToast(`删除失败：${msg}`, { timeoutMs: 5200 });
+        }
+      });
+
+      actions.append(playBtn, idleBtn, walkBtn, renameBtn, delBtn);
+      row.append(left, actions);
+      frag.appendChild(row);
+    }
+
+    vrmaLibListEl.appendChild(frag);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    showToast(`动作库读取失败：${msg}`, { timeoutMs: 5200 });
+  }
+}
+
 function boot() {
+  // --- View navigation -------------------------------------------------------
   settingsBtn.addEventListener("click", () => {
     setView("settings");
     void loadLlmConfigIntoForm();
   });
   backBtn.addEventListener("click", () => setView("chat"));
+
+  // --- Motion / VRMA settings (in Settings view) -----------------------------
+  updateMotionFormFromState();
+  applyMotionToPet();
+  void refreshVrmaLibrary();
+
+  vrmaSaveNameEl.addEventListener("input", () => {
+    const name = normalizeVrmaName(vrmaSaveNameEl.value);
+    saveVrmaEl.disabled = !lastVrmaBytes || !name;
+  });
+
+  pickVrmaBtn.addEventListener("click", () => {
+    void (async () => {
+      try {
+        const picked = await pickFileViaFileInput(".vrma");
+        if (!picked) return;
+
+        lastVrmaBytes = picked.bytes;
+        lastVrmaFileName = picked.fileName || "动作.vrma";
+
+        setVrmaStatusText(`最近：${lastVrmaFileName}（加载中…）`);
+
+        // Suggest a library name, but don't clobber user edits.
+        if (!normalizeVrmaName(vrmaSaveNameEl.value)) {
+          vrmaSaveNameEl.value = normalizeVrmaName(stripExtension(lastVrmaFileName));
+        }
+        saveVrmaEl.disabled = !normalizeVrmaName(vrmaSaveNameEl.value);
+
+        await loadVrmaBytes(lastVrmaBytes);
+        setVrmaStatusText(`最近：${lastVrmaFileName}（已加载）`);
+        showToast("已加载 VRMA（可设为 Idle/Walk）", { timeoutMs: 1800 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setVrmaStatusText(`最近：${lastVrmaFileName || "—"}（失败）`);
+        showToast(`加载 VRMA 失败：${msg}`, { timeoutMs: 5200 });
+      }
+    })();
+  });
+
+  stopVrmaBtn.addEventListener("click", () => {
+    sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "CLEAR_VRMA_ACTION" } as any);
+    showToast("已停止动作", { timeoutMs: 1400 });
+  });
+
+  setIdleFromLastBtn.addEventListener("click", () => {
+    sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "ASSIGN_VRMA_SLOT_FROM_LAST", slot: "idle" } as any);
+    showToast("已设为 Idle（自动切换）", { timeoutMs: 1600 });
+  });
+  setWalkFromLastBtn.addEventListener("click", () => {
+    sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "ASSIGN_VRMA_SLOT_FROM_LAST", slot: "walk" } as any);
+    showToast("已设为 Walk（自动切换）", { timeoutMs: 1600 });
+  });
+
+  vrmaSpeedEl.addEventListener("input", () => {
+    motionUi.vrma.speed = clamp(Number(vrmaSpeedEl.value), 0, 2);
+    vrmaSpeedValueEl.textContent = `${fmtNum(motionUi.vrma.speed, 2)}x`;
+    saveMotionUiSettings(motionUi);
+    queueVrmaConfig({ speed: motionUi.vrma.speed });
+  });
+
+  vrmaPausedEl.addEventListener("change", () => {
+    motionUi.vrma.paused = Boolean(vrmaPausedEl.checked);
+    saveMotionUiSettings(motionUi);
+    queueVrmaConfig({ paused: motionUi.vrma.paused });
+  });
+
+  saveVrmaEl.addEventListener("click", () => {
+    void (async () => {
+      const bytes = lastVrmaBytes;
+      if (!bytes || !bytes.byteLength) {
+        showToast("请先上传一个 VRMA", { timeoutMs: 2200 });
+        return;
+      }
+
+      const rawName = normalizeVrmaName(vrmaSaveNameEl.value);
+      if (!rawName) {
+        vrmaSaveNameEl.focus();
+        showToast("请输入动作名字", { timeoutMs: 1800 });
+        return;
+      }
+
+      try {
+        const existing = await vrmaGet(rawName);
+        if (existing) {
+          const ok = window.confirm(`动作库已存在「${rawName}」。要覆盖吗？`);
+          if (!ok) return;
+        }
+
+        const now = Date.now();
+        await vrmaPut({
+          name: rawName,
+          bytes: bytesToArrayBuffer(bytes),
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: now
+        });
+        await refreshVrmaLibrary();
+        showToast(`已保存到动作库：${rawName}`, { timeoutMs: 2000 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showToast(`保存失败：${msg}`, { timeoutMs: 5200 });
+      }
+    })();
+  });
+
+  refreshVrmaLibEl.addEventListener("click", () => void refreshVrmaLibrary());
+
+  idleEnabledEl.addEventListener("change", () => {
+    motionUi.idle.enabled = Boolean(idleEnabledEl.checked);
+    saveMotionUiSettings(motionUi);
+    queueIdleConfig({ enabled: motionUi.idle.enabled });
+  });
+  idleStrengthEl.addEventListener("input", () => {
+    motionUi.idle.strength = clamp(Number(idleStrengthEl.value), 0, 1);
+    idleStrengthValueEl.textContent = fmtNum(motionUi.idle.strength, 2);
+    saveMotionUiSettings(motionUi);
+    queueIdleConfig({ strength: motionUi.idle.strength });
+  });
+  idleSpeedEl.addEventListener("input", () => {
+    motionUi.idle.speed = clamp(Number(idleSpeedEl.value), 0.2, 2);
+    idleSpeedValueEl.textContent = `${fmtNum(motionUi.idle.speed, 2)}x`;
+    saveMotionUiSettings(motionUi);
+    queueIdleConfig({ speed: motionUi.idle.speed });
+  });
+
+  walkEnabledEl.addEventListener("change", () => {
+    motionUi.walk.enabled = Boolean(walkEnabledEl.checked);
+    saveMotionUiSettings(motionUi);
+    queueWalkConfig({ enabled: motionUi.walk.enabled });
+  });
+  walkSpeedEl.addEventListener("input", () => {
+    motionUi.walk.speed = clamp(Number(walkSpeedEl.value), 0.2, 2);
+    walkSpeedValueEl.textContent = `${fmtNum(motionUi.walk.speed, 2)}x`;
+    saveMotionUiSettings(motionUi);
+    queueWalkConfig({ speed: motionUi.walk.speed });
+  });
+  walkStrideEl.addEventListener("input", () => {
+    motionUi.walk.stride = clamp(Number(walkStrideEl.value), 0, 1);
+    walkStrideValueEl.textContent = fmtNum(motionUi.walk.stride, 2);
+    saveMotionUiSettings(motionUi);
+    queueWalkConfig({ stride: motionUi.walk.stride });
+  });
 
   sendBtn.addEventListener("click", () => void sendMessage());
   input.addEventListener("keydown", (e) => {
@@ -429,6 +1175,23 @@ function boot() {
     });
   } else {
     showToast("preload API 缺失：无法同步聊天记录", { timeoutMs: 5200 });
+  }
+
+  // Pet status -> keep the Motion UI feeling grounded in reality.
+  if (api && typeof api.onPetState === "function") {
+    api.onPetState((s: PetStateMessage) => {
+      const slots: any = (s as any)?.slots ?? null;
+      if (!slots) return;
+
+      const idleMark = slots.hasIdle ? "✓" : "-";
+      const walkMark = slots.hasWalk ? "✓" : "-";
+      const actMark = slots.hasAction ? "✓" : "-";
+      slotStatusEl.textContent = `idle ${idleMark} · walk ${walkMark} · act ${actMark}`;
+
+      stopVrmaBtn.disabled = !slots.hasAction;
+      setIdleFromLastBtn.disabled = !slots.hasLastLoaded;
+      setWalkFromLastBtn.disabled = !slots.hasLastLoaded;
+    });
   }
 }
 
