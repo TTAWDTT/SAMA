@@ -56,9 +56,9 @@ if (hasApi) {
       const mode = s?.displayMode?.mode;
       const edge = s?.displayMode?.edge;
       if (mode === "peek") {
-        const prefer =
-          edge === "right" ? "left" : edge === "left" ? "right" : edge === "top" ? "bottom" : edge === "bottom" ? "top" : null;
-        caption.setPreferredPlacement(prefer);
+        // "peek" is a head-only mode; keep bubbles on the side of the head (not above it).
+        // The controller already prefers side placement by default.
+        caption.setPreferredPlacement(edge === "left" ? "right" : edge === "right" ? "left" : null);
       } else {
         caption.setPreferredPlacement(null);
       }

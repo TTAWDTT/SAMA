@@ -9,6 +9,8 @@ export const ChatTimeline = forwardRef<
   HTMLDivElement,
   {
     api: StageDesktopApi | null;
+    llmProvider?: string;
+    onOpenLlmSettings?: () => void;
     messages: UiMessage[];
     isThinking: boolean;
     scrollLock: boolean;
@@ -17,11 +19,24 @@ export const ChatTimeline = forwardRef<
     onToast?: (msg: string, o?: any) => void;
   }
 >(function ChatTimeline(props, ref) {
-  const { api, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast } = props;
+  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast } = props;
+  const showLlmHint = String(llmProvider ?? "") === "fallback";
 
   return (
     <div className="timelineWrap">
       <div ref={ref} className="timeline" role="log" aria-live="polite">
+        {showLlmHint ? (
+          <div className="hintBanner" role="note">
+            <div className="hintTitle">未配置 LLM</div>
+            <div className="hintText">当前聊天使用离线规则回复，效果会很差。请在侧边栏「LLM」里配置 API Key（或使用本地 Ollama）。</div>
+            {onOpenLlmSettings ? (
+              <button className="btn btnSm btnPrimary" type="button" onClick={onOpenLlmSettings}>
+                打开 LLM 设置
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         {messages.length === 0 ? (
           <div className="emptyState">
             <div className="emptyIcon">

@@ -33,6 +33,41 @@ function normalizeBubbleText(s: string) {
     .trim();
 }
 
+function stripMarkdownForBubble(md: string) {
+  const s = String(md ?? "");
+
+  // Drop fenced code blocks entirely (bubble should not show code).
+  let out = s.replace(/```[\s\S]*?```/g, "");
+
+  // Links: [text](url) -> text
+  out = out.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+  // Inline code: `x` -> x
+  out = out.replace(/`([^`]+)`/g, "$1");
+
+  // Headings / quotes / list markers
+  out = out.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  out = out.replace(/^\s{0,3}>\s?/gm, "");
+  out = out.replace(/^\s{0,3}([-*]|\d+\.)\s+/gm, "");
+
+  // Emphasis markers
+  out = out.replace(/\*\*([^*]+)\*\*/g, "$1");
+  out = out.replace(/\*([^*]+)\*/g, "$1");
+  out = out.replace(/__([^_]+)__/g, "$1");
+  out = out.replace(/_([^_]+)_/g, "$1");
+
+  return out.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function pickBubbleTextFromReply(reply: string) {
+  const plain = stripMarkdownForBubble(reply);
+  if (!plain) return "";
+
+  // Prefer the first paragraph; bubbles should be short and non-obtrusive.
+  const firstPara = plain.split(/\n{2,}/)[0]?.trim();
+  return firstPara || plain.split("\n")[0]?.trim() || plain;
+}
+
 function bubbleDurationForText(text: string) {
   const n = Array.from(text).length;
   // 3.2s base + per-char time, clamped to a reasonable range.
@@ -394,7 +429,7 @@ export class CoreService {
         this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: reply });
       } catch {}
 
-      const bubble = truncateByCodepoints(normalizeBubbleText(reply), 180);
+      const bubble = truncateByCodepoints(normalizeBubbleText(pickBubbleTextFromReply(reply)), 180);
       const cmd: ActionCommand = {
         type: "ACTION_COMMAND",
         ts: replyTs,
@@ -449,7 +484,7 @@ export class CoreService {
     } catch {}
 
     // Chat reply is rendered as a bubble near the character (separate from the input UI).
-    const bubble = truncateByCodepoints(normalizeBubbleText(reply), 180);
+    const bubble = truncateByCodepoints(normalizeBubbleText(pickBubbleTextFromReply(reply)), 180);
     const cmd: ActionCommand = {
       type: "ACTION_COMMAND",
       ts: replyTs,

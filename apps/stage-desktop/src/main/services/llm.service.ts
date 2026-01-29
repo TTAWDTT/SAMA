@@ -67,6 +67,14 @@ function sanitizeOneLine(s: string) {
   return s.replace(/\s+/g, " ").replace(/(^[“”"']+|[“”"']+$)/g, "").trim();
 }
 
+function sanitizeChatText(raw: string) {
+  // Keep markdown/newlines for the chat UI, but normalize line endings and excessive blank lines.
+  return String(raw ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+}
+
 function parseMemoryExtractorJson(raw: string) {
   const text = String(raw ?? "").trim();
   if (!text) return [];
@@ -248,40 +256,39 @@ function ruleBasedBubble(ctx: { state: string; isNight: boolean; mood: number })
 }
 
 function ruleBasedChatReply(ctx: { state: string; isNight: boolean; mood: number }, userMsg: string) {
-  const prefix = ctx.isNight ? "夜里说话更轻点…" : "";
   const trimmed = userMsg.trim();
   if (!trimmed) return "嗯？";
   const compact = trimmed.replace(/\s+/g, "");
   const seed = hashStringCodepoints(`${compact}|${ctx.state}|${ctx.isNight ? "n" : "d"}|${ctx.mood.toFixed(2)}`);
 
   // Special-cases for built-in diagnostics.
-  if (compact.startsWith("测试气泡") || /^test$/i.test(compact)) return `${prefix}气泡显示正常 ✅`.trim();
+  if (compact.startsWith("测试气泡") || /^test$/i.test(compact)) return "气泡显示正常 ✅";
 
   // Short utterances are common in chat; avoid a single repetitive "我听到了".
   if (compact.length <= 4) {
-    if (/^(hi|hello|hey)$/i.test(compact)) return `${prefix}你好，我在。`.trim();
-    if (/(你好|嗨|在吗|喂)/.test(compact)) return `${prefix}我在呢。`.trim();
-    if (/(谢谢|谢啦|thx|thanks)/i.test(compact)) return `${prefix}不客气。`.trim();
-    if (/[？?]$/.test(compact)) return `${prefix}你想问哪一部分？`.trim();
+    if (/^(hi|hello|hey)$/i.test(compact)) return "你好，我在。";
+    if (/(你好|嗨|在吗|喂)/.test(compact)) return "我在呢。";
+    if (/(谢谢|谢啦|thx|thanks)/i.test(compact)) return "不客气。";
+    if (/[？?]$/.test(compact)) return "你想问哪一部分？";
 
     // Add a tiny bit of variety so it doesn't feel "stuck".
     return pickVariant(
       [
-        `${prefix}我在呢，你继续说。`.trim(),
-        `${prefix}嗯，我听着。`.trim(),
-        `${prefix}怎么啦？`.trim(),
-        `${prefix}我在这儿。`.trim()
+        "我在呢，你继续说。",
+        "嗯，我听着。",
+        "怎么啦？",
+        "我在这儿。"
       ],
       seed
     );
   }
-  if (ctx.state === "FOCUS") return `${prefix}你先忙，我在这儿。`.trim();
-  if (ctx.mood < 0.35) return `${prefix}我可能理解得不够，但我愿意听。`.trim();
+  if (ctx.state === "FOCUS") return "你先忙，我在这儿。";
+  if (ctx.mood < 0.35) return "我可能理解得不够，但我愿意听。";
   return pickVariant(
     [
-      `${prefix}你想先从哪一点说起？`.trim(),
-      `${prefix}你希望我怎么陪你？`.trim(),
-      `${prefix}要不要先讲最困扰你的那一段？`.trim()
+      "你想先从哪一点说起？",
+      "你希望我怎么陪你？",
+      "要不要先讲最困扰你的那一段？"
     ],
     seed
   );
@@ -333,10 +340,10 @@ class OpenAICompatibleProvider implements LLMProvider {
         ...(ctx.history ?? []).slice(-20),
         { role: "user", content: userMsg }
       ],
-      220,
+      600,
       25_000
     );
-    return sanitizeOneLine(raw);
+    return sanitizeChatText(raw);
   }
 
   async extractMemoryNotes(
@@ -443,10 +450,10 @@ class AIStudioProvider implements LLMProvider {
           ...(ctx.history ?? []).slice(-20),
           { role: "user", content: userMsg }
         ],
-        220,
+        600,
         25_000
       );
-      return sanitizeOneLine(raw);
+      return sanitizeChatText(raw);
     }
 
     const history = (ctx.history ?? []).slice(-20).map((m: any): GeminiContent => {
@@ -460,11 +467,11 @@ class AIStudioProvider implements LLMProvider {
       model: this.#model,
       systemInstruction: system,
       contents: [...history, { role: "user", parts: [{ text: userMsg }] }],
-      maxOutputTokens: 320,
+      maxOutputTokens: 512,
       timeoutMs: 25_000
     });
 
-    return sanitizeOneLine(raw);
+    return sanitizeChatText(raw);
   }
 
   async extractMemoryNotes(
@@ -622,9 +629,14 @@ export class LLMService {
     const fallback = () => ruleBasedChatReply(ctx, userMsg);
 
     const finalize = (raw: string) => {
-      const normalized = sanitizeOneLine(String(raw ?? ""));
-      if (!normalized || isLowValueAckReply(normalized)) return fallback();
-      if (lastAssistant && sanitizeOneLine(lastAssistant) === normalized) return fallback();
+      const normalized = sanitizeChatText(String(raw ?? ""));
+      if (!normalized) return fallback();
+
+      // Heuristics for "too low value" / repetition should be applied to a one-line projection,
+      // but we still return the original multi-line markdown to the UI when it's good.
+      const oneLine = sanitizeOneLine(normalized);
+      if (!oneLine || isLowValueAckReply(oneLine)) return fallback();
+      if (lastAssistant && sanitizeOneLine(lastAssistant) === oneLine) return fallback();
       return normalized;
     };
 

@@ -73,6 +73,9 @@ export function TopBar(props: {
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const provider = String(connection.provider ?? "");
+  const statusText = provider === "fallback" ? "未配置" : connection.connected ? "已连接" : "离线";
+  const providerLabel = provider === "fallback" ? "LLM 未配置" : provider;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -104,8 +107,8 @@ export function TopBar(props: {
           <div className="topName">{title}</div>
           <div className="topSub">
             <span className={`dot ${connection.connected ? "on" : ""}`} aria-hidden="true" />
-            <span>{connection.connected ? "已连接" : "离线"}</span>
-            {connection.provider && <span className="pill">{connection.provider}</span>}
+            <span>{statusText}</span>
+            {providerLabel && <span className="pill">{providerLabel}</span>}
           </div>
         </div>
       </div>

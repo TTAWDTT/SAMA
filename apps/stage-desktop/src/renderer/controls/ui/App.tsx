@@ -314,7 +314,7 @@ export function App() {
 
   const connection = useMemo(() => {
     const p = String(provider || "unknown");
-    const connected = p !== "off" && p !== "preload missing";
+    const connected = p !== "off" && p !== "preload missing" && p !== "fallback";
     return { connected, provider: p };
   }, [provider]);
 
@@ -335,6 +335,11 @@ export function App() {
         <ChatTimeline
           ref={timelineRef}
           api={api}
+          llmProvider={provider}
+          onOpenLlmSettings={() => {
+            setDrawerOpen(true);
+            setTab("llm");
+          }}
           messages={uiMessages}
           isThinking={isThinking}
           scrollLock={scrollLock}

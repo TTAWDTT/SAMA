@@ -462,7 +462,8 @@ async function bootstrap() {
   let peekHomePosition: Point = { ...home };
 
   // Display mode state (normal vs peek)
-  let displayModeConfig: PetDisplayModeConfig = { mode: "normal", edge: "right", tiltDeg: 15 };
+  // Note: "peek" is intended to be a "只露出脑袋" mode (dock to bottom edge).
+  let displayModeConfig: PetDisplayModeConfig = { mode: "normal", edge: "bottom", tiltDeg: 15 };
   let lastDisplayMode: PetDisplayModeConfig["mode"] = displayModeConfig.mode;
 
   const applyDisplayMode = () => {
@@ -488,41 +489,25 @@ async function bootstrap() {
     }
 
     if (displayModeConfig.mode === "peek") {
-      const edge = displayModeConfig.edge || "right";
-      const visibleFrac = 0.6; // portion of the window that remains visible
+      // "探出小脑袋" mode: hug the bottom edge and only keep a small portion visible.
+      // We intentionally keep this as a simple, predictable behavior (no left/right peek),
+      // because the UX expectation is "stick to desktop bottom and show only head".
+      const visibleH = clamp(Math.round(winH * 0.32), 150, 260);
 
-      let x = peekHomePosition.x;
-      let y = peekHomePosition.y;
-
-      if (edge === "left") {
-        x = wa.x - Math.round(winW * (1 - visibleFrac));
-        y = clampY(peekHomePosition.y);
-      } else if (edge === "right") {
-        x = wa.x + wa.width - Math.round(winW * visibleFrac);
-        y = clampY(peekHomePosition.y);
-      } else if (edge === "top") {
-        x = clampX(peekHomePosition.x);
-        y = wa.y - Math.round(winH * (1 - visibleFrac));
-      } else {
-        // bottom
-        x = clampX(peekHomePosition.x);
-        y = wa.y + wa.height - Math.round(winH * visibleFrac);
-      }
+      const x = clampX(peekHomePosition.x);
+      const y = wa.y + wa.height - visibleH;
 
       petWindow.setPosition(Math.round(x), Math.round(y));
       const [nx, ny] = petWindow.getPosition();
       peekHomePosition = { x: nx, y: ny };
       homePosition = { x: nx, y: ny };
 
-      const tilt = Math.max(0, Math.min(60, Number(displayModeConfig.tiltDeg ?? 15) || 15));
-      const yawDeg = edge === "left" ? tilt : edge === "right" ? -tilt : 0;
-
-      // Send tilt command to pet renderer (yaw only; pitch/roll not supported yet).
+      // Peek-from-bottom doesn't need yaw. (If we add pitch/roll later, we can use it here.)
       petWindow.webContents.send(IPC_CHANNELS.petControl, {
         type: "PET_CONTROL",
         ts: Date.now(),
         action: "SET_MODEL_TRANSFORM",
-        transform: { yawDeg }
+        transform: { yawDeg: 0 }
       });
     } else {
       // Normal mode - restore last normal position and reset rotation.
@@ -924,8 +909,15 @@ async function bootstrap() {
     if (payload && payload.type === "PET_CONTROL" && payload.action === "SET_DISPLAY_MODE") {
       try {
         const cfg: any = (payload as any).config ?? {};
-        if (cfg.mode) displayModeConfig.mode = cfg.mode;
-        if (cfg.edge) displayModeConfig.edge = cfg.edge;
+        if (cfg.mode === "normal" || cfg.mode === "peek") displayModeConfig.mode = cfg.mode;
+
+        // Current UX: "peek" = bottom-edge head peek. Force bottom edge to avoid confusing behavior.
+        if (displayModeConfig.mode === "peek") {
+          displayModeConfig.edge = "bottom";
+        } else if (cfg.edge) {
+          displayModeConfig.edge = cfg.edge;
+        }
+
         if (typeof cfg.tiltDeg === "number") displayModeConfig.tiltDeg = cfg.tiltDeg;
         applyDisplayMode();
       } catch (err) {
@@ -992,15 +984,9 @@ async function bootstrap() {
     const nextX = Math.round(x + dx);
     const nextY = Math.round(y + dy);
 
-    // In peek mode, keep the pet docked to the chosen edge; allow dragging along the edge axis.
+    // In peek mode, keep the pet docked to the bottom edge; dragging only moves along X.
     if (displayModeConfig.mode === "peek") {
-      const edge = displayModeConfig.edge || "right";
-      if (edge === "left" || edge === "right") {
-        peekHomePosition = { ...peekHomePosition, y: nextY };
-      } else {
-        // top/bottom
-        peekHomePosition = { ...peekHomePosition, x: nextX };
-      }
+      peekHomePosition = { ...peekHomePosition, x: nextX };
       applyDisplayMode();
       return;
     }
