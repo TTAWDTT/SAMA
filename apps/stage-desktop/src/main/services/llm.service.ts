@@ -153,10 +153,22 @@ function ruleBasedChatReply(ctx: { state: string; isNight: boolean; mood: number
   const prefix = ctx.isNight ? "夜里说话更轻点…" : "";
   const trimmed = userMsg.trim();
   if (!trimmed) return "嗯？";
-  if (trimmed.length <= 4) return `${prefix}我听到了。`.trim();
+  const compact = trimmed.replace(/\s+/g, "");
+
+  // Special-cases for built-in diagnostics.
+  if (compact.startsWith("测试气泡") || /^test$/i.test(compact)) return `${prefix}气泡显示正常 ✅`.trim();
+
+  // Short utterances are common in chat; avoid a single repetitive "我听到了".
+  if (compact.length <= 4) {
+    if (/^(hi|hello|hey)$/i.test(compact)) return `${prefix}你好，我在。`.trim();
+    if (/(你好|嗨|在吗|喂)/.test(compact)) return `${prefix}我在呢。`.trim();
+    if (/(谢谢|谢啦|thx|thanks)/i.test(compact)) return `${prefix}不客气。`.trim();
+    if (/[？?]$/.test(compact)) return `${prefix}你想问哪一部分？`.trim();
+    return `${prefix}我在听，你继续说。`.trim();
+  }
   if (ctx.state === "FOCUS") return `${prefix}你先忙，我在这儿。`.trim();
   if (ctx.mood < 0.35) return `${prefix}我可能理解得不够，但我愿意听。`.trim();
-  return `${prefix}我不太确定，但我们可以慢慢聊。`.trim();
+  return `${prefix}你想先从哪一点说起？`.trim();
 }
 
 class OpenAICompatibleProvider implements LLMProvider {

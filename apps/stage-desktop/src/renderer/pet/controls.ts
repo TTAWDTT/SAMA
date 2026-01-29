@@ -435,7 +435,7 @@ export function attachPetControls(opts: { scene: PetScene; root: HTMLDivElement;
       }
 
       opts.onInfo?.("发送测试消息…（回复会显示在角色旁气泡）");
-      await api.chatInvoke("测试气泡");
+      await api.chatInvoke("测试气泡：请回复一句话，用于验证气泡显示");
       opts.onInfo?.("测试完成：如果还看不到气泡，请检查是否是浏览器打开/或窗口被遮挡。");
     });
   });
