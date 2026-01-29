@@ -46,7 +46,7 @@
 
   /* Chat background - WeChat style */
   --chat-bg: #ededed;
-  --bubble-user: #95ec69;
+  --bubble-user: #ffffff;
   --bubble-user-text: #000000;
   --bubble-assistant: #ffffff;
 
@@ -120,7 +120,7 @@
 
   /* Chat background - WeChat dark style */
   --chat-bg: #111111;
-  --bubble-user: #2b5b2b;
+  --bubble-user: #2c2c2c;
   --bubble-user-text: #ffffff;
   --bubble-assistant: #2c2c2c;
 

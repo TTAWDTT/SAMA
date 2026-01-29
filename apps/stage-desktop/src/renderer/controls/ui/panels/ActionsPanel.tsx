@@ -15,6 +15,7 @@ import {
   vrmaPut,
   type VrmaLibraryItem
 } from "../lib/vrmaDb";
+import { VRMA_PRESETS, loadPresetBytes, type VrmaPreset } from "../lib/vrmaPresets";
 
 const LS_QUIET = "sama.ui.quietMode.v1";
 
@@ -86,6 +87,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
 
   const [libLoading, setLibLoading] = useState(false);
   const [library, setLibrary] = useState<VrmaLibraryItem[]>([]);
+  const [presetLoading, setPresetLoading] = useState<string | null>(null);
 
   const pendingVrmaCfg = useRef<any>({});
   const vrmaCfgTimer = useRef<number | null>(null);
@@ -186,6 +188,46 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     }
   }
 
+  async function playPreset(preset: VrmaPreset) {
+    if (presetLoading) return;
+    setPresetLoading(preset.id);
+    try {
+      const bytes = await loadPresetBytes(preset);
+      await loadVrmaBytes(bytes);
+      setVrmaStatus(`预设：${preset.name}（已加载）`);
+      onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onToast(`加载预设动作失败：${msg}`, { timeoutMs: 5200 });
+    } finally {
+      setPresetLoading(null);
+    }
+  }
+
+  async function savePresetToLibrary(preset: VrmaPreset) {
+    try {
+      const existing = await vrmaGet(preset.name);
+      if (existing) {
+        onToast(`动作库已存在「${preset.name}」`, { timeoutMs: 2000 });
+        return;
+      }
+
+      const bytes = await loadPresetBytes(preset);
+      const now = Date.now();
+      await vrmaPut({
+        name: preset.name,
+        bytes: bytesToArrayBuffer(bytes),
+        createdAt: now,
+        updatedAt: now
+      });
+      await refreshLibrary();
+      onToast(`已保存到动作库：${preset.name}`, { timeoutMs: 2000 });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onToast(`保存失败：${msg}`, { timeoutMs: 5200 });
+    }
+  }
+
   useEffect(() => {
     void refreshLibrary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,6 +296,28 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
           <div className="help">{slotStatusText}</div>
           <div className="help">{vrmaStatus}</div>
         </div>
+
+        {/* Preset Animations */}
+        <div className="field">
+          <div className="label">预设动作</div>
+          <div className="help">来自 pixiv VRoid Project 的预设动作（点击播放）</div>
+          <div className="chipRow" style={{ marginTop: 8 }}>
+            {VRMA_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                className={`chip ${presetLoading === preset.id ? "loading" : ""}`}
+                type="button"
+                disabled={!!presetLoading}
+                title={preset.description}
+                onClick={() => void playPreset(preset)}
+              >
+                {presetLoading === preset.id ? "..." : preset.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="divider" />
 
         <div className="btnRow">
           <button

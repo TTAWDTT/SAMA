@@ -1,12 +1,5 @@
-import type { StageDesktopAPI } from "../main/preload";
+// Asset type declarations for controls UI
 
-declare global {
-  interface Window {
-    stageDesktop: StageDesktopAPI;
-  }
-}
-
-// Image module declarations
 declare module "*.png" {
   const src: string;
   export default src;
@@ -32,7 +25,7 @@ declare module "*.gif" {
   export default src;
 }
 
-// VRM/VRMA asset declarations
+// VRM/VRMA asset declarations with Vite URL suffix
 declare module "*.vrma?url" {
   const src: string;
   export default src;
@@ -42,6 +35,3 @@ declare module "*.vrm?url" {
   const src: string;
   export default src;
 }
-
-export {};
-
