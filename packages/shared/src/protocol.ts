@@ -116,6 +116,19 @@ export type PetWindowSize = {
   height: number;
 };
 
+/**
+ * Display mode for the pet window.
+ * - "normal": Standard floating window
+ * - "peek": "探出小脑袋" mode - hugs screen edge with tilted angle
+ */
+export type PetDisplayMode = "normal" | "peek";
+
+export type PetDisplayModeConfig = {
+  mode: PetDisplayMode;
+  edge?: "left" | "right" | "top" | "bottom"; // which screen edge to hug in peek mode
+  tiltDeg?: number; // rotation angle when peeking (default: 15)
+};
+
 export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "LOAD_VRM_BYTES"; bytes: Uint8Array }
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "LOAD_VRMA_BYTES"; bytes: Uint8Array }
@@ -129,7 +142,8 @@ export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; action: "CLEAR_VRMA_ACTION" }
   | { type: "PET_CONTROL"; ts: number; action: "ASSIGN_VRMA_SLOT_FROM_LAST"; slot: "idle" | "walk" }
   | { type: "PET_CONTROL"; ts: number; action: "CLEAR_VRMA_SLOT"; slot: "idle" | "walk" }
-  | { type: "PET_CONTROL"; ts: number; action: "NOTIFY_ACTION"; cmd: ActionCommand };
+  | { type: "PET_CONTROL"; ts: number; action: "NOTIFY_ACTION"; cmd: ActionCommand }
+  | { type: "PET_CONTROL"; ts: number; action: "SET_DISPLAY_MODE"; config: Partial<PetDisplayModeConfig> };
 
 export type PetControlResult = {
   type: "PET_CONTROL_RESULT";
@@ -158,6 +172,10 @@ export type PetWindowStateMessage = {
   type: "PET_WINDOW_STATE";
   ts: number;
   size: PetWindowSize;
+  displayMode?: PetDisplayModeConfig;
+  // Optional window / display geometry (for caption/bubble layout when peeking off-screen).
+  bounds?: { x: number; y: number; width: number; height: number };
+  workArea?: { x: number; y: number; width: number; height: number };
 };
 
 export type AnyBusMessage =

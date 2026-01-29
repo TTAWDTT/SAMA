@@ -1,4 +1,4 @@
-import type { ChatLogMessage, PetControlMessage, PetControlResult, PetStateMessage } from "@sama/shared";
+import type { ChatLogMessage, PetControlMessage, PetControlResult, PetStateMessage, PetWindowStateMessage } from "@sama/shared";
 
 export type LlmConfig = {
   provider?: string;
@@ -43,6 +43,7 @@ export type StageDesktopApi = {
   sendPetControl?: (m: PetControlMessage) => void;
   onPetControlResult?: (cb: (r: PetControlResult) => void) => () => void;
   onPetState?: (cb: (s: PetStateMessage) => void) => () => void;
+  onPetWindowState?: (cb: (s: PetWindowStateMessage) => void) => () => void;
 
   // Manual actions (controls -> main)
   sendManualAction?: (m: ManualActionPayload) => void;

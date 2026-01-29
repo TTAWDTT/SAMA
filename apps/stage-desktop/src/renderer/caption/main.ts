@@ -19,6 +19,51 @@ if (hasApi) {
   api.onActionCommand((cmd: ActionCommand) => {
     caption.onCommand(cmd);
   });
+
+  // Keep bubble placement inside the *visible* part of the window (peek mode can be partially off-screen).
+  if (typeof api.onPetWindowState === "function") {
+    api.onPetWindowState((s: any) => {
+      const bounds = s?.bounds;
+      const wa = s?.workArea;
+
+      if (
+        bounds &&
+        wa &&
+        Number.isFinite(bounds.x) &&
+        Number.isFinite(bounds.y) &&
+        Number.isFinite(bounds.width) &&
+        Number.isFinite(bounds.height) &&
+        Number.isFinite(wa.x) &&
+        Number.isFinite(wa.y) &&
+        Number.isFinite(wa.width) &&
+        Number.isFinite(wa.height)
+      ) {
+        const left = Math.max(bounds.x, wa.x);
+        const top = Math.max(bounds.y, wa.y);
+        const right = Math.min(bounds.x + bounds.width, wa.x + wa.width);
+        const bottom = Math.min(bounds.y + bounds.height, wa.y + wa.height);
+
+        const w = Math.max(1, right - left);
+        const h = Math.max(1, bottom - top);
+        const vx = left - bounds.x;
+        const vy = top - bounds.y;
+
+        caption.setViewport({ x: vx, y: vy, width: w, height: h });
+      } else {
+        caption.setViewport(null);
+      }
+
+      const mode = s?.displayMode?.mode;
+      const edge = s?.displayMode?.edge;
+      if (mode === "peek") {
+        const prefer =
+          edge === "right" ? "left" : edge === "left" ? "right" : edge === "top" ? "bottom" : edge === "bottom" ? "top" : null;
+        caption.setPreferredPlacement(prefer);
+      } else {
+        caption.setPreferredPlacement(null);
+      }
+    });
+  }
 }
 
 if (bc) {

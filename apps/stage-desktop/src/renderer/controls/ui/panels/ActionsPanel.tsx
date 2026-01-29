@@ -1,4 +1,4 @@
-import type { ActionCommand, PetStateMessage } from "@sama/shared";
+import type { ActionCommand, PetDisplayModeConfig, PetStateMessage, PetWindowStateMessage } from "@sama/shared";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { StageDesktopApi } from "../api";
 import { pickFileViaFileInput } from "../lib/filePicker";
@@ -71,6 +71,8 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
 
   const [quiet, setQuiet] = useState(loadQuietMode);
 
+  const [displayMode, setDisplayMode] = useState<PetDisplayModeConfig>({ mode: "normal" });
+
   const [slots, setSlots] = useState<SlotsState>({
     hasIdle: false,
     hasWalk: false,
@@ -109,6 +111,16 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
         hasAction: Boolean(next.hasAction),
         hasLastLoaded: Boolean(next.hasLastLoaded)
       });
+    });
+  }, [api]);
+
+  // Listen for pet window state to sync display mode
+  useEffect(() => {
+    if (!api || typeof api.onPetWindowState !== "function") return;
+    return api.onPetWindowState((s: PetWindowStateMessage) => {
+      if (s?.displayMode) {
+        setDisplayMode(s.displayMode);
+      }
     });
   }, [api]);
 
@@ -204,6 +216,42 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     }
   }
 
+  function toggleDisplayMode() {
+    const nextMode = displayMode.mode === "normal" ? "peek" : "normal";
+    setDisplayMode((prev) => ({ ...prev, mode: nextMode }));
+    sendPetControl(api, {
+      type: "PET_CONTROL",
+      ts: Date.now(),
+      action: "SET_DISPLAY_MODE",
+      config: { mode: nextMode }
+    } as any);
+    onToast(nextMode === "peek" ? "探出小脑袋模式" : "普通模式", { timeoutMs: 1600 });
+  }
+
+  const peekEdge: NonNullable<PetDisplayModeConfig["edge"]> = displayMode.edge ?? "right";
+  const peekTiltDeg = Math.max(0, Math.min(60, Number(displayMode.tiltDeg ?? 15) || 15));
+
+  const setPeekEdge = (edge: NonNullable<PetDisplayModeConfig["edge"]>) => {
+    setDisplayMode((prev) => ({ ...prev, edge, mode: "peek" }));
+    sendPetControl(api, {
+      type: "PET_CONTROL",
+      ts: Date.now(),
+      action: "SET_DISPLAY_MODE",
+      config: { edge, mode: "peek" }
+    } as any);
+  };
+
+  const setPeekTilt = (tiltDeg: number) => {
+    const v = Math.max(0, Math.min(60, Math.round(Number(tiltDeg) || 0)));
+    setDisplayMode((prev) => ({ ...prev, tiltDeg: v, mode: "peek" }));
+    sendPetControl(api, {
+      type: "PET_CONTROL",
+      ts: Date.now(),
+      action: "SET_DISPLAY_MODE",
+      config: { tiltDeg: v, mode: "peek" }
+    } as any);
+  };
+
   async function savePresetToLibrary(preset: VrmaPreset) {
     try {
       const existing = await vrmaGet(preset.name);
@@ -251,7 +299,59 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
           <button className="btn" type="button" onClick={() => doAction(buildCmd({ action: "RETREAT", durationMs: 1500 }))}>
             离远一点
           </button>
+          <button
+            className={`btn ${displayMode.mode === "peek" ? "btnPrimary" : ""}`}
+            type="button"
+            onClick={toggleDisplayMode}
+          >
+            {displayMode.mode === "peek" ? "普通模式" : "探出小脑袋"}
+          </button>
         </div>
+
+        {displayMode.mode === "peek" ? (
+          <>
+            <div className="divider" />
+
+            <div className="field">
+              <div className="label">探出小脑袋</div>
+              <div className="segRow">
+                <div className="segLabel">靠边</div>
+                <div className="seg">
+                  {[
+                    { key: "left", label: "左" },
+                    { key: "right", label: "右" },
+                    { key: "top", label: "上" },
+                    { key: "bottom", label: "下" }
+                  ].map((x) => (
+                    <button
+                      key={x.key}
+                      className={`segBtn ${peekEdge === x.key ? "isActive" : ""}`}
+                      type="button"
+                      onClick={() => setPeekEdge(x.key as NonNullable<PetDisplayModeConfig["edge"]>)}
+                    >
+                      {x.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="row">
+                <input
+                  className="range"
+                  type="range"
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={peekTiltDeg}
+                  onChange={(e) => setPeekTilt(Number(e.target.value))}
+                  aria-label="Peek tilt angle"
+                />
+                <div className="pill">{peekTiltDeg}°</div>
+              </div>
+              <div className="help">提示：探出模式会锁定在屏幕边缘；拖动角色可以沿边缘滑动。</div>
+            </div>
+          </>
+        ) : null}
 
         <div className="divider" />
 

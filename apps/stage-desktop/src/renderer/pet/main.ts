@@ -38,6 +38,12 @@ const BC_NAME = "sama:pet-bus";
 const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(BC_NAME) : null;
 let lastCaptionReadyAt = 0;
 
+function isCaptionOverlayAlive() {
+  if (!bc) return false;
+  // Caption pings every ~2s; keep a little slack for jitter.
+  return Date.now() - lastCaptionReadyAt < 5500;
+}
+
 function setHud(s: string) {
   if (!hud) return;
   hud.textContent = s;
@@ -86,20 +92,18 @@ function layoutInlineBubble() {
 
   const margin = 14;
   // Keep the bubble away from the avatar head so we don't cover it.
-  const gap = 16;
+  const gap = 20;
 
   const anchorX = clamp(clamp01(inlineBubbleAnchor.nx), 0, 1) * vw;
   const anchorY = clamp(clamp01(inlineBubbleAnchor.ny), 0, 1) * vh;
 
   type Placement = "top" | "bottom" | "left" | "right";
 
-  const canPlaceRight =
-    anchorX + gap + bw <= vw - margin && anchorY - bh / 2 >= margin && anchorY + bh / 2 <= vh - margin;
-  const canPlaceLeft =
-    anchorX - gap - bw >= margin && anchorY - bh / 2 >= margin && anchorY + bh / 2 <= vh - margin;
-  const canPlaceTop = anchorY - gap - bh >= margin && anchorX - bw / 2 >= margin && anchorX + bw / 2 <= vw - margin;
-  const canPlaceBottom =
-    anchorY + gap + bh <= vh - margin && anchorX - bw / 2 >= margin && anchorX + bw / 2 <= vw - margin;
+  // Prefer side placement; allow vertical clamping, so only require X/Y room.
+  const canPlaceRight = anchorX + gap + bw <= vw - margin;
+  const canPlaceLeft = anchorX - gap - bw >= margin;
+  const canPlaceTop = anchorY - gap - bh >= margin;
+  const canPlaceBottom = anchorY + gap + bh <= vh - margin;
 
   // Prefer side placement so the bubble sits next to the head, not on top of it.
   let placement: Placement = "right";
@@ -485,12 +489,19 @@ async function boot() {
         scene.notifyAction(msg.cmd);
         scene.setExpression(msg.cmd.expression);
         if (msg.cmd.bubbleKind === "thinking") {
+          if (isCaptionOverlayAlive()) hideInlineBubble();
           startCaptionAnchorTracking(msg.cmd.durationMs || 25_000);
         } else if (msg.cmd.bubble) {
           scene.speak(msg.cmd.durationMs);
           const a = scene.getBubbleAnchor?.();
           if (a) setInlineBubbleAnchor(a);
-          showInlineBubble(msg.cmd.bubble, msg.cmd.durationMs || 3000);
+
+          // Caption overlay is the primary bubble surface; inline bubble is only a fallback.
+          if (isCaptionOverlayAlive()) {
+            hideInlineBubble();
+          } else {
+            showInlineBubble(msg.cmd.bubble, msg.cmd.durationMs || 3000);
+          }
           startCaptionAnchorTracking(msg.cmd.durationMs);
         }
         sendPetState();
@@ -656,12 +667,18 @@ async function boot() {
     scene.notifyAction(cmd);
     scene.setExpression(cmd.expression);
     if (cmd.bubbleKind === "thinking") {
+      if (isCaptionOverlayAlive()) hideInlineBubble();
       startCaptionAnchorTracking(cmd.durationMs || 25_000);
     } else if (cmd.bubble) {
       scene.speak(cmd.durationMs);
       const a = scene.getBubbleAnchor?.();
       if (a) setInlineBubbleAnchor(a);
-      showInlineBubble(cmd.bubble, cmd.durationMs || 3000);
+
+      if (isCaptionOverlayAlive()) {
+        hideInlineBubble();
+      } else {
+        showInlineBubble(cmd.bubble, cmd.durationMs || 3000);
+      }
       startCaptionAnchorTracking(cmd.durationMs);
     }
 

@@ -14,6 +14,7 @@ import type {
   ManualActionMessage,
   PetControlMessage,
   PetControlResult,
+  PetDisplayModeConfig,
   PetStateMessage,
   PetStatusMessage,
   PetWindowSize,
@@ -454,7 +455,94 @@ async function bootstrap() {
   const home = computeDefaultHome({ w: initialBounds.width, h: initialBounds.height });
   petWindow.setPosition(home.x, home.y);
   captionWindow.setBounds(petWindow.getBounds());
+  // "homePosition" is the position RETREAT returns to. We keep separate homes per display mode
+  // so switching modes doesn't lose the user's placement.
   let homePosition: Point = { ...home };
+  let normalHomePosition: Point = { ...home };
+  let peekHomePosition: Point = { ...home };
+
+  // Display mode state (normal vs peek)
+  let displayModeConfig: PetDisplayModeConfig = { mode: "normal", edge: "right", tiltDeg: 15 };
+  let lastDisplayMode: PetDisplayModeConfig["mode"] = displayModeConfig.mode;
+
+  const applyDisplayMode = () => {
+    if (petWindow.isDestroyed()) return;
+
+    const [winW, winH] = petWindow.getSize();
+    const bNow = petWindow.getBounds();
+    const display = screen.getDisplayMatching(bNow);
+    const wa = display.workArea;
+    const margin = 10;
+
+    const clampX = (x: number) => clamp(x, wa.x + margin, wa.x + wa.width - winW - margin);
+    const clampY = (y: number) => clamp(y, wa.y + margin, wa.y + wa.height - winH - margin);
+
+    // When entering peek mode, initialize the peek baseline from the current window position
+    // so the user keeps their vertical/horizontal placement.
+    if (displayModeConfig.mode !== lastDisplayMode) {
+      if (displayModeConfig.mode === "peek") {
+        const [cx, cy] = petWindow.getPosition();
+        peekHomePosition = { x: cx, y: cy };
+      }
+      lastDisplayMode = displayModeConfig.mode;
+    }
+
+    if (displayModeConfig.mode === "peek") {
+      const edge = displayModeConfig.edge || "right";
+      const visibleFrac = 0.6; // portion of the window that remains visible
+
+      let x = peekHomePosition.x;
+      let y = peekHomePosition.y;
+
+      if (edge === "left") {
+        x = wa.x - Math.round(winW * (1 - visibleFrac));
+        y = clampY(peekHomePosition.y);
+      } else if (edge === "right") {
+        x = wa.x + wa.width - Math.round(winW * visibleFrac);
+        y = clampY(peekHomePosition.y);
+      } else if (edge === "top") {
+        x = clampX(peekHomePosition.x);
+        y = wa.y - Math.round(winH * (1 - visibleFrac));
+      } else {
+        // bottom
+        x = clampX(peekHomePosition.x);
+        y = wa.y + wa.height - Math.round(winH * visibleFrac);
+      }
+
+      petWindow.setPosition(Math.round(x), Math.round(y));
+      const [nx, ny] = petWindow.getPosition();
+      peekHomePosition = { x: nx, y: ny };
+      homePosition = { x: nx, y: ny };
+
+      const tilt = Math.max(0, Math.min(60, Number(displayModeConfig.tiltDeg ?? 15) || 15));
+      const yawDeg = edge === "left" ? tilt : edge === "right" ? -tilt : 0;
+
+      // Send tilt command to pet renderer (yaw only; pitch/roll not supported yet).
+      petWindow.webContents.send(IPC_CHANNELS.petControl, {
+        type: "PET_CONTROL",
+        ts: Date.now(),
+        action: "SET_MODEL_TRANSFORM",
+        transform: { yawDeg }
+      });
+    } else {
+      // Normal mode - restore last normal position and reset rotation.
+      const x = clampX(normalHomePosition.x);
+      const y = clampY(normalHomePosition.y);
+      petWindow.setPosition(Math.round(x), Math.round(y));
+      const [nx, ny] = petWindow.getPosition();
+      normalHomePosition = { x: nx, y: ny };
+      homePosition = { ...normalHomePosition };
+
+      petWindow.webContents.send(IPC_CHANNELS.petControl, {
+        type: "PET_CONTROL",
+        ts: Date.now(),
+        action: "SET_MODEL_TRANSFORM",
+        transform: { yawDeg: 0 }
+      });
+    }
+
+    emitPetWindowState();
+  };
 
   let clickThroughEnabled = false;
   let chatWindow: import("electron").BrowserWindow | null = null;
@@ -734,9 +822,33 @@ async function bootstrap() {
   const emitPetWindowState = () => {
     if (petWindow.isDestroyed()) return;
     const b = petWindow.getBounds();
-    lastPetWindowState = { type: "PET_WINDOW_STATE", ts: Date.now(), size: { width: b.width, height: b.height } };
-    if (!controlsWindow || controlsWindow.isDestroyed()) return;
-    controlsWindow.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+    const display = screen.getDisplayMatching(b);
+    const wa = display.workArea;
+    lastPetWindowState = {
+      type: "PET_WINDOW_STATE",
+      ts: Date.now(),
+      size: { width: b.width, height: b.height },
+      displayMode: displayModeConfig,
+      bounds: { x: b.x, y: b.y, width: b.width, height: b.height },
+      workArea: { x: wa.x, y: wa.y, width: wa.width, height: wa.height }
+    };
+
+    // Controls UI (React console)
+    if (controlsWindow && !controlsWindow.isDestroyed()) {
+      try {
+        controlsWindow.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+      } catch {}
+    }
+
+    // Caption overlay: needs geometry to keep bubbles visible when peeking off-screen.
+    try {
+      if (!captionWindow.isDestroyed()) captionWindow.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+    } catch {}
+
+    // Pet renderer (inline fallback bubble can also benefit from this)
+    try {
+      if (!petWindow.isDestroyed()) petWindow.webContents.send(IPC_CHANNELS.petWindowState, lastPetWindowState);
+    } catch {}
   };
 
   // initial state
@@ -752,6 +864,16 @@ async function bootstrap() {
     }, 80);
 
     schedulePersistPetWindowSize();
+  });
+
+  // throttle move updates (needed for caption bubble visibility when peeking partially off-screen)
+  let pendingMoveTimer: NodeJS.Timeout | null = null;
+  petWindow.on("move", () => {
+    if (pendingMoveTimer) clearTimeout(pendingMoveTimer);
+    pendingMoveTimer = setTimeout(() => {
+      pendingMoveTimer = null;
+      emitPetWindowState();
+    }, 80);
   });
 
   // IPC wiring
@@ -794,6 +916,20 @@ async function bootstrap() {
           };
           controlsWindow.webContents.send(IPC_CHANNELS.petControlResult, res);
         }
+      }
+      return;
+    }
+
+    // Handle display mode change
+    if (payload && payload.type === "PET_CONTROL" && payload.action === "SET_DISPLAY_MODE") {
+      try {
+        const cfg: any = (payload as any).config ?? {};
+        if (cfg.mode) displayModeConfig.mode = cfg.mode;
+        if (cfg.edge) displayModeConfig.edge = cfg.edge;
+        if (typeof cfg.tiltDeg === "number") displayModeConfig.tiltDeg = cfg.tiltDeg;
+        applyDisplayMode();
+      } catch (err) {
+        console.warn("[pet-window] SET_DISPLAY_MODE failed:", err);
       }
       return;
     }
@@ -853,9 +989,27 @@ async function bootstrap() {
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
 
     const [x, y] = petWindow.getPosition();
-    petWindow.setPosition(Math.round(x + dx), Math.round(y + dy));
+    const nextX = Math.round(x + dx);
+    const nextY = Math.round(y + dy);
+
+    // In peek mode, keep the pet docked to the chosen edge; allow dragging along the edge axis.
+    if (displayModeConfig.mode === "peek") {
+      const edge = displayModeConfig.edge || "right";
+      if (edge === "left" || edge === "right") {
+        peekHomePosition = { ...peekHomePosition, y: nextY };
+      } else {
+        // top/bottom
+        peekHomePosition = { ...peekHomePosition, x: nextX };
+      }
+      applyDisplayMode();
+      return;
+    }
+
+    petWindow.setPosition(nextX, nextY);
     const [nx, ny] = petWindow.getPosition();
+    normalHomePosition = { x: nx, y: ny };
     homePosition = { x: nx, y: ny };
+    emitPetWindowState();
   });
 
   const broadcastChatLogSync = () => {

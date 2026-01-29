@@ -20,10 +20,33 @@ export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinki
   let thinkingVisible = false;
 
   type Placement = "top" | "bottom" | "left" | "right";
+  type ViewportRect = { x: number; y: number; width: number; height: number };
+
+  // When the pet is in "peek" mode, the window can be partially off-screen.
+  // We keep a "visible rect" (in window-local coords) so bubbles never render off-screen.
+  let viewport: ViewportRect | null = null;
+  let preferredPlacement: Placement | null = null;
+
+  function getViewport(): ViewportRect {
+    const winW = Math.max(1, window.innerWidth || 1);
+    const winH = Math.max(1, window.innerHeight || 1);
+    if (!viewport) return { x: 0, y: 0, width: winW, height: winH };
+
+    const x = clamp(Number(viewport.x ?? 0), 0, winW - 1);
+    const y = clamp(Number(viewport.y ?? 0), 0, winH - 1);
+    const w = clamp(Number(viewport.width ?? winW), 1, winW - x);
+    const h = clamp(Number(viewport.height ?? winH), 1, winH - y);
+    return { x, y, width: w, height: h };
+  }
 
   function layoutOne(el: HTMLDivElement, vars: { x: string; y: string }) {
-    const vw = Math.max(1, window.innerWidth || 1);
-    const vh = Math.max(1, window.innerHeight || 1);
+    const winW = Math.max(1, window.innerWidth || 1);
+    const winH = Math.max(1, window.innerHeight || 1);
+    const view = getViewport();
+    const viewLeft = view.x;
+    const viewTop = view.y;
+    const viewRight = view.x + view.width;
+    const viewBottom = view.y + view.height;
 
     const rect = el.getBoundingClientRect();
     const bw = Math.max(1, rect.width || el.offsetWidth || 1);
@@ -31,42 +54,49 @@ export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinki
 
     const margin = 14;
     // Keep bubble/thinking away from the head so we don't cover the avatar.
-    const gap = 16;
+    const gap = 20;
 
-    const anchorX = clamp(anchor.nx, 0, 1) * vw;
-    const anchorY = clamp(anchor.ny, 0, 1) * vh;
+    const anchorX = clamp(anchor.nx, 0, 1) * winW;
+    const anchorY = clamp(anchor.ny, 0, 1) * winH;
 
-    const canPlaceRight =
-      anchorX + gap + bw <= vw - margin && anchorY - bh / 2 >= margin && anchorY + bh / 2 <= vh - margin;
-    const canPlaceLeft =
-      anchorX - gap - bw >= margin && anchorY - bh / 2 >= margin && anchorY + bh / 2 <= vh - margin;
-    const canPlaceTop = anchorY - gap - bh >= margin && anchorX - bw / 2 >= margin && anchorX + bw / 2 <= vw - margin;
-    const canPlaceBottom =
-      anchorY + gap + bh <= vh - margin && anchorX - bw / 2 >= margin && anchorX + bw / 2 <= vw - margin;
+    // Side placement is strongly preferred. We allow vertical clamping, so we only require enough
+    // room on the X axis (same for top/bottom on Y axis).
+    const canPlaceRight = anchorX + gap + bw <= viewRight - margin;
+    const canPlaceLeft = anchorX - gap - bw >= viewLeft + margin;
+    const canPlaceTop = anchorY - gap - bh >= viewTop + margin;
+    const canPlaceBottom = anchorY + gap + bh <= viewBottom - margin;
 
     // Prefer side placement so the bubble/thinking sits next to the head, not on top of it.
-    let placement: Placement = "right";
-    if (canPlaceRight) placement = "right";
-    else if (canPlaceLeft) placement = "left";
-    else if (canPlaceTop) placement = "top";
-    else if (canPlaceBottom) placement = "bottom";
-    else placement = canPlaceRight ? "right" : canPlaceLeft ? "left" : "top";
+    const order: Placement[] = [];
+    if (preferredPlacement) order.push(preferredPlacement);
+    (["right", "left", "top", "bottom"] as Placement[]).forEach((p) => {
+      if (!order.includes(p)) order.push(p);
+    });
+
+    const ok = (p: Placement) => {
+      if (p === "right") return canPlaceRight;
+      if (p === "left") return canPlaceLeft;
+      if (p === "top") return canPlaceTop;
+      return canPlaceBottom;
+    };
+
+    let placement: Placement = order.find(ok) ?? (canPlaceRight ? "right" : canPlaceLeft ? "left" : canPlaceTop ? "top" : "bottom");
 
     let x = anchorX;
     let y = anchorY;
     if (placement === "top") {
-      x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
-      y = clamp(anchorY - gap, margin + bh, vh - margin);
+      x = clamp(anchorX, viewLeft + margin + bw / 2, viewRight - margin - bw / 2);
+      y = clamp(anchorY - gap, viewTop + margin + bh, viewBottom - margin);
     } else if (placement === "bottom") {
-      x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
-      y = clamp(anchorY + gap, margin, vh - margin - bh);
+      x = clamp(anchorX, viewLeft + margin + bw / 2, viewRight - margin - bw / 2);
+      y = clamp(anchorY + gap, viewTop + margin, viewBottom - margin - bh);
     } else if (placement === "right") {
-      x = clamp(anchorX + gap, margin, vw - margin - bw);
-      y = clamp(anchorY, margin + bh / 2, vh - margin - bh / 2);
+      x = clamp(anchorX + gap, viewLeft + margin, viewRight - margin - bw);
+      y = clamp(anchorY, viewTop + margin + bh / 2, viewBottom - margin - bh / 2);
     } else {
       // left
-      x = clamp(anchorX - gap, margin + bw, vw - margin);
-      y = clamp(anchorY, margin + bh / 2, vh - margin - bh / 2);
+      x = clamp(anchorX - gap, viewLeft + margin + bw, viewRight - margin);
+      y = clamp(anchorY, viewTop + margin + bh / 2, viewBottom - margin - bh / 2);
     }
 
     el.dataset.placement = placement;
@@ -140,6 +170,14 @@ export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinki
   return {
     setAnchor: (a: Anchor) => {
       anchor = { nx: clamp01(Number(a?.nx ?? 0.5)), ny: clamp01(Number(a?.ny ?? 0.22)) };
+      layout();
+    },
+    setViewport: (r: ViewportRect | null) => {
+      viewport = r;
+      layout();
+    },
+    setPreferredPlacement: (p: Placement | null) => {
+      preferredPlacement = p;
       layout();
     },
     onCommand: (cmd: ActionCommand) => {
