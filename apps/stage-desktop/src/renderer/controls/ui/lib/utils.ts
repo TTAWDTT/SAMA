@@ -14,8 +14,12 @@ export function isNearBottom(el: HTMLElement, thresholdPx = 90) {
   return gap < thresholdPx;
 }
 
-export function scrollToBottom(el: HTMLElement) {
-  el.scrollTop = el.scrollHeight;
+export function scrollToBottom(el: HTMLElement, smooth = true) {
+  if (smooth && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  } else {
+    el.scrollTop = el.scrollHeight;
+  }
 }
 
 export function safeString(v: unknown, fallback = "") {

@@ -46,6 +46,13 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
     });
   }, [logs, level, query]);
 
+  const copyLog = async (log: AppLogItem) => {
+    const text = `[${formatTime(log.ts)}] [${log.level.toUpperCase()}]${log.scope ? ` [${log.scope}]` : ""} ${log.message}`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {}
+  };
+
   return (
     <div className="panel">
       <div className="panelHeader">
@@ -53,27 +60,34 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
           <div className="panelTitle">Developer Console</div>
           <div className="panelSub">主进程日志（可过滤/搜索）。</div>
         </div>
+        <div className="panelMeta">{filtered.length} / {logs.length}</div>
       </div>
 
-      <div className="card">
-        <div className="row">
-          <select className="select" value={level} onChange={(e) => setLevel(e.target.value as any)}>
+      <div className="card consoleControls">
+        <div className="consoleControlsRow">
+          <select className="select selectSm" value={level} onChange={(e) => setLevel(e.target.value as any)}>
             <option value="all">all</option>
             <option value="info">info</option>
             <option value="warn">warn</option>
             <option value="error">error</option>
           </select>
 
-          <input className="input" type="text" placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input
+            className="input inputSm"
+            type="text"
+            placeholder="搜索日志…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
 
-          <button className="btn" type="button" onClick={onClear}>
-            clear
+          <button className="btn btnSm" type="button" onClick={onClear}>
+            清空
           </button>
         </div>
 
-        <label className="switchRow" style={{ marginTop: 10 }}>
+        <label className="switchRow">
           <input type="checkbox" checked={tail} onChange={(e) => setTail(Boolean(e.target.checked))} />
-          <span className="switchLabel">live tail</span>
+          <span className="switchLabel">实时跟踪</span>
         </label>
       </div>
 
@@ -82,7 +96,12 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
           <div className="emptyLog">暂无日志。</div>
         ) : (
           filtered.map((l, idx) => (
-            <div key={`${l.ts}_${idx}`} className={`logRow ${l.level}`}>
+            <div
+              key={`${l.ts}_${idx}`}
+              className={`logRow ${l.level} ${idx % 2 === 0 ? "even" : "odd"}`}
+              onClick={() => void copyLog(l)}
+              title="点击复制"
+            >
               <div className="logMeta">
                 <span className="logTime">{formatTime(l.ts)}</span>
                 <span className={`logLevel ${l.level}`}>{l.level}</span>

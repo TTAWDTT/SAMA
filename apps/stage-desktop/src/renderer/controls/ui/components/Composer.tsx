@@ -1,5 +1,24 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
+// Send icon SVG
+function SendIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  );
+}
+
+// Loading spinner
+function LoadingSpinner() {
+  return (
+    <div className="loadingSpinner">
+      <div className="spinnerRing" />
+    </div>
+  );
+}
+
 export function Composer(props: {
   value: string;
   busy: boolean;
@@ -16,7 +35,7 @@ export function Composer(props: {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "0px";
-    el.style.height = `${Math.max(44, Math.min(180, el.scrollHeight))}px`;
+    el.style.height = `${Math.max(52, Math.min(200, el.scrollHeight))}px`;
   }, [value]);
 
   useEffect(() => {
@@ -32,39 +51,47 @@ export function Composer(props: {
   }
 
   return (
-    <div className="composer" aria-label="Composer">
-      <div className="composerInner">
-        <button className="iconBtn attachBtn" type="button" disabled aria-label="Attach (disabled)">
-          +
-        </button>
+    <div className="composerArea">
+      <div className="composerContainer">
+        <div className="composerBox">
+          <textarea
+            ref={inputRef}
+            className="composerTextarea"
+            value={value}
+            placeholder="给 SAMA 发送消息..."
+            spellCheck={false}
+            disabled={Boolean(disabled)}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                (e.target as HTMLTextAreaElement).blur();
+                return;
+              }
+              if (e.key !== "Enter") return;
+              // Shift+Enter or Ctrl+Enter: newline
+              if (e.shiftKey || e.ctrlKey) return;
+              e.preventDefault();
+              void send();
+            }}
+          />
 
-        <textarea
-          ref={inputRef}
-          className="composerInput"
-          value={value}
-          placeholder="Message…"
-          spellCheck={false}
-          disabled={Boolean(disabled)}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              (e.target as HTMLTextAreaElement).blur();
-              return;
-            }
-            if (e.key !== "Enter") return;
-            if (e.shiftKey) return; // Shift+Enter: newline
-            e.preventDefault();
-            void send();
-          }}
-        />
+          <button
+            className={`sendButton ${canSend ? "active" : ""} ${busy ? "loading" : ""}`}
+            type="button"
+            disabled={!canSend}
+            onClick={() => void send()}
+            aria-label="发送"
+          >
+            {busy ? <LoadingSpinner /> : <SendIcon />}
+          </button>
+        </div>
 
-        <button className="btn btnPrimary" type="button" disabled={!canSend} onClick={() => void send()} aria-label="Send">
-          {busy ? "…" : "Send"}
-        </button>
+        <div className="composerFooter">
+          <span className="composerHint">
+            <kbd>Enter</kbd> 发送 · <kbd>Shift + Enter</kbd> 换行
+          </span>
+        </div>
       </div>
-
-      <div className="composerHint">Enter 发送 · Shift+Enter 换行</div>
     </div>
   );
 }
-

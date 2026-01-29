@@ -22,20 +22,25 @@ export const ChatTimeline = forwardRef<
     <div className="timelineWrap">
       <div ref={ref} className="timeline" role="log" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="empty">
+          <div className="emptyState">
+            <div className="emptyIcon">✨</div>
             <div className="emptyTitle">SAMA</div>
-            <div className="emptyDesc">单会话。没有会话列表。直接开始聊。</div>
+            <div className="emptyDesc">
+              开始对话吧。我会记住我们的每一次交流。
+            </div>
           </div>
         ) : (
-          messages.map((m) => (
-            <MessageRow key={m.id} api={api} message={m} onToast={onToast} onRetry={onRetry} />
-          ))
+          <div className="messageList">
+            {messages.map((m) => (
+              <MessageRow key={m.id} api={api} message={m} onToast={onToast} onRetry={onRetry} />
+            ))}
+          </div>
         )}
 
-        {isThinking ? <TypingIndicator /> : null}
+        {isThinking && <TypingIndicator />}
       </div>
 
-      {scrollLock ? <JumpToBottom onClick={onJumpToBottom} /> : null}
+      {scrollLock && <JumpToBottom onClick={onJumpToBottom} />}
     </div>
   );
 });
