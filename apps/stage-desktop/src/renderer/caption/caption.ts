@@ -19,6 +19,8 @@ export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinki
   let bubbleVisible = false;
   let thinkingVisible = false;
 
+  type Placement = "top" | "bottom" | "left" | "right";
+
   function layoutOne(el: HTMLDivElement, vars: { x: string; y: string }) {
     const vw = Math.max(1, window.innerWidth || 1);
     const vh = Math.max(1, window.innerHeight || 1);
@@ -28,21 +30,44 @@ export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinki
     const bh = Math.max(1, rect.height || el.offsetHeight || 1);
 
     const margin = 14;
-    const gap = 12;
+    // Keep bubble/thinking away from the head so we don't cover the avatar.
+    const gap = 16;
 
     const anchorX = clamp(anchor.nx, 0, 1) * vw;
     const anchorY = clamp(anchor.ny, 0, 1) * vh;
 
-    // Default: above; if too close to the top edge, flip to below.
-    let placement: "top" | "bottom" = "top";
-    if (anchorY < bh + margin + gap) placement = "bottom";
-    if (anchorY > vh - bh - margin - gap) placement = "top";
+    const canPlaceRight =
+      anchorX + gap + bw <= vw - margin && anchorY - bh / 2 >= margin && anchorY + bh / 2 <= vh - margin;
+    const canPlaceLeft =
+      anchorX - gap - bw >= margin && anchorY - bh / 2 >= margin && anchorY + bh / 2 <= vh - margin;
+    const canPlaceTop = anchorY - gap - bh >= margin && anchorX - bw / 2 >= margin && anchorX + bw / 2 <= vw - margin;
+    const canPlaceBottom =
+      anchorY + gap + bh <= vh - margin && anchorX - bw / 2 >= margin && anchorX + bw / 2 <= vw - margin;
 
-    const x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
-    const y =
-      placement === "top"
-        ? clamp(anchorY, bh + margin + gap, vh - margin)
-        : clamp(anchorY, margin, vh - bh - margin - gap);
+    // Prefer side placement so the bubble/thinking sits next to the head, not on top of it.
+    let placement: Placement = "right";
+    if (canPlaceRight) placement = "right";
+    else if (canPlaceLeft) placement = "left";
+    else if (canPlaceTop) placement = "top";
+    else if (canPlaceBottom) placement = "bottom";
+    else placement = canPlaceRight ? "right" : canPlaceLeft ? "left" : "top";
+
+    let x = anchorX;
+    let y = anchorY;
+    if (placement === "top") {
+      x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
+      y = clamp(anchorY - gap, margin + bh, vh - margin);
+    } else if (placement === "bottom") {
+      x = clamp(anchorX, margin + bw / 2, vw - margin - bw / 2);
+      y = clamp(anchorY + gap, margin, vh - margin - bh);
+    } else if (placement === "right") {
+      x = clamp(anchorX + gap, margin, vw - margin - bw);
+      y = clamp(anchorY, margin + bh / 2, vh - margin - bh / 2);
+    } else {
+      // left
+      x = clamp(anchorX - gap, margin + bw, vw - margin);
+      y = clamp(anchorY, margin + bh / 2, vh - margin - bh / 2);
+    }
 
     el.dataset.placement = placement;
     el.style.setProperty(vars.x, `${x.toFixed(2)}px`);
@@ -132,4 +157,3 @@ export function createCaptionController(opts: { bubbleEl: HTMLDivElement; thinki
     }
   };
 }
-

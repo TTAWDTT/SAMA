@@ -64,6 +64,12 @@
       #bubble[data-placement="bottom"] {
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(-10px) scale(0.985);
       }
+      #bubble[data-placement="right"] {
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(0, -50%) translateX(10px) scale(0.985);
+      }
+      #bubble[data-placement="left"] {
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-100%, -50%) translateX(-10px) scale(0.985);
+      }
 
       #bubble.show {
         opacity: 1;
@@ -72,6 +78,20 @@
       #bubble[data-placement="bottom"].show {
         opacity: 1;
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(0) scale(1);
+      }
+      #bubble[data-placement="right"].show {
+        opacity: 1;
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(0, -50%) translateX(0) scale(1);
+      }
+      #bubble[data-placement="left"].show {
+        opacity: 1;
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-100%, -50%) translateX(0) scale(1);
+      }
+
+      /* Side bubbles look cleaner without a tail (and avoids covering the head). */
+      #bubble[data-placement="left"]::after,
+      #bubble[data-placement="right"]::after {
+        display: none;
       }
 
       /* Thinking indicator (small animated pill, no arrow) */
@@ -94,6 +114,12 @@
       #thinking[data-placement="bottom"] {
         transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-50%, 0) translateY(-10px) scale(0.985);
       }
+      #thinking[data-placement="right"] {
+        transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(0, -50%) translateX(10px) scale(0.985);
+      }
+      #thinking[data-placement="left"] {
+        transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-100%, -50%) translateX(-10px) scale(0.985);
+      }
       #thinking.show {
         opacity: 1;
         transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-50%, -100%) translateY(0) scale(1);
@@ -101,6 +127,14 @@
       #thinking[data-placement="bottom"].show {
         opacity: 1;
         transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-50%, 0) translateY(0) scale(1);
+      }
+      #thinking[data-placement="right"].show {
+        opacity: 1;
+        transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(0, -50%) translateX(0) scale(1);
+      }
+      #thinking[data-placement="left"].show {
+        opacity: 1;
+        transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-100%, -50%) translateX(0) scale(1);
       }
       .dot {
         width: 6px;

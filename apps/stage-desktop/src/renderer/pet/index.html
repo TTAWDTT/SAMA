@@ -148,6 +148,12 @@
       #inlineBubble[data-placement="bottom"] {
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(-10px) scale(0.985);
       }
+      #inlineBubble[data-placement="right"] {
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(0, -50%) translateX(10px) scale(0.985);
+      }
+      #inlineBubble[data-placement="left"] {
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-100%, -50%) translateX(-10px) scale(0.985);
+      }
       #inlineBubble.show {
         opacity: 1;
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, -100%) translateY(0) scale(1);
@@ -155,6 +161,20 @@
       #inlineBubble[data-placement="bottom"].show {
         opacity: 1;
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, 0) translateY(0) scale(1);
+      }
+      #inlineBubble[data-placement="right"].show {
+        opacity: 1;
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(0, -50%) translateX(0) scale(1);
+      }
+      #inlineBubble[data-placement="left"].show {
+        opacity: 1;
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-100%, -50%) translateX(0) scale(1);
+      }
+
+      /* Side bubbles look cleaner without a tail (and avoids covering the head). */
+      #inlineBubble[data-placement="left"]::after,
+      #inlineBubble[data-placement="right"]::after {
+        display: none;
       }
 
       #dropOverlay {
