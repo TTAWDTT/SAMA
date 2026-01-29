@@ -10,7 +10,7 @@ import type {
   PetWindowStateMessage,
   UserInteraction
 } from "@sama/shared";
-import type { DragDelta } from "./protocol/types";
+import type { DragDelta, LLMConfig } from "./protocol/types";
 
 type Unsubscribe = () => void;
 
@@ -34,7 +34,9 @@ const IPC_HANDLES = {
   vrmGet: "handle:vrm-get",
   vrmPick: "handle:vrm-pick",
   chatInvoke: "handle:chat-invoke",
-  appInfoGet: "handle:app-info-get"
+  appInfoGet: "handle:app-info-get",
+  llmConfigGet: "handle:llm-config-get",
+  llmConfigSet: "handle:llm-config-set"
 } as const;
 
 export type StageDesktopAPI = {
@@ -45,6 +47,13 @@ export type StageDesktopAPI = {
   getVrmBytes: () => Promise<Uint8Array>;
   pickVrmBytes: () => Promise<Uint8Array>;
   getAppInfo: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
+  getLlmConfig: () => Promise<{
+    storagePath: string;
+    stored: LLMConfig | null;
+    effective: LLMConfig | null;
+    provider: string;
+  }>;
+  setLlmConfig: (config: LLMConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
   chatInvoke: (message: string) => Promise<ChatResponse>;
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
@@ -76,6 +85,8 @@ const api: StageDesktopAPI = {
     const raw = await ipcRenderer.invoke(IPC_HANDLES.appInfoGet);
     return { vrmLocked: Boolean(raw?.vrmLocked), llmProvider: String(raw?.llmProvider ?? "") || "unknown" };
   },
+  getLlmConfig: async () => ipcRenderer.invoke(IPC_HANDLES.llmConfigGet),
+  setLlmConfig: async (config: LLMConfig) => ipcRenderer.invoke(IPC_HANDLES.llmConfigSet, config),
   chatInvoke: async (message: string) => {
     const req: ChatRequest = { type: "CHAT_REQUEST", ts: Date.now(), message };
     return ipcRenderer.invoke(IPC_HANDLES.chatInvoke, req);

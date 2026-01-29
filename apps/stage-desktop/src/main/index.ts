@@ -16,7 +16,7 @@ import type {
   PetWindowStateMessage,
   UserInteraction
 } from "@sama/shared";
-import type { AppConfig, DragDelta } from "./protocol/types";
+import type { AppConfig, DragDelta, LLMConfig } from "./protocol/types";
 import { createCaptionWindow } from "./windows/caption.window";
 import { createChatWindow } from "./windows/chat.window";
 import { createControlsWindow } from "./windows/controls.window";
@@ -161,6 +161,74 @@ function writePersistedVrmPath(statePath: string, vrmPath: string | null) {
   }
 }
 
+function isPlainObject(v: unknown): v is Record<string, any> {
+  return !!v && typeof v === "object" && !Array.isArray(v);
+}
+
+function sanitizeLlmConfig(raw: unknown): LLMConfig {
+  const cfg: LLMConfig = {};
+  if (!isPlainObject(raw)) return cfg;
+
+  const provider = typeof raw.provider === "string" ? raw.provider.trim() : "";
+  if (provider) cfg.provider = provider as any;
+
+  const pickProviderBlock = (key: "openai" | "deepseek" | "aistudio") => {
+    const b = (raw as any)[key];
+    if (!isPlainObject(b)) return undefined;
+    const out: any = {};
+    if (typeof b.apiKey === "string") out.apiKey = b.apiKey;
+    if (typeof b.model === "string") out.model = b.model;
+    if (typeof b.baseUrl === "string") out.baseUrl = b.baseUrl;
+    return out;
+  };
+
+  const openai = pickProviderBlock("openai");
+  if (openai) cfg.openai = openai;
+  const deepseek = pickProviderBlock("deepseek");
+  if (deepseek) cfg.deepseek = deepseek;
+  const aistudio = pickProviderBlock("aistudio");
+  if (aistudio) cfg.aistudio = aistudio;
+  return cfg;
+}
+
+function mergeLlmConfig(base: LLMConfig | null | undefined, override: LLMConfig | null | undefined): LLMConfig | null {
+  if (!base && !override) return null;
+  return {
+    provider: (override?.provider ?? base?.provider) as any,
+    openai: { ...(base?.openai ?? {}), ...(override?.openai ?? {}) },
+    deepseek: { ...(base?.deepseek ?? {}), ...(override?.deepseek ?? {}) },
+    aistudio: { ...(base?.aistudio ?? {}), ...(override?.aistudio ?? {}) }
+  };
+}
+
+function readPersistedLlmConfig(statePath: string): LLMConfig | null {
+  try {
+    if (!existsSync(statePath)) return null;
+    const raw = readFileSync(statePath, "utf-8");
+    const parsed: any = JSON.parse(raw);
+    const cfgRaw =
+      isPlainObject(parsed) && isPlainObject(parsed.config)
+        ? parsed.config
+        : isPlainObject(parsed) && isPlainObject(parsed.llm)
+          ? parsed.llm
+          : isPlainObject(parsed)
+            ? parsed
+            : null;
+    if (!cfgRaw) return null;
+    return sanitizeLlmConfig(cfgRaw);
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedLlmConfig(statePath: string, cfg: LLMConfig) {
+  try {
+    writeFileSync(statePath, JSON.stringify({ version: 1, config: cfg }, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[llm] failed to persist llm config:", err);
+  }
+}
+
 async function pickVrmPathForced(parent: BrowserWindow | null, current: string | null) {
   const opts: Electron.OpenDialogOptions = {
     title: "Select a .vrm model",
@@ -218,7 +286,10 @@ async function bootstrap() {
 
   const configPath = resolve(process.cwd(), "config.json");
   const config = readAppConfig(configPath);
-  const llm = new LLMService({ config: config.llm ?? null });
+  const baseLlmConfig = config.llm ?? null;
+  const llmConfigStatePath = join(app.getPath("userData"), "llm-config.json");
+  let persistedLlmConfig = readPersistedLlmConfig(llmConfigStatePath);
+  const llm = new LLMService({ config: mergeLlmConfig(baseLlmConfig, persistedLlmConfig) });
   console.log(`[llm] provider=${llm.providerName}`);
 
   // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
@@ -284,6 +355,29 @@ async function bootstrap() {
   let cachedVrm: { path: string; bytes: Uint8Array } | null = null;
 
   ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked, llmProvider: llm.providerName }));
+
+  ipcMain.handle(IPC_HANDLES.llmConfigGet, async () => {
+    return {
+      storagePath: llmConfigStatePath,
+      stored: persistedLlmConfig,
+      effective: mergeLlmConfig(baseLlmConfig, persistedLlmConfig),
+      provider: llm.providerName
+    };
+  });
+
+  ipcMain.handle(IPC_HANDLES.llmConfigSet, async (_evt, payload: any) => {
+    try {
+      const rawCfg = isPlainObject(payload) && isPlainObject(payload.config) ? payload.config : payload;
+      const cfg = sanitizeLlmConfig(rawCfg);
+      writePersistedLlmConfig(llmConfigStatePath, cfg);
+      persistedLlmConfig = cfg;
+      llm.setConfig(mergeLlmConfig(baseLlmConfig, persistedLlmConfig));
+      return { ok: true, provider: llm.providerName };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, message: msg };
+    }
+  });
 
   ipcMain.handle(IPC_HANDLES.vrmGet, async (_evt) => {
     // IMPORTANT:

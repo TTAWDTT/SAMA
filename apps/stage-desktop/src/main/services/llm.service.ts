@@ -402,6 +402,11 @@ export class LLMService {
     this.#provider = this.#createProvider();
   }
 
+  setConfig(config: LLMConfig | null) {
+    this.#config = config;
+    this.#provider = this.#createProvider();
+  }
+
   #createProvider(): LLMProvider | null {
     const selected =
       normalizeProviderName(process.env.LLM_PROVIDER) ?? normalizeProviderName(this.#config?.provider) ?? "auto";

@@ -16,5 +16,7 @@ export const IPC_HANDLES = {
   vrmGet: "handle:vrm-get",
   vrmPick: "handle:vrm-pick",
   chatInvoke: "handle:chat-invoke",
-  appInfoGet: "handle:app-info-get"
+  appInfoGet: "handle:app-info-get",
+  llmConfigGet: "handle:llm-config-get",
+  llmConfigSet: "handle:llm-config-set"
 } as const;
