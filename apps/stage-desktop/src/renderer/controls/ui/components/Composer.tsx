@@ -3,7 +3,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 // Send icon SVG
 function SendIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="22" y1="2" x2="11" y2="13" />
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
     </svg>
@@ -35,7 +35,7 @@ export function Composer(props: {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "0px";
-    el.style.height = `${Math.max(52, Math.min(200, el.scrollHeight))}px`;
+    el.style.height = `${Math.max(36, Math.min(120, el.scrollHeight))}px`;
   }, [value]);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export function Composer(props: {
             ref={inputRef}
             className="composerTextarea"
             value={value}
-            placeholder="给 SAMA 发送消息..."
+            placeholder="发送消息..."
             spellCheck={false}
             disabled={Boolean(disabled)}
             onChange={(e) => onChange(e.target.value)}
@@ -84,12 +84,6 @@ export function Composer(props: {
           >
             {busy ? <LoadingSpinner /> : <SendIcon />}
           </button>
-        </div>
-
-        <div className="composerFooter">
-          <span className="composerHint">
-            <kbd>Enter</kbd> 发送 · <kbd>Shift + Enter</kbd> 换行
-          </span>
         </div>
       </div>
     </div>

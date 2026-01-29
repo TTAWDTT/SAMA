@@ -3,6 +3,7 @@ import type { StageDesktopApi } from "../api";
 import { JumpToBottom } from "./JumpToBottom";
 import { MessageRow, type UiMessage } from "./MessageRow";
 import { TypingIndicator } from "./TypingIndicator";
+import samaAvatar from "../assets/sama-avatar.png";
 
 export const ChatTimeline = forwardRef<
   HTMLDivElement,
@@ -23,10 +24,12 @@ export const ChatTimeline = forwardRef<
       <div ref={ref} className="timeline" role="log" aria-live="polite">
         {messages.length === 0 ? (
           <div className="emptyState">
-            <div className="emptyIcon">✨</div>
+            <div className="emptyIcon">
+              <img src={samaAvatar} alt="SAMA" />
+            </div>
             <div className="emptyTitle">SAMA</div>
             <div className="emptyDesc">
-              开始对话吧。我会记住我们的每一次交流。
+              开始对话吧，我会记住我们的每一次交流。
             </div>
           </div>
         ) : (

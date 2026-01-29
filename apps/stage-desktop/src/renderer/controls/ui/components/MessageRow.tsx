@@ -4,6 +4,7 @@ import type { StageDesktopApi } from "../api";
 import { formatTime } from "../lib/utils";
 import { stripMarkdown } from "../lib/stripMarkdown";
 import { Markdown } from "./Markdown";
+import samaAvatar from "../assets/sama-avatar.png";
 
 export type UiMessage = ChatLogEntry & {
   status?: "sent" | "error";
@@ -32,7 +33,7 @@ async function writeClipboard(api: StageDesktopApi | null, text: string) {
 // Copy icon SVG
 function CopyIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
@@ -42,7 +43,7 @@ function CopyIcon() {
 // Check icon SVG
 function CheckIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12" />
     </svg>
   );
@@ -51,7 +52,7 @@ function CheckIcon() {
 // Retry icon SVG
 function RetryIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 2v6h-6" />
       <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
       <path d="M3 22v-6h6" />
@@ -93,28 +94,20 @@ export function MessageRow(props: {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Avatar */}
-      <div className="chatAvatar">
-        <div className={`avatarCircle ${message.role}`}>
-          {isUser ? (
-            <span className="avatarEmoji">👤</span>
-          ) : (
-            <span className="avatarEmoji">✨</span>
-          )}
+      {/* Avatar - only show for assistant (SAMA) */}
+      {isAssistant && (
+        <div className="chatAvatar">
+          <img src={samaAvatar} alt="SAMA" className="avatarImg" />
         </div>
-      </div>
+      )}
 
-      {/* Message content */}
-      <div className="chatContent">
-        {/* Header with name and time */}
-        <div className="chatHeader">
-          <span className="chatName">{isUser ? "你" : "SAMA"}</span>
-          <span className="chatTime">{formatTime(message.ts)}</span>
-          {isError && <span className="chatErrorBadge">失败</span>}
-        </div>
+      {/* Message bubble */}
+      <div className="chatBubble">
+        {/* Time - show above bubble */}
+        <div className="chatTime">{formatTime(message.ts)}</div>
 
-        {/* Message body */}
-        <div className={`chatBody ${isAssistant ? "markdown" : ""}`}>
+        {/* Bubble content */}
+        <div className={`bubbleContent ${isAssistant ? "markdown" : ""}`}>
           {isAssistant ? (
             <Markdown api={api} content={message.content} onToast={onToast} />
           ) : (
@@ -122,9 +115,14 @@ export function MessageRow(props: {
           )}
         </div>
 
-        {/* Error message */}
-        {isError && message.errorMessage && (
-          <div className="chatErrorMsg">{message.errorMessage}</div>
+        {/* Error badge and message */}
+        {isError && (
+          <div className="chatErrorWrap">
+            <span className="chatErrorBadge">发送失败</span>
+            {message.errorMessage && (
+              <span className="chatErrorMsg">{message.errorMessage}</span>
+            )}
+          </div>
         )}
 
         {/* Action buttons - show on hover */}
@@ -151,7 +149,7 @@ export function MessageRow(props: {
             </button>
           )}
 
-          {isAssistant && isError && message.retryText && onRetry && (
+          {isError && message.retryText && onRetry && (
             <button
               className="chatActionBtn retry"
               type="button"
