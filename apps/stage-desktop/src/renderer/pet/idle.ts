@@ -91,6 +91,11 @@ export function createIdleController(vrm: VRM, initial?: Partial<IdleConfig>): I
     restP.set(bone, bone.position.clone());
   }
 
+  const ARM_SHOULDER_Z = 0.14;
+  const ARM_UPPER_Z = 1.12;
+  const ARM_LOWER_Z = 0.05;
+  const ARM_FORWARD_X = 0.08;
+
   const tmpQ1 = new THREE.Quaternion();
   const tmpQ2 = new THREE.Quaternion();
   const tmpEuler = new THREE.Euler();
@@ -135,6 +140,88 @@ export function createIdleController(vrm: VRM, initial?: Partial<IdleConfig>): I
     tmpV1.lerp(tmpV2, clamp01(weight));
     bone.position.lerp(tmpV1, dampAlpha(dt, smoothLambda));
   }
+
+  function decideArmZSign(opts: {
+    label: string;
+    shoulder?: THREE.Object3D;
+    upper?: THREE.Object3D;
+    lower?: THREE.Object3D;
+    defaultSign: 1 | -1;
+  }): 1 | -1 {
+    const upper = opts.upper;
+    const lower = opts.lower;
+    if (!upper || !lower) return opts.defaultSign;
+
+    const upperRestQ = restQ.get(upper);
+    const lowerRestQ = restQ.get(lower);
+    if (!upperRestQ || !lowerRestQ) return opts.defaultSign;
+
+    const shoulder = opts.shoulder;
+    const shoulderRestQ = shoulder ? restQ.get(shoulder) : null;
+
+    const getDeltaY = () => {
+      // `lower.position` is local; world changes based on upper rotation.
+      vrm.scene.updateMatrixWorld(true);
+      const pu = new THREE.Vector3();
+      const pl = new THREE.Vector3();
+      upper.getWorldPosition(pu);
+      lower.getWorldPosition(pl);
+      return pl.y - pu.y;
+    };
+
+    const saved = new Map<THREE.Object3D, THREE.Quaternion>();
+    const save = (b: THREE.Object3D | undefined) => {
+      if (!b) return;
+      saved.set(b, b.quaternion.clone());
+    };
+    const restore = () => {
+      for (const [b, q] of saved) b.quaternion.copy(q);
+      vrm.scene.updateMatrixWorld(true);
+    };
+
+    save(shoulder);
+    save(upper);
+    save(lower);
+
+    const test = (sign: 1 | -1) => {
+      if (shoulder && shoulderRestQ) {
+        tmpEuler.set(0, 0, sign * ARM_SHOULDER_Z);
+        shoulder.quaternion.copy(shoulderRestQ).multiply(tmpQ2.setFromEuler(tmpEuler));
+      }
+
+      tmpEuler.set(ARM_FORWARD_X, 0, sign * ARM_UPPER_Z);
+      upper.quaternion.copy(upperRestQ).multiply(tmpQ2.setFromEuler(tmpEuler));
+
+      // Keep lower at rest for measurement.
+      lower.quaternion.copy(lowerRestQ);
+      return getDeltaY();
+    };
+
+    const dyPos = test(1);
+    const dyNeg = test(-1);
+    restore();
+
+    if (!Number.isFinite(dyPos) || !Number.isFinite(dyNeg)) return opts.defaultSign;
+    // We want the elbow to sit lower than the shoulder joint: deltaY should be more negative.
+    return dyPos <= dyNeg ? 1 : -1;
+  }
+
+  // Auto-detect which Z-rotation direction actually moves the arms downward for this model.
+  // Different rigs can have mirrored local axes; this keeps the "armsDown" pose fix stable.
+  const leftArmZSign = decideArmZSign({
+    label: "left",
+    shoulder: bones.leftShoulder,
+    upper: bones.leftUpperArm,
+    lower: bones.leftLowerArm,
+    defaultSign: -1
+  });
+  const rightArmZSign = decideArmZSign({
+    label: "right",
+    shoulder: bones.rightShoulder,
+    upper: bones.rightUpperArm,
+    lower: bones.rightLowerArm,
+    defaultSign: 1
+  });
 
   return {
     apply: (dt, t, opts) => {
@@ -185,22 +272,22 @@ export function createIdleController(vrm: VRM, initial?: Partial<IdleConfig>): I
       const poseW = strength * armsDown;
       if (poseW > 0) {
         // shoulders a bit down/in
-        tmpEuler.set(0, 0, -0.14);
+        tmpEuler.set(0, 0, leftArmZSign * ARM_SHOULDER_Z);
         applyLocalRotation(bones.leftShoulder, tmpEuler, poseW, dt, 18);
-        tmpEuler.set(0, 0, 0.14);
+        tmpEuler.set(0, 0, rightArmZSign * ARM_SHOULDER_Z);
         applyLocalRotation(bones.rightShoulder, tmpEuler, poseW, dt, 18);
 
         // Upper arms: rotate down (Z) and slightly forward (X)
-        tmpEuler.set(0.08, 0, -1.12);
+        tmpEuler.set(ARM_FORWARD_X, 0, leftArmZSign * ARM_UPPER_Z);
         applyLocalRotation(bones.leftUpperArm, tmpEuler, poseW, dt, 18);
-        tmpEuler.set(0.08, 0, 1.12);
+        tmpEuler.set(ARM_FORWARD_X, 0, rightArmZSign * ARM_UPPER_Z);
         applyLocalRotation(bones.rightUpperArm, tmpEuler, poseW, dt, 18);
 
         // Lower arms: small elbow bend
         const bend = poseW * elbowBend;
-        tmpEuler.set(-0.32, 0, -0.05);
+        tmpEuler.set(-0.32, 0, leftArmZSign * ARM_LOWER_Z);
         applyLocalRotation(bones.leftLowerArm, tmpEuler, bend, dt, 18);
-        tmpEuler.set(-0.32, 0, 0.05);
+        tmpEuler.set(-0.32, 0, rightArmZSign * ARM_LOWER_Z);
         applyLocalRotation(bones.rightLowerArm, tmpEuler, bend, dt, 18);
       }
     },
