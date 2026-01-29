@@ -39,7 +39,12 @@ const IPC_HANDLES = {
   chatLogGet: "handle:chat-log-get",
   appInfoGet: "handle:app-info-get",
   llmConfigGet: "handle:llm-config-get",
-  llmConfigSet: "handle:llm-config-set"
+  llmConfigSet: "handle:llm-config-set",
+  memoryStatsGet: "handle:memory-stats-get",
+  memoryNotesList: "handle:memory-notes-list",
+  memoryNoteAdd: "handle:memory-note-add",
+  memoryClearChat: "handle:memory-clear-chat",
+  memoryClearNotes: "handle:memory-clear-notes"
 } as const;
 
 export type StageDesktopAPI = {
@@ -59,6 +64,13 @@ export type StageDesktopAPI = {
     provider: string;
   }>;
   setLlmConfig: (config: LLMConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
+  getMemoryStats: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number }>;
+  listMemoryNotes: (
+    limit: number
+  ) => Promise<{ enabled: boolean; notes: { kind: string; content: string; updatedTs: number }[] }>;
+  addMemoryNote: (content: string) => Promise<{ ok: boolean }>;
+  clearChatHistory: () => Promise<{ ok: boolean }>;
+  clearMemoryNotes: () => Promise<{ ok: boolean }>;
   chatInvoke: (message: string) => Promise<ChatResponse>;
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
@@ -98,6 +110,11 @@ const api: StageDesktopAPI = {
   },
   getLlmConfig: async () => ipcRenderer.invoke(IPC_HANDLES.llmConfigGet),
   setLlmConfig: async (config: LLMConfig) => ipcRenderer.invoke(IPC_HANDLES.llmConfigSet, config),
+  getMemoryStats: async () => ipcRenderer.invoke(IPC_HANDLES.memoryStatsGet),
+  listMemoryNotes: async (limit: number) => ipcRenderer.invoke(IPC_HANDLES.memoryNotesList, limit),
+  addMemoryNote: async (content: string) => ipcRenderer.invoke(IPC_HANDLES.memoryNoteAdd, { content }),
+  clearChatHistory: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearChat),
+  clearMemoryNotes: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearNotes),
   chatInvoke: async (message: string) => {
     const req: ChatRequest = { type: "CHAT_REQUEST", ts: Date.now(), message };
     return ipcRenderer.invoke(IPC_HANDLES.chatInvoke, req);

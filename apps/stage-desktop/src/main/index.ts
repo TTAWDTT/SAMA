@@ -780,6 +780,53 @@ async function bootstrap() {
     homePosition = { x: nx, y: ny };
   });
 
+  const broadcastChatLogSync = () => {
+    const msg: ChatLogMessage = { type: "CHAT_LOG_SYNC", ts: Date.now(), entries: chatLog };
+    try {
+      controlsWindow?.webContents.send(IPC_CHANNELS.chatLog, msg);
+    } catch {}
+    try {
+      chatWindow?.webContents.send(IPC_CHANNELS.chatLog, msg);
+    } catch {}
+  };
+
+  // Long-term memory (SQLite) IPC ------------------------------------------------
+  ipcMain.handle(IPC_HANDLES.memoryStatsGet, async () => memory.getMemoryStats());
+
+  ipcMain.handle(IPC_HANDLES.memoryNotesList, async (_evt, limitRaw: any) => {
+    const limit = Math.max(1, Math.min(50, Math.floor(Number(limitRaw) || 0))) || 14;
+    return { enabled: memory.enabled, notes: memory.listMemoryNotes(limit) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryNoteAdd, async (_evt, payload: any) => {
+    const content = isPlainObject(payload) ? payload.content : payload;
+    const ok = memory.upsertMemoryNote({ kind: "note", content: String(content ?? ""), ts: Date.now() });
+    return { ok: Boolean(ok) };
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryClearChat, async () => {
+    if (!memory.enabled) return { ok: false };
+    try {
+      memory.clearChatHistory();
+      chatLog = [];
+      core.clearChatHistory();
+      broadcastChatLogSync();
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
+  ipcMain.handle(IPC_HANDLES.memoryClearNotes, async () => {
+    if (!memory.enabled) return { ok: false };
+    try {
+      memory.clearMemoryNotes();
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  });
+
   ipcMain.handle(IPC_HANDLES.chatInvoke, async (evt, payload: ChatRequest) => {
     const parsed = ChatRequestSchema.safeParse(payload);
     if (!parsed.success) return { type: "CHAT_RESPONSE", ts: Date.now(), message: "消息格式不对…" };

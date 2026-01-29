@@ -8,8 +8,10 @@ export type MemoryServiceOpts = {
 
 type DailyStats = { date: string; proactive_count: number; ignore_count: number };
 type ChatRow = { id: number; ts: number; role: "user" | "assistant"; content: string };
+type MemoryNoteRow = { id: number; created_ts: number; updated_ts: number; kind: string; content: string };
 
 const CHAT_RETENTION_LIMIT = 2000;
+const NOTE_RETENTION_LIMIT = 400;
 
 export class MemoryService {
   #dbPath: string;
@@ -74,6 +76,17 @@ export class MemoryService {
         content TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_chat_messages_ts ON chat_messages(ts);
+
+      -- Durable memory notes (user profile/preferences/long-term facts).
+      CREATE TABLE IF NOT EXISTS memory_notes(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_ts INTEGER NOT NULL,
+        updated_ts INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        content TEXT NOT NULL,
+        UNIQUE(kind, content)
+      );
+      CREATE INDEX IF NOT EXISTS idx_memory_notes_updated ON memory_notes(updated_ts);
     `);
   }
 
@@ -140,6 +153,93 @@ export class MemoryService {
       role: r.role === "assistant" ? "assistant" : "user",
       content: String(r.content ?? "")
     }));
+  }
+
+  upsertMemoryNote(note: { kind: string; content: string; ts?: number }) {
+    if (!this.#db) return false;
+    const kind = String(note.kind ?? "").trim() || "note";
+    const content = String(note.content ?? "").trim();
+    if (!content) return false;
+
+    const now = Math.max(1, Math.floor(Number(note.ts ?? Date.now())));
+    try {
+      // If exists, only bump updated_ts.
+      const exists = this.#db
+        .prepare("SELECT id FROM memory_notes WHERE kind=? AND content=?")
+        .get(kind, content) as { id: number } | undefined;
+
+      if (exists?.id) {
+        this.#db.prepare("UPDATE memory_notes SET updated_ts=? WHERE id=?").run(now, exists.id);
+      } else {
+        this.#db
+          .prepare("INSERT INTO memory_notes(created_ts, updated_ts, kind, content) VALUES(?,?,?,?)")
+          .run(now, now, kind, content);
+      }
+
+      // Bound table size.
+      const last = this.#db.prepare("SELECT MAX(id) AS id FROM memory_notes").get() as { id?: number } | undefined;
+      const lastId = Number(last?.id ?? 0);
+      if (Number.isFinite(lastId) && lastId > NOTE_RETENTION_LIMIT + 10) {
+        const cutoff = lastId - NOTE_RETENTION_LIMIT;
+        try {
+          this.#db.prepare("DELETE FROM memory_notes WHERE id <= ?").run(cutoff);
+        } catch {}
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  listMemoryNotes(limit: number): { kind: string; content: string; updatedTs: number }[] {
+    if (!this.#db) return [];
+    const n = Math.max(0, Math.min(200, Math.floor(Number(limit) || 0)));
+    if (!n) return [];
+    const stmt = this.#db.prepare(
+      "SELECT id, created_ts, updated_ts, kind, content FROM memory_notes ORDER BY updated_ts DESC, id DESC LIMIT ?"
+    );
+    const rows = (stmt.all(n) as MemoryNoteRow[]) ?? [];
+    return rows.map((r) => ({
+      kind: String(r.kind ?? "note"),
+      content: String(r.content ?? ""),
+      updatedTs: Number(r.updated_ts ?? 0)
+    }));
+  }
+
+  getMemoryPrompt(limit: number): string {
+    const notes = this.listMemoryNotes(limit);
+    if (!notes.length) return "";
+    const lines: string[] = [];
+    for (const n of notes) {
+      const kind = n.kind && n.kind !== "note" ? `(${n.kind}) ` : "";
+      lines.push(`- ${kind}${n.content}`);
+    }
+    return lines.join("\n");
+  }
+
+  getMemoryStats(): { enabled: boolean; chatCount: number; noteCount: number } {
+    if (!this.#db) return { enabled: false, chatCount: 0, noteCount: 0 };
+    try {
+      const chat = this.#db.prepare("SELECT COUNT(1) AS n FROM chat_messages").get() as { n?: number } | undefined;
+      const notes = this.#db.prepare("SELECT COUNT(1) AS n FROM memory_notes").get() as { n?: number } | undefined;
+      return { enabled: true, chatCount: Number(chat?.n ?? 0) || 0, noteCount: Number(notes?.n ?? 0) || 0 };
+    } catch {
+      return { enabled: true, chatCount: 0, noteCount: 0 };
+    }
+  }
+
+  clearChatHistory() {
+    if (!this.#db) return;
+    try {
+      this.#db.prepare("DELETE FROM chat_messages").run();
+    } catch {}
+  }
+
+  clearMemoryNotes() {
+    if (!this.#db) return;
+    try {
+      this.#db.prepare("DELETE FROM memory_notes").run();
+    } catch {}
   }
 
   getOrInitDaily(date: string): DailyStats {

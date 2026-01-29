@@ -20,5 +20,12 @@ export const IPC_HANDLES = {
   chatLogGet: "handle:chat-log-get",
   appInfoGet: "handle:app-info-get",
   llmConfigGet: "handle:llm-config-get",
-  llmConfigSet: "handle:llm-config-set"
+  llmConfigSet: "handle:llm-config-set",
+
+  // Long-term memory (SQLite). These are optional at runtime (SQLite may be disabled).
+  memoryStatsGet: "handle:memory-stats-get",
+  memoryNotesList: "handle:memory-notes-list",
+  memoryNoteAdd: "handle:memory-note-add",
+  memoryClearChat: "handle:memory-clear-chat",
+  memoryClearNotes: "handle:memory-clear-notes"
 } as const;

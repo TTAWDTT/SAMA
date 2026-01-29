@@ -45,6 +45,21 @@ function pickChatExpression(isNight: boolean, mood: number): ActionCommand["expr
   return "SHY";
 }
 
+function parseRememberNote(raw: string): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  // Explicit, low-ambiguity commands only.
+  // Examples:
+  // - 记住: 我叫小明
+  // - 记一下：我喜欢简洁回答
+  // - /remember I prefer short replies
+  const m = s.match(/^(?:\/remember|\/mem|记住|记一下|记下来)(?:\s*[:：]|\s+)(.+)$/i);
+  if (!m) return null;
+  const content = String(m[1] ?? "").trim();
+  return content ? content : null;
+}
+
 export class CoreService {
   #llm: LLMService;
   #memory: MemoryService;
@@ -94,6 +109,10 @@ export class CoreService {
 
   get isNight() {
     return this.#lastSensor?.isNight ?? false;
+  }
+
+  clearChatHistory() {
+    this.#chatHistory = [];
   }
 
   #recomputeState(u: SensorUpdate): CompanionState {
@@ -311,26 +330,62 @@ export class CoreService {
       this.#memory.logChatMessage({ ts: req.ts, role: "user", content: req.message });
     } catch {}
 
+    // Long-term memory (manual): let users explicitly store durable notes.
+    const remember = parseRememberNote(req.message);
+    if (remember) {
+      const ok = this.#memory.upsertMemoryNote({ kind: "note", content: remember, ts: req.ts });
+      const reply = ok
+        ? `好，我记住了：${remember}`
+        : "我现在无法写入长期记忆（本地 SQLite 不可用）。";
+      const replyTs = Date.now();
+
+      this.#chatHistory.push({ role: "user", content: req.message });
+      this.#chatHistory.push({ role: "assistant", content: reply });
+      this.#chatHistory = this.#chatHistory.slice(-40);
+
+      try {
+        this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: reply });
+      } catch {}
+
+      const bubble = truncateByCodepoints(normalizeBubbleText(reply), 180);
+      const cmd: ActionCommand = {
+        type: "ACTION_COMMAND",
+        ts: replyTs,
+        action: "IDLE",
+        expression: pickChatExpression(this.isNight, this.#mood),
+        bubbleKind: "text",
+        bubble,
+        durationMs: bubbleDurationForText(bubble)
+      };
+      this.#memory.logAction(cmd);
+      this.#onAction(cmd, { proactive: false });
+
+      return { type: "CHAT_RESPONSE", ts: replyTs, message: reply };
+    }
+
     const ctx = {
       state: this.#state,
       isNight: this.#lastSensor?.isNight ?? false,
       mood: this.#mood,
-      history: this.#chatHistory
+      history: this.#chatHistory,
+      memory: this.#memory.getMemoryPrompt(12)
     };
 
     // UX: show an immediate "thinking" indicator near the avatar so users get feedback
     // even if the LLM takes time. The reply bubble will replace it automatically.
-    const thinking: ActionCommand = {
-      type: "ACTION_COMMAND",
-      ts: Date.now(),
-      action: "IDLE",
-      expression: ctx.isNight ? "TIRED" : "NEUTRAL",
-      bubbleKind: "thinking",
-      bubble: null,
-      durationMs: 25_000
-    };
-    this.#memory.logAction(thinking);
-    this.#onAction(thinking, { proactive: false });
+    if (this.#llm.enabled) {
+      const thinking: ActionCommand = {
+        type: "ACTION_COMMAND",
+        ts: Date.now(),
+        action: "IDLE",
+        expression: ctx.isNight ? "TIRED" : "NEUTRAL",
+        bubbleKind: "thinking",
+        bubble: null,
+        durationMs: 25_000
+      };
+      this.#memory.logAction(thinking);
+      this.#onAction(thinking, { proactive: false });
+    }
 
     const reply = await this.#llm.chatReply(ctx, req.message);
     const replyTs = Date.now();

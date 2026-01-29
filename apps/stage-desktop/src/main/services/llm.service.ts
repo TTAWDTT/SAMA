@@ -1,4 +1,5 @@
 import type { LLMConfig, LLMProviderName } from "../protocol/types";
+import { buildBubbleSystemPrompt, buildChatSystemPrompt } from "../agent/prompts";
 
 export interface LLMProvider {
   name: string;
@@ -8,6 +9,8 @@ export interface LLMProvider {
       state: string;
       isNight: boolean;
       mood: number;
+      /** Durable memory (short, human-readable). */
+      memory?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
@@ -248,13 +251,13 @@ class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async generateBubble(ctx: { state: string; isNight: boolean; mood: number }) {
+    const system = buildBubbleSystemPrompt();
     const raw = await openAICompatibleChat(
       this.#opts,
       [
         {
           role: "system",
-          content:
-            "你是桌面陪伴助手，只输出一行中文短句。语气温和、带点不确定，不要自称理解一切。不要贴标签。不要只输出“我听到了/收到/嗯…”这类纯确认句。"
+          content: system
         },
         {
           role: "user",
@@ -270,16 +273,16 @@ class OpenAICompatibleProvider implements LLMProvider {
   }
 
   async chatReply(
-    ctx: { state: string; isNight: boolean; mood: number; history: any[] },
+    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
     userMsg: string
   ) {
+    const system = buildChatSystemPrompt({ memory: ctx?.memory });
     const raw = await openAICompatibleChat(
       this.#opts,
       [
         {
           role: "system",
-          content:
-            "你是温和的桌面陪伴助手。不要声称你完全理解用户。回答简洁自然，中文为主。必须对用户消息做出具体回应，避免只回复“我听到了/收到”。"
+          content: system
         },
         ...(ctx.history ?? []).slice(-20),
         { role: "user", content: userMsg }
@@ -321,8 +324,7 @@ class AIStudioProvider implements LLMProvider {
   }
 
   async generateBubble(ctx: { state: string; isNight: boolean; mood: number }) {
-    const system =
-      "你是桌面陪伴助手，只输出一行中文短句。语气温和、带点不确定，不要自称理解一切。不要贴标签。不要只输出“我听到了/收到/嗯…”这类纯确认句。";
+    const system = buildBubbleSystemPrompt();
     const prompt = `状态=${ctx.state}, 夜间=${ctx.isNight ? "是" : "否"}, 情绪=${ctx.mood.toFixed(
       2
     )}。请给一句<=20个汉字的气泡内容。`;
@@ -350,11 +352,10 @@ class AIStudioProvider implements LLMProvider {
   }
 
   async chatReply(
-    ctx: { state: string; isNight: boolean; mood: number; history: any[] },
+    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
     userMsg: string
   ) {
-    const system =
-      "你是温和的桌面陪伴助手。不要声称你完全理解用户。回答简洁自然，中文为主。必须对用户消息做出具体回应，避免只回复“我听到了/收到”。";
+    const system = buildChatSystemPrompt({ memory: ctx?.memory });
 
     if (this.#baseUrl) {
       const raw = await openAICompatibleChat(
@@ -470,6 +471,10 @@ export class LLMService {
     return this.#provider?.name ?? "fallback";
   }
 
+  get enabled() {
+    return Boolean(this.#provider);
+  }
+
   async generateBubble(ctx: { state: string; isNight: boolean; mood: number }) {
     const fallback = () => truncateByCodepoints(ruleBasedBubble(ctx), 20);
     if (!this.#provider) return fallback();
@@ -484,7 +489,7 @@ export class LLMService {
   }
 
   async chatReply(
-    ctx: { state: string; isNight: boolean; mood: number; history: any[] },
+    ctx: { state: string; isNight: boolean; mood: number; memory?: string; history: any[] },
     userMsg: string
   ) {
     const lastAssistant = Array.isArray(ctx?.history)
