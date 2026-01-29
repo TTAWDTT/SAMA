@@ -594,28 +594,75 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     fixationTarget.y = eyeBaseY;
     lookTargetObj.position.y = eyeBaseY;
 
-    // Frame the model in camera (slightly below center so the character feels "grounded").
-    // NOTE: camera distance below must consider this target offset, otherwise the feet/top can clip.
-    viewTarget.set(0, scaledHeight * 0.56, 0);
-
+    // Frame the avatar so it feels "grounded":
+    // - put the feet/ground line near the bottom of the viewport
+    // - keep the top (head/hair) comfortably inside the top margin
+    //
+    // This gives a nicer default presentation than symmetric "fit bbox" framing,
+    // and matches the UX expectation that the avatar stands on the bottom edge.
     const vFovRad = THREE.MathUtils.degToRad(camera.fov);
-    const hFovRad = 2 * Math.atan(Math.tan(vFovRad / 2) * camera.aspect);
-    const scaledWidth = Math.max(0.2, (size.x * scale) || 0.2);
+    const vTan = Math.max(0.0001, Math.tan(vFovRad / 2));
+    const hFovRad = 2 * Math.atan(vTan * camera.aspect);
+    const hTan = Math.max(0.0001, Math.tan(hFovRad / 2));
 
-    // Use bbox extents RELATIVE TO viewTarget, not just half-size,
-    // otherwise asymmetric framing (target != center) can clip.
+    // Visible bounds after our grounding translation (and applying the user's virtual scale).
     const minX = (box.min.x + dx) * scale;
     const maxX = (box.max.x + dx) * scale;
     const minY = (box.min.y + dy) * scale;
     const maxY = (box.max.y + dy) * scale;
 
-    const halfW = Math.max(0.1, Math.max(Math.abs(minX - viewTarget.x), Math.abs(maxX - viewTarget.x)));
-    const halfH = Math.max(0.1, Math.max(Math.abs(minY - viewTarget.y), Math.abs(maxY - viewTarget.y)));
+    // Composition margins expressed as a fraction of NDC (-1..1). Small values = tighter framing.
+    const BOTTOM_MARGIN = 0.02;
+    const TOP_MARGIN = 0.06;
+    const SIDE_MARGIN = 0.07;
+    const b = THREE.MathUtils.clamp(1 - BOTTOM_MARGIN, 0.5, 0.995);
+    const t = THREE.MathUtils.clamp(1 - TOP_MARGIN, 0.5, 0.995);
+    const side = THREE.MathUtils.clamp(1 - SIDE_MARGIN, 0.5, 0.995);
 
-    const distH = halfH / Math.max(0.001, Math.tan(vFovRad / 2));
-    const distW = halfW / Math.max(0.001, Math.tan(hFovRad / 2));
-    viewBaseDistance = Math.max(1.0, Math.max(distH, distW) * 1.12);
-    applyView();
+    // We treat y=0 as the "ground plane" after grounding. If the bbox has outliers below the feet,
+    // they are expected to clip below the viewport rather than creating empty space under the soles.
+    const topY = Math.max(0.05, Number.isFinite(maxY) ? maxY : 0.05);
+
+    const pitch = THREE.MathUtils.clamp(Number(orbitPitch) || 0, -1.05, 1.05);
+    const sinPitch = Math.sin(pitch);
+    const cosPitch = Math.cos(pitch);
+
+    // Analytic vertical solve for a lookAt-orbit camera:
+    // Choose radius r so that:
+    // - ground (y=0) is at NDC y = -(1 - BOTTOM_MARGIN)
+    // - top (y=topY) is at NDC y = +(1 - TOP_MARGIN)
+    //
+    // Then compute viewTarget.y that satisfies the bottom condition for that r.
+    let distV = 0;
+    const A = cosPitch - b * vTan * sinPitch;
+    const B = cosPitch + t * vTan * sinPitch;
+    if (topY > 0.05 && A > 0.001 && B > 0.001) {
+      const denom = vTan * (b / A + t / B);
+      if (denom > 0.001) distV = topY / denom;
+    }
+
+    // Horizontal fit (keep the model comfortably inside the sides).
+    const halfW = Math.max(0.1, Math.max(Math.abs(minX), Math.abs(maxX)));
+    const distW = halfW / (hTan * side);
+
+    const canUseVerticalSolve = distV > 0.001 && A > 0.001 && B > 0.001;
+
+    let radius = Math.max(1.0, distW);
+    if (canUseVerticalSolve) {
+      radius = Math.max(radius, distV);
+      const targetY = (b * vTan * radius) / A;
+      viewTarget.set(0, Math.max(0.1, targetY), 0);
+      viewBaseDistance = radius;
+      applyView();
+    } else {
+      // Fallback: old symmetric bbox fit around a "grounded" target.
+      // This keeps things usable even if the analytic solve becomes numerically unstable.
+      viewTarget.set(0, scaledHeight * 0.56, 0);
+      const halfH = Math.max(0.1, Math.max(Math.abs(minY - viewTarget.y), Math.abs(maxY - viewTarget.y)));
+      const distH = halfH / vTan;
+      viewBaseDistance = Math.max(1.0, Math.max(distH, distW) * 1.12);
+      applyView();
+    }
 
     baseModelPos.copy(vrm.scene.position);
     baseModelQuat.copy(vrm.scene.quaternion);
