@@ -11,6 +11,7 @@ type StageDesktopApi = {
   getAppInfo?: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
   onChatLog?: (cb: (msg: ChatLogMessage) => void) => () => void;
   chatInvoke?: (message: string) => Promise<any>;
+  sendUserInteraction?: (i: any) => void;
   getLlmConfig?: () => Promise<{ stored: LlmConfig | null; effective: LlmConfig | null; provider: string }>;
   setLlmConfig?: (cfg: LlmConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
 };
@@ -376,6 +377,14 @@ function boot() {
   void refreshLlmBadge();
 
   const api = getApi();
+  try {
+    api?.sendUserInteraction?.({ type: "USER_INTERACTION", ts: Date.now(), event: "OPEN_CHAT" });
+  } catch {}
+  window.addEventListener("beforeunload", () => {
+    try {
+      getApi()?.sendUserInteraction?.({ type: "USER_INTERACTION", ts: Date.now(), event: "CLOSE_CHAT" });
+    } catch {}
+  });
   if (api && typeof api.onChatLog === "function") {
     api.onChatLog((msg: ChatLogMessage) => {
       if (!msg || typeof msg !== "object") return;
