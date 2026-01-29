@@ -627,7 +627,15 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   const computeMovementState = (now: number) => {
     const actionMoving = now < actionMoveUntil;
     const dragMoving = dragging && now - lastDragAt < 140;
-    return { moving: actionMoving || dragMoving, actionMoving, dragMoving };
+
+    // UX choice: manual window dragging is primarily for repositioning the pet,
+    // not for "showing off" a walk cycle. Some VRMA idle/walk clips contain
+    // vertical translation that looks like the avatar is floating while the user drags.
+    // We therefore treat drag-moving as "not moving" for animation selection.
+    //
+    // NOTE: Approach/retreat is still treated as movement and can trigger WALK.
+    const movingForAnim = actionMoving;
+    return { moving: movingForAnim, actionMoving, dragMoving };
   };
 
   function tick() {
