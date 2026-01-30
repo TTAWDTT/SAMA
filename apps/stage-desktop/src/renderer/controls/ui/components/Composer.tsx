@@ -63,7 +63,8 @@ export function Composer(props: {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "0px";
-    el.style.height = `${Math.max(36, Math.min(120, el.scrollHeight))}px`;
+    // Single line height is 32px (matches icon button height), max is 120px for multi-line
+    el.style.height = `${Math.max(32, Math.min(120, el.scrollHeight))}px`;
   }, [value]);
 
   useEffect(() => {

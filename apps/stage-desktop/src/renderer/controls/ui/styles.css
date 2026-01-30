@@ -796,7 +796,7 @@ html, body {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -809,17 +809,25 @@ html, body {
 
 .composerTextarea {
   flex: 1;
-  min-height: 18px;
+  min-height: 32px;
   max-height: 100px;
-  padding: 0;
+  padding: 6px 0;
+  margin-bottom: 0;
   border: none;
   background: transparent;
   font-family: var(--font);
   font-size: 14px;
-  line-height: 1.4;
+  line-height: 20px;
   color: var(--text);
   resize: none;
   outline: none;
+}
+
+/* Align buttons to center of first line when textarea is single line */
+.composerImageBtn,
+.sendButton {
+  align-self: flex-end;
+  margin-bottom: 0;
 }
 
 .composerTextarea::placeholder {
