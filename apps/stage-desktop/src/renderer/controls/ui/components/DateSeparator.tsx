@@ -1,12 +1,12 @@
-import React from "react";
+import React, { memo } from "react";
 
-export function DateSeparator(props: { date: string }) {
+export const DateSeparator = memo(function DateSeparator(props: { date: string }) {
   return (
     <div className="dateSeparator">
       <span className="dateSeparatorText">{props.date}</span>
     </div>
   );
-}
+});
 
 /**
  * Format a timestamp to a readable date string
