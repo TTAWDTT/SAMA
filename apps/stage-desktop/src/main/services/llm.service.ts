@@ -1073,6 +1073,8 @@ export class LLMService {
     },
     userMsg: string
   ) {
+    const refuse = "我不想回复你这句话";
+
     const historyRaw = Array.isArray(ctx?.history) ? ctx.history : [];
 
     // Sanitize assistant history so "night nag" phrases don't keep reinforcing themselves.
@@ -1106,10 +1108,13 @@ export class LLMService {
 
     if (!this.#provider) return finalize(fallback());
     try {
-      return finalize(await this.#provider.chatReply({ ...ctx, history }, userMsg));
+      const raw = await this.#provider.chatReply({ ...ctx, history }, userMsg);
+      // If the provider returns an empty payload (should be rare), treat it as a refusal rather than a generic fallback.
+      if (!String(raw ?? "").trim()) return refuse;
+      return finalize(raw);
     } catch (err) {
       console.warn("[llm] chat fallback:", err);
-      return finalize(fallback());
+      return refuse;
     }
   }
 

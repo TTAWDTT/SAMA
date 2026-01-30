@@ -7,6 +7,7 @@
     "dev": "node scripts/run-electron-vite.cjs dev",
     "build": "electron-vite build",
     "preview": "node scripts/run-electron-vite.cjs preview",
+    "dist": "node scripts/dist-nsis.cjs",
     "postinstall": "electron-rebuild -f -o active-win,better-sqlite3",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "rebuild:native": "electron-rebuild -f -o active-win,better-sqlite3"
@@ -21,7 +22,8 @@
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "three": "^0.164.1"
+    "three": "^0.164.1",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
@@ -31,7 +33,36 @@
     "@types/three": "0.164.1",
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^30.5.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "typescript": "^5.7.3"
+  },
+  "build": {
+    "appId": "com.sama.app",
+    "productName": "sama",
+    "npmRebuild": false,
+    "afterPack": "scripts/afterPack.cjs",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**",
+      "assets/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icons/tray.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "sama"
+    }
   }
 }

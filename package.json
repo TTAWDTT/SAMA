@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "pnpm --filter @sama/shared build && pnpm --filter @sama/stage-desktop dev",
     "build": "pnpm --filter @sama/shared build && pnpm --filter @sama/stage-desktop build",
+    "dist": "pnpm --filter @sama/stage-desktop dist",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "format": "prettier -w ."
