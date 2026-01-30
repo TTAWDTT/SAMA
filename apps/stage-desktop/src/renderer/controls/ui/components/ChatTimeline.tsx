@@ -1,8 +1,9 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useMemo } from "react";
 import type { StageDesktopApi } from "../api";
 import { JumpToBottom } from "./JumpToBottom";
 import { MessageRow, type UiMessage } from "./MessageRow";
 import { TypingIndicator } from "./TypingIndicator";
+import { DateSeparator, formatDateSeparator, getDateKey } from "./DateSeparator";
 import samaAvatar from "../assets/sama-avatar.png";
 
 export const ChatTimeline = forwardRef<
@@ -17,10 +18,31 @@ export const ChatTimeline = forwardRef<
     onJumpToBottom: () => void;
     onRetry?: (text: string) => void;
     onToast?: (msg: string, o?: any) => void;
+    searchQuery?: string;
   }
 >(function ChatTimeline(props, ref) {
-  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast } = props;
+  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery } = props;
   const showLlmHint = String(llmProvider ?? "") === "fallback";
+
+  // Group messages by date for date separators
+  const messagesWithDates = useMemo(() => {
+    const result: Array<{ type: "date"; date: string; key: string } | { type: "message"; message: UiMessage }> = [];
+    let lastDateKey = "";
+
+    for (const m of messages) {
+      const dateKey = getDateKey(m.ts);
+      if (dateKey !== lastDateKey) {
+        result.push({
+          type: "date",
+          date: formatDateSeparator(m.ts),
+          key: `date-${dateKey}`
+        });
+        lastDateKey = dateKey;
+      }
+      result.push({ type: "message", message: m });
+    }
+    return result;
+  }, [messages]);
 
   return (
     <div className="timelineWrap">
@@ -49,9 +71,20 @@ export const ChatTimeline = forwardRef<
           </div>
         ) : (
           <div className="messageList">
-            {messages.map((m) => (
-              <MessageRow key={m.id} api={api} message={m} onToast={onToast} onRetry={onRetry} />
-            ))}
+            {messagesWithDates.map((item) =>
+              item.type === "date" ? (
+                <DateSeparator key={item.key} date={item.date} />
+              ) : (
+                <MessageRow
+                  key={item.message.id}
+                  api={api}
+                  message={item.message}
+                  onToast={onToast}
+                  onRetry={onRetry}
+                  searchQuery={searchQuery}
+                />
+              )
+            )}
           </div>
         )}
 

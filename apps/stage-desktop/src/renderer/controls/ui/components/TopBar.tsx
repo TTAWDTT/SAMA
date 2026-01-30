@@ -50,6 +50,16 @@ function MoonIcon() {
   );
 }
 
+// Search icon SVG
+function SearchIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
 export function TopBar(props: {
   title: string;
   connection: { connected: boolean; provider?: string };
@@ -59,6 +69,7 @@ export function TopBar(props: {
   onToggleTheme: () => void;
   onToggleDevMode: () => void;
   onClearUiLogs: () => void;
+  onToggleSearch?: () => void;
 }) {
   const {
     title,
@@ -68,7 +79,8 @@ export function TopBar(props: {
     onToggleDrawer,
     onToggleTheme,
     onToggleDevMode,
-    onClearUiLogs
+    onClearUiLogs,
+    onToggleSearch
   } = props;
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -114,6 +126,18 @@ export function TopBar(props: {
       </div>
 
       <div className="topRight" ref={menuRef}>
+        {onToggleSearch && (
+          <button
+            className="iconBtn"
+            type="button"
+            onClick={onToggleSearch}
+            aria-label="搜索消息"
+            title="搜索消息 (Ctrl+F)"
+          >
+            <SearchIcon />
+          </button>
+        )}
+
         <button
           className="iconBtn"
           type="button"

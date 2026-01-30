@@ -315,8 +315,8 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
 
         <div className="field">
           <div className="label">Expression</div>
-          <div className="chipRow">
-            {(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED"] as ActionCommand["expression"][]).map((x) => (
+          <div className="chipRow chipRowWrap">
+            {(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED", "ANGRY", "SURPRISED", "THINKING", "CONFUSED", "EXCITED"] as ActionCommand["expression"][]).map((x) => (
               <button
                 key={x}
                 className="chip"

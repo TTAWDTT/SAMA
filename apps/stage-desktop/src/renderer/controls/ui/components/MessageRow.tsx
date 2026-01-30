@@ -66,8 +66,9 @@ export function MessageRow(props: {
   message: UiMessage;
   onToast?: (msg: string, o?: any) => void;
   onRetry?: (text: string) => void;
+  searchQuery?: string;
 }) {
-  const { api, message, onToast, onRetry } = props;
+  const { api, message, onToast, onRetry, searchQuery } = props;
   const [copied, setCopied] = useState<null | "text" | "md">(null);
   const [hovered, setHovered] = useState(false);
 
@@ -75,6 +76,9 @@ export function MessageRow(props: {
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
   const isError = message.status === "error";
+
+  // Check if this message matches the search
+  const isSearchMatch = searchQuery && message.content.toLowerCase().includes(searchQuery.toLowerCase());
 
   const copyText = async (kind: "text" | "md") => {
     const text = kind === "md" ? message.content : plainText;
@@ -90,7 +94,8 @@ export function MessageRow(props: {
 
   return (
     <div
-      className={`chatMessage ${message.role} ${isError ? "hasError" : ""}`}
+      id={`msg-${message.id}`}
+      className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

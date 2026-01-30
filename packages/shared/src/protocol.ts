@@ -15,7 +15,7 @@ export type ActionCommand = {
   type: "ACTION_COMMAND";
   ts: number;
   action: "IDLE" | "APPROACH" | "RETREAT" | "INVITE_CHAT";
-  expression: "NEUTRAL" | "HAPPY" | "SAD" | "SHY" | "TIRED";
+  expression: "NEUTRAL" | "HAPPY" | "SAD" | "SHY" | "TIRED" | "ANGRY" | "SURPRISED" | "THINKING" | "CONFUSED" | "EXCITED";
   bubbleKind?: "text" | "thinking";
   bubble?: string | null;
   durationMs: number;

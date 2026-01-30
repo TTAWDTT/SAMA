@@ -1,11 +1,12 @@
 import type { ChatLogEntry, ChatLogMessage } from "@sama/shared";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApi, type StageDesktopApi } from "./api";
 import { Toast } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
 import { SidebarDrawer, type SidebarTab } from "./components/SidebarDrawer";
 import { ChatTimeline } from "./components/ChatTimeline";
 import { Composer } from "./components/Composer";
+import { SearchBar } from "./components/SearchBar";
 import type { UiMessage } from "./components/MessageRow";
 import { useToast } from "./hooks/useToast";
 import { ActionsPanel } from "./panels/ActionsPanel";
@@ -75,6 +76,61 @@ export function App() {
   const [provider, setProvider] = useState<string>("unknown");
 
   const [logs, setLogs] = useState<AppLogItem[]>([]);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentMatch, setCurrentMatch] = useState(0);
+
+  // Calculate search matches
+  const searchMatches = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const query = searchQuery.toLowerCase();
+    const matches: { index: number; id: string }[] = [];
+    entries.forEach((entry, index) => {
+      if (entry.content.toLowerCase().includes(query)) {
+        matches.push({ index, id: entry.id });
+      }
+    });
+    return matches;
+  }, [entries, searchQuery]);
+
+  // Search navigation
+  const goToMatch = useCallback((matchIndex: number) => {
+    if (searchMatches.length === 0) return;
+    const safeIndex = ((matchIndex % searchMatches.length) + searchMatches.length) % searchMatches.length;
+    setCurrentMatch(safeIndex);
+    const match = searchMatches[safeIndex];
+    if (match) {
+      // Scroll to the matched message
+      const el = document.getElementById(`msg-${match.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("searchHighlight");
+        setTimeout(() => el.classList.remove("searchHighlight"), 2000);
+      }
+    }
+  }, [searchMatches]);
+
+  const handlePrevMatch = useCallback(() => {
+    goToMatch(currentMatch - 1);
+  }, [currentMatch, goToMatch]);
+
+  const handleNextMatch = useCallback(() => {
+    goToMatch(currentMatch + 1);
+  }, [currentMatch, goToMatch]);
+
+  // Keyboard shortcut for search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   // Apply stored motion settings once at startup so users don't have to reopen panels.
   useEffect(() => {
@@ -329,6 +385,25 @@ export function App() {
         devMode={devMode}
         onToggleDevMode={() => setDevMode((v) => !v)}
         onClearUiLogs={() => setLogs([])}
+        onToggleSearch={() => setSearchOpen((v) => !v)}
+      />
+
+      <SearchBar
+        isOpen={searchOpen}
+        onClose={() => {
+          setSearchOpen(false);
+          setSearchQuery("");
+          setCurrentMatch(0);
+        }}
+        searchQuery={searchQuery}
+        onSearchChange={(q) => {
+          setSearchQuery(q);
+          setCurrentMatch(0);
+        }}
+        matchCount={searchMatches.length}
+        currentMatch={currentMatch}
+        onPrevMatch={handlePrevMatch}
+        onNextMatch={handleNextMatch}
       />
 
       <div className="chatShell">
@@ -346,6 +421,7 @@ export function App() {
           onJumpToBottom={jumpToBottom}
           onRetry={(text) => void sendMessage(text)}
           onToast={showToast}
+          searchQuery={searchQuery}
         />
         <Composer value={draft} onChange={setDraft} onSend={sendMessage} busy={isThinking} />
       </div>

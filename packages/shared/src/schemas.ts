@@ -15,7 +15,7 @@ export const ActionCommandSchema = z.object({
   type: z.literal("ACTION_COMMAND"),
   ts: z.number(),
   action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"]),
-  expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED"]),
+  expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED", "ANGRY", "SURPRISED", "THINKING", "CONFUSED", "EXCITED"]),
   bubbleKind: z.enum(["text", "thinking"]).optional(),
   bubble: z.string().nullable().optional(),
   durationMs: z.number()
@@ -61,5 +61,5 @@ export const ManualActionSchema = z.object({
   type: z.literal("MANUAL_ACTION"),
   ts: z.number(),
   action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"]),
-  expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED"]).optional()
+  expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED", "ANGRY", "SURPRISED", "THINKING", "CONFUSED", "EXCITED"]).optional()
 });

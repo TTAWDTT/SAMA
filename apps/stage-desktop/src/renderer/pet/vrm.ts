@@ -44,14 +44,29 @@ export async function loadVrmFromBytes(bytes: Uint8Array): Promise<LoadedVrm | n
   }
 }
 
-export type ExpressionName = "NEUTRAL" | "HAPPY" | "SAD" | "SHY" | "TIRED";
+export type ExpressionName =
+  | "NEUTRAL"
+  | "HAPPY"
+  | "SAD"
+  | "SHY"
+  | "TIRED"
+  | "ANGRY"
+  | "SURPRISED"
+  | "THINKING"
+  | "CONFUSED"
+  | "EXCITED";
 
 const TARGETS: Record<ExpressionName, Record<string, number>> = {
   NEUTRAL: {},
   HAPPY: { happy: 1 },
   SAD: { sad: 1 },
   SHY: { relaxed: 1 },
-  TIRED: { relaxed: 0.7, sad: 0.25 }
+  TIRED: { relaxed: 0.7, sad: 0.25 },
+  ANGRY: { angry: 1 },
+  SURPRISED: { surprised: 1 },
+  THINKING: { neutral: 0.5, lookUp: 0.3 },
+  CONFUSED: { sad: 0.3, surprised: 0.4 },
+  EXCITED: { happy: 0.8, surprised: 0.5 }
 };
 
 export function updateExpressions(vrm: VRM, current: Record<string, number>, targetName: ExpressionName) {
