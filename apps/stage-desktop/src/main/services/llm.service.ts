@@ -1,5 +1,6 @@
 import type { LLMConfig, LLMProviderName } from "../protocol/types";
 import { buildBubbleSystemPrompt, buildChatSystemPrompt } from "../agent/prompts";
+import { net } from "electron";
 
 export interface LLMProvider {
   name: string;
@@ -311,14 +312,73 @@ function isLowValueAckReply(s: string) {
   return false;
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
+/**
+ * Use Electron's net.fetch which respects system proxy settings.
+ * Falls back to Node.js fetch if net is not available (e.g., during testing).
+ */
+async function electronFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  // Electron's net module respects system proxy settings
+  // This is crucial for users in China who might use a proxy to access DeepSeek API
+  try {
+    // net.fetch is available in Electron >= 28
+    if (typeof net?.fetch === "function") {
+      return await net.fetch(input.toString(), init as any);
+    }
+  } catch (e) {
+    console.warn("[llm-api] net.fetch not available, falling back to global fetch");
+  }
+  // Fallback to Node.js fetch
+  return fetch(input, init);
+}
+
+async function fetchWithTimeout(input: string | URL, init: RequestInit, timeoutMs: number) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), Math.max(1, timeoutMs));
   try {
-    return await fetch(input, { ...init, signal: ctrl.signal });
+    return await electronFetch(input, { ...init, signal: ctrl.signal });
   } finally {
     clearTimeout(t);
   }
+}
+
+async function fetchWithRetry(
+  input: string | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  maxRetries: number = 2
+): Promise<Response> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetchWithTimeout(input, init, timeoutMs);
+      return res;
+    } catch (err: any) {
+      lastError = err;
+      // Check for DNS/network errors - these should be retried
+      const errMsg = String(err?.message ?? "");
+      const errCause = String(err?.cause?.message ?? err?.cause ?? "");
+      const isNetworkError =
+        errMsg.includes("ENOTFOUND") ||
+        errMsg.includes("ECONNREFUSED") ||
+        errMsg.includes("ETIMEDOUT") ||
+        errCause.includes("ENOTFOUND") ||
+        errCause.includes("getaddrinfo");
+      const isAbort = err?.name === "AbortError" || errMsg.includes("abort");
+
+      // Retry on timeout/abort or network errors
+      if ((!isAbort && !isNetworkError) || attempt >= maxRetries) {
+        // Add helpful error context
+        if (isNetworkError) {
+          console.error(`[llm-api] Network error (DNS/connection failed). Check if you can access api.deepseek.com in browser. If using a proxy, it may not be configured for this app.`);
+        }
+        throw err;
+      }
+      console.warn(`[llm-api] retry attempt ${attempt + 1}/${maxRetries} after ${isNetworkError ? "network error" : "timeout"}`);
+      // Small delay before retry
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  }
+  throw lastError ?? new Error("fetch failed");
 }
 
 async function openAICompatibleChat(
@@ -331,32 +391,52 @@ async function openAICompatibleChat(
   const headers: Record<string, string> = {
     "Content-Type": "application/json"
   };
+  const hasApiKey = Boolean(opts.apiKey);
   if (opts.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`;
-  const res = await fetchWithTimeout(
-    url,
-    {
-      method: "POST",
-      headers: {
-        ...headers
+
+  console.log(`[llm-api] ${opts.name} request to ${url}, model=${opts.model}, hasKey=${hasApiKey}, timeout=${timeoutMs}ms`);
+
+  const startTime = Date.now();
+  let res: Response;
+  try {
+    res = await fetchWithRetry(
+      url,
+      {
+        method: "POST",
+        headers: {
+          ...headers
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          messages,
+          temperature: 0.7,
+          max_tokens: maxTokens
+        })
       },
-      body: JSON.stringify({
-        model: opts.model,
-        messages,
-        temperature: 0.7,
-        max_tokens: maxTokens
-      })
-    },
-    timeoutMs
-  );
+      timeoutMs,
+      1 // 1 retry for chat requests
+    );
+  } catch (fetchErr: any) {
+    const elapsed = Date.now() - startTime;
+    console.error(`[llm-api] ${opts.name} fetch failed after ${elapsed}ms:`, fetchErr?.message ?? fetchErr);
+    throw fetchErr;
+  }
+
+  const elapsed = Date.now() - startTime;
+  console.log(`[llm-api] ${opts.name} response status=${res.status} in ${elapsed}ms`);
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    console.error(`[llm-api] ${opts.name} HTTP error: ${res.status}, body: ${text.slice(0, 500)}`);
     throw new Error(`[${opts.name}] HTTP ${res.status}: ${text}`);
   }
 
   const data: any = await res.json();
   const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string") throw new Error(`[${opts.name}] unexpected response shape`);
+  if (typeof content !== "string") {
+    console.error(`[llm-api] ${opts.name} unexpected response:`, JSON.stringify(data).slice(0, 500));
+    throw new Error(`[${opts.name}] unexpected response shape`);
+  }
   return content;
 }
 
@@ -506,7 +586,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "user", content: userMsg }
       ],
       600,
-      25_000
+      40_000 // Increased timeout for DeepSeek which can be slower
     );
     return sanitizeChatText(raw);
   }
@@ -750,7 +830,7 @@ class AIStudioProvider implements LLMProvider {
           { role: "user", content: userMsg }
         ],
         600,
-        25_000
+        40_000 // Increased timeout for DeepSeek which can be slower
       );
       return sanitizeChatText(raw);
     }
@@ -767,7 +847,7 @@ class AIStudioProvider implements LLMProvider {
       systemInstruction: system,
       contents: [...history, { role: "user", parts: [{ text: userMsg }] }],
       maxOutputTokens: 512,
-      timeoutMs: 25_000
+      timeoutMs: 40_000 // Increased timeout
     });
 
     return sanitizeChatText(raw);
@@ -984,6 +1064,8 @@ export class LLMService {
     const selected =
       normalizeProviderName(process.env.LLM_PROVIDER) ?? normalizeProviderName(this.#config?.provider) ?? "auto";
 
+    console.log(`[llm] createProvider: selected=${selected}, config.provider=${this.#config?.provider ?? "(none)"}`);
+
     if (selected === "off") return null;
 
     const openaiBaseUrl =
@@ -1004,6 +1086,8 @@ export class LLMService {
       "deepseek-chat";
     const deepseekApiKey =
       nonEmptyString(process.env.DEEPSEEK_API_KEY) || nonEmptyString(this.#config?.deepseek?.apiKey);
+
+    console.log(`[llm] deepseek config: baseUrl=${deepseekBaseUrl}, model=${deepseekModel}, hasApiKey=${Boolean(deepseekApiKey)}, apiKeyLen=${(deepseekApiKey ?? "").length}`);
 
     const aistudioApiKey =
       nonEmptyString(process.env.AISTUDIO_API_KEY) || nonEmptyString(this.#config?.aistudio?.apiKey);
@@ -1027,6 +1111,8 @@ export class LLMService {
     });
 
     const aistudio = new AIStudioProvider({ apiKey: aistudioApiKey, model: aistudioModel, baseUrl: aistudioBaseUrl });
+
+    console.log(`[llm] isConfigured: openai=${openai.isConfigured()}, deepseek=${deepseek.isConfigured()}, aistudio=${aistudio.isConfigured()}`);
 
     if (selected === "openai") return openai.isConfigured() ? openai : null;
     if (selected === "deepseek") return deepseek.isConfigured() ? deepseek : null;
@@ -1106,14 +1192,33 @@ export class LLMService {
       return normalized;
     };
 
-    if (!this.#provider) return finalize(fallback());
+    if (!this.#provider) {
+      console.warn("[llm] no provider configured, using fallback");
+      return finalize(fallback());
+    }
     try {
+      console.log(`[llm] chatReply via ${this.#provider.name}, msg length: ${userMsg.length}`);
       const raw = await this.#provider.chatReply({ ...ctx, history }, userMsg);
       // If the provider returns an empty payload (should be rare), treat it as a refusal rather than a generic fallback.
-      if (!String(raw ?? "").trim()) return refuse;
+      if (!String(raw ?? "").trim()) {
+        console.warn("[llm] empty response from provider");
+        return refuse;
+      }
+      console.log(`[llm] chatReply success, response length: ${raw.length}`);
       return finalize(raw);
-    } catch (err) {
-      console.warn("[llm] chat fallback:", err);
+    } catch (err: any) {
+      const errMsg = err?.message ?? String(err);
+      const errStack = err?.stack ?? "";
+      console.error("[llm] chat error:", errMsg);
+      if (errStack) console.error("[llm] stack:", errStack);
+      // Provide more specific error info for debugging
+      if (errMsg.includes("HTTP 4")) {
+        console.error("[llm] API returned client error - check API key and request format");
+      } else if (errMsg.includes("HTTP 5")) {
+        console.error("[llm] API returned server error - DeepSeek service may be down");
+      } else if (errMsg.includes("abort") || errMsg.includes("timeout")) {
+        console.error("[llm] Request timed out - network issue or slow response");
+      }
       return refuse;
     }
   }
