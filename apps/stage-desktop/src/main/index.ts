@@ -354,6 +354,31 @@ async function bootstrap() {
       console.warn("[vrm] VRM_PATH not found, will require manual pick:", vrmPath);
       vrmPath = null;
     }
+    // If still no VRM path, try to load bundled default VRM
+    if (!vrmPath) {
+      const bundledVrmPaths = [
+        // Development: relative to project root (monorepo root)
+        resolve(process.cwd(), "assets/vrm/white_hait.vrm"),
+        // Development: relative to monorepo root from apps/stage-desktop
+        resolve(process.cwd(), "..", "..", "assets/vrm/white_hait.vrm"),
+        // Production: in resources/app/assets
+        join(app.getAppPath(), "assets/vrm/white_hait.vrm"),
+        // Electron-builder extraResources scenario
+        join(process.resourcesPath || "", "assets/vrm/white_hait.vrm"),
+        // Electron-vite dev mode - from src/main up to stage-desktop then to SAMA root
+        resolve(dirname(import.meta.dirname || __dirname), "..", "assets/vrm/white_hait.vrm"),
+        resolve(dirname(import.meta.dirname || __dirname), "..", "..", "assets/vrm/white_hait.vrm"),
+        resolve(dirname(import.meta.dirname || __dirname), "..", "..", "..", "assets/vrm/white_hait.vrm"),
+        resolve(dirname(import.meta.dirname || __dirname), "..", "..", "..", "..", "assets/vrm/white_hait.vrm")
+      ];
+      for (const p of bundledVrmPaths) {
+        if (existsSync(p)) {
+          vrmPath = p;
+          console.log("[vrm] using bundled default:", vrmPath);
+          break;
+        }
+      }
+    }
   }
 
   const persistedPetSize = readPersistedPetWindowSize(petWindowStatePath);

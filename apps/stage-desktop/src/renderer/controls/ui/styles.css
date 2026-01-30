@@ -1,7 +1,13 @@
 /* SAMA Chat UI - Claude/ChatGPT Style */
 
 /* ========== CSS Variables ========== */
-:root,
+:root {
+  /* Accent colors - set by JS, with defaults */
+  --accent: #10a37f;
+  --accent-hover: #0d8a6a;
+  --accent-light: rgba(16, 163, 127, 0.1);
+}
+
 [data-theme="light"] {
   color-scheme: light;
 
@@ -25,11 +31,6 @@
   --text-secondary: #4b5563;
   --text-tertiary: #6b7280;
   --text-muted: #9ca3af;
-
-  /* Accent colors */
-  --accent: #10a37f;
-  --accent-hover: #0d8a6a;
-  --accent-light: rgba(16, 163, 127, 0.1);
 
   /* Status colors */
   --error: #ef4444;
@@ -98,10 +99,7 @@
   --text-tertiary: #8e8e8e;
   --text-muted: #6e6e6e;
 
-  /* Accent colors - adjusted for dark mode */
-  --accent: #19c37d;
-  --accent-hover: #1ed68a;
-  --accent-light: rgba(25, 195, 125, 0.15);
+  /* Note: --accent, --accent-hover, --accent-light are set by JS and inherited from :root */
 
   /* Status colors - adjusted for dark mode visibility */
   --error: #f87171;
