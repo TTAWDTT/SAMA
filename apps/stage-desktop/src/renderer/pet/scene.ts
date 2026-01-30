@@ -34,6 +34,8 @@ export type VrmAnimationSlotsStatus = {
   hasAction: boolean;
 };
 
+export type CameraPreset = "full" | "half" | "closeup" | "face";
+
 export type PetScene = {
   start: () => void;
   setExpression: (expr: ActionCommand["expression"]) => void;
@@ -63,6 +65,12 @@ export type PetScene = {
   getMotionState: () => MotionState;
   /** Normalized (0..1) anchor position for caption bubbles. */
   getBubbleAnchor?: () => { nx: number; ny: number } | null;
+  /** Set camera to a preset view. */
+  setCameraPreset?: (preset: CameraPreset) => void;
+  /** Get current camera preset. */
+  getCameraPreset?: () => CameraPreset;
+  /** Take a screenshot and return as data URL. */
+  takeScreenshot?: () => string | null;
 };
 
 function safeNowMs() {
@@ -104,6 +112,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   let viewBaseDistance = 2.2;
   let orbitYaw = 0;
   let orbitPitch = 0;
+  let currentCameraPreset: CameraPreset = "full";
   const tmpSpherical = new THREE.Spherical();
   const tmpCamOffset = new THREE.Vector3();
   const tmpCamDir = new THREE.Vector3();
@@ -131,6 +140,25 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
     camera.position.copy(viewTarget).add(tmpCamOffset);
     camera.lookAt(viewTarget);
+  };
+
+  // Camera preset configurations
+  const CAMERA_PRESETS: Record<CameraPreset, { targetY: number; distance: number; pitch: number }> = {
+    full: { targetY: 1.0, distance: 2.8, pitch: 0 },
+    half: { targetY: 1.25, distance: 1.8, pitch: 0 },
+    closeup: { targetY: 1.45, distance: 1.0, pitch: 0.1 },
+    face: { targetY: 1.55, distance: 0.6, pitch: 0.15 }
+  };
+
+  const applyCameraPreset = (preset: CameraPreset) => {
+    const cfg = CAMERA_PRESETS[preset];
+    if (!cfg) return;
+    currentCameraPreset = preset;
+    viewTarget.y = cfg.targetY;
+    viewBaseDistance = cfg.distance;
+    orbitPitch = cfg.pitch;
+    orbitYaw = 0; // Reset yaw for consistent view
+    applyView();
   };
 
   camera.position.set(0, 1.25, 2.2);
@@ -1055,6 +1083,19 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       lastDragMag = Math.hypot(Number(dx) || 0, Number(dy) || 0);
     },
     getMotionState: () => ({ locomotion, animation: activeAnimation }),
-    getBubbleAnchor: () => computeBubbleAnchor()
+    getBubbleAnchor: () => computeBubbleAnchor(),
+    setCameraPreset: (preset) => {
+      applyCameraPreset(preset);
+    },
+    getCameraPreset: () => currentCameraPreset,
+    takeScreenshot: () => {
+      try {
+        // Render one frame to ensure we capture current state
+        renderer.render(scene, camera);
+        return canvas.toDataURL("image/png");
+      } catch {
+        return null;
+      }
+    }
   };
 }

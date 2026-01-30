@@ -329,6 +329,68 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
           </div>
           <div className="help">表情会立即在角色上生效（用于测试）。</div>
         </div>
+
+        <div className="divider" />
+
+        {/* Camera Presets */}
+        <div className="field">
+          <div className="label">相机预设</div>
+          <div className="chipRow">
+            {(["full", "half", "closeup", "face"] as const).map((preset) => (
+              <button
+                key={preset}
+                className="chip"
+                type="button"
+                onClick={() => {
+                  sendPetControl(api, {
+                    type: "PET_CONTROL",
+                    ts: Date.now(),
+                    action: "SET_CAMERA_PRESET",
+                    preset
+                  } as any);
+                  onToast(`相机：${preset === "full" ? "全身" : preset === "half" ? "半身" : preset === "closeup" ? "特写" : "面部"}`, { timeoutMs: 1200 });
+                }}
+              >
+                {preset === "full" ? "全身" : preset === "half" ? "半身" : preset === "closeup" ? "特写" : "面部"}
+              </button>
+            ))}
+          </div>
+          <div className="help">一键切换相机视角。</div>
+        </div>
+
+        {/* Screenshot */}
+        <div className="field">
+          <div className="label">截图</div>
+          <button
+            className="btn btnSm"
+            type="button"
+            onClick={async () => {
+              const requestId = `screenshot-${Date.now()}`;
+              sendPetControlWithResult(api, {
+                type: "PET_CONTROL",
+                ts: Date.now(),
+                requestId,
+                action: "TAKE_SCREENSHOT"
+              } as any).then((result) => {
+                if (result.ok && result.message) {
+                  // Create download link
+                  const link = document.createElement("a");
+                  link.href = result.message;
+                  link.download = `SAMA-${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.png`;
+                  link.click();
+                  onToast("截图已保存", { timeoutMs: 1600 });
+                } else {
+                  onToast("截图失败", { timeoutMs: 2000 });
+                }
+              }).catch(() => {
+                onToast("截图失败", { timeoutMs: 2000 });
+              });
+            }}
+          >
+            📷 保存截图
+          </button>
+          <div className="help">保存当前角色姿势为 PNG 图片。</div>
+        </div>
       </div>
 
       {/* VRMA */}

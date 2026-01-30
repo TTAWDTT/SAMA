@@ -74,7 +74,102 @@ function bubbleDurationForText(text: string) {
   return Math.max(3200, Math.min(12_000, 3200 + n * 55));
 }
 
-function pickChatExpression(isNight: boolean, mood: number): ActionCommand["expression"] {
+/**
+ * Analyze text sentiment and pick an appropriate expression.
+ * Uses keyword matching for quick, offline sentiment detection.
+ */
+function analyzeTextSentiment(text: string): ActionCommand["expression"] | null {
+  const t = String(text ?? "").toLowerCase();
+
+  // Happy / Excited indicators
+  const happyPatterns = [
+    /[😊😄😃🥰❤️💕🎉✨]/,
+    /哈哈|嘻嘻|太好了|开心|高兴|棒|厉害|赞|好的|没问题|当然|好呀/,
+    /great|awesome|wonderful|happy|love|excellent|perfect|amazing/i
+  ];
+  for (const p of happyPatterns) {
+    if (p.test(t)) return "HAPPY";
+  }
+
+  // Excited indicators
+  const excitedPatterns = [
+    /！！|!!|\?!|!？/,
+    /太棒了|超级|非常棒|激动|兴奋|哇|wow|woah/i
+  ];
+  for (const p of excitedPatterns) {
+    if (p.test(t)) return "EXCITED";
+  }
+
+  // Sad indicators
+  const sadPatterns = [
+    /[😢😭😞😔💔]/,
+    /难过|伤心|抱歉|对不起|遗憾|可惜|不好意思|失败|错误/,
+    /sorry|sad|unfortunately|failed|error|problem/i
+  ];
+  for (const p of sadPatterns) {
+    if (p.test(t)) return "SAD";
+  }
+
+  // Angry indicators
+  const angryPatterns = [
+    /[😠😡🤬]/,
+    /生气|愤怒|讨厌|烦|不行|不可以|禁止|不允许/,
+    /angry|annoyed|frustrated/i
+  ];
+  for (const p of angryPatterns) {
+    if (p.test(t)) return "ANGRY";
+  }
+
+  // Surprised indicators
+  const surprisedPatterns = [
+    /[😲😮😯🤯]/,
+    /真的吗|天哪|什么|居然|竟然|不敢相信|没想到/,
+    /really|wow|omg|what|surprised|unexpected/i
+  ];
+  for (const p of surprisedPatterns) {
+    if (p.test(t)) return "SURPRISED";
+  }
+
+  // Thinking / Confused indicators
+  const thinkingPatterns = [
+    /[🤔💭]/,
+    /让我想想|思考|考虑|不确定|可能|也许|或许|嗯\.\.\./,
+    /let me think|thinking|consider|maybe|perhaps|hmm/i
+  ];
+  for (const p of thinkingPatterns) {
+    if (p.test(t)) return "THINKING";
+  }
+
+  // Confused indicators
+  const confusedPatterns = [
+    /[😕🤷]/,
+    /不太明白|不理解|有点困惑|什么意思|不懂/,
+    /confused|don't understand|unclear/i
+  ];
+  for (const p of confusedPatterns) {
+    if (p.test(t)) return "CONFUSED";
+  }
+
+  // Shy indicators
+  const shyPatterns = [
+    /[😳🙈]/,
+    /害羞|不好意思|过奖|谢谢夸奖|客气/
+  ];
+  for (const p of shyPatterns) {
+    if (p.test(t)) return "SHY";
+  }
+
+  return null;
+}
+
+function pickChatExpression(isNight: boolean, mood: number, replyText?: string): ActionCommand["expression"] {
+  // First, try to analyze the reply text for sentiment
+  if (replyText) {
+    const sentiment = analyzeTextSentiment(replyText);
+    if (sentiment) return sentiment;
+  }
+
+  // Fallback to mood-based expression
   if (isNight) return "TIRED";
   if (mood < 0.35) return "SAD";
   return "SHY";
@@ -595,7 +690,7 @@ export class CoreService {
           type: "ACTION_COMMAND",
           ts: replyTs,
           action: "IDLE",
-          expression: pickChatExpression(this.isNight, this.#mood),
+          expression: pickChatExpression(this.isNight, this.#mood, reply),
           bubbleKind: "text",
           bubble,
           durationMs: bubbleDurationForText(bubble)
@@ -625,7 +720,7 @@ export class CoreService {
         type: "ACTION_COMMAND",
         ts: replyTs,
         action: "IDLE",
-        expression: pickChatExpression(this.isNight, this.#mood),
+        expression: pickChatExpression(this.isNight, this.#mood, reply),
         bubbleKind: "text",
         bubble,
         durationMs: bubbleDurationForText(bubble)
@@ -738,7 +833,7 @@ export class CoreService {
       type: "ACTION_COMMAND",
       ts: replyTs,
       action: "IDLE",
-      expression: pickChatExpression(ctx.isNight, ctx.mood),
+      expression: pickChatExpression(ctx.isNight, ctx.mood, reply),
       bubbleKind: "text",
       bubble,
       durationMs: bubbleDurationForText(bubble)

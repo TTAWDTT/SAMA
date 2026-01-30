@@ -129,6 +129,8 @@ export type PetDisplayModeConfig = {
   tiltDeg?: number; // rotation angle when peeking (default: 15)
 };
 
+export type PetCameraPreset = "full" | "half" | "closeup" | "face";
+
 export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "LOAD_VRM_BYTES"; bytes: Uint8Array }
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "LOAD_VRMA_BYTES"; bytes: Uint8Array }
@@ -143,7 +145,9 @@ export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; action: "ASSIGN_VRMA_SLOT_FROM_LAST"; slot: "idle" | "walk" }
   | { type: "PET_CONTROL"; ts: number; action: "CLEAR_VRMA_SLOT"; slot: "idle" | "walk" }
   | { type: "PET_CONTROL"; ts: number; action: "NOTIFY_ACTION"; cmd: ActionCommand }
-  | { type: "PET_CONTROL"; ts: number; action: "SET_DISPLAY_MODE"; config: Partial<PetDisplayModeConfig> };
+  | { type: "PET_CONTROL"; ts: number; action: "SET_DISPLAY_MODE"; config: Partial<PetDisplayModeConfig> }
+  | { type: "PET_CONTROL"; ts: number; action: "SET_CAMERA_PRESET"; preset: PetCameraPreset }
+  | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "TAKE_SCREENSHOT" };
 
 export type PetControlResult = {
   type: "PET_CONTROL_RESULT";

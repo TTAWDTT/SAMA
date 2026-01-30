@@ -507,6 +507,22 @@ async function boot() {
         sendPetState();
         return;
       }
+
+      if (msg.action === "SET_CAMERA_PRESET") {
+        scene.setCameraPreset?.((msg as any).preset);
+        sendPetStatus("info", `相机切换至：${(msg as any).preset}`);
+        return;
+      }
+
+      if (msg.action === "TAKE_SCREENSHOT") {
+        const dataUrl = scene.takeScreenshot?.();
+        if (dataUrl) {
+          sendPetControlResult((msg as any).requestId, true, dataUrl);
+        } else {
+          sendPetControlResult((msg as any).requestId, false, "截图失败");
+        }
+        return;
+      }
     } catch (err) {
       const message = formatErr(err);
       sendPetStatus("error", `控制台操作失败：${message}`);
