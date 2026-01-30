@@ -1,9 +1,10 @@
-import React, { forwardRef, useMemo } from "react";
+import React, { forwardRef, useMemo, useState } from "react";
 import type { StageDesktopApi } from "../api";
 import { JumpToBottom } from "./JumpToBottom";
 import { MessageRow, type UiMessage } from "./MessageRow";
 import { TypingIndicator } from "./TypingIndicator";
 import { DateSeparator, formatDateSeparator, getDateKey } from "./DateSeparator";
+import { ImageViewer } from "./ImageViewer";
 import samaAvatar from "../assets/sama-avatar.png";
 
 export const ChatTimeline = forwardRef<
@@ -23,6 +24,7 @@ export const ChatTimeline = forwardRef<
 >(function ChatTimeline(props, ref) {
   const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery } = props;
   const showLlmHint = String(llmProvider ?? "") === "fallback";
+  const [viewingImage, setViewingImage] = useState<string | null>(null);
 
   // Group messages by date for date separators
   const messagesWithDates = useMemo(() => {
@@ -82,6 +84,7 @@ export const ChatTimeline = forwardRef<
                   onToast={onToast}
                   onRetry={onRetry}
                   searchQuery={searchQuery}
+                  onViewImage={setViewingImage}
                 />
               )
             )}
@@ -92,6 +95,8 @@ export const ChatTimeline = forwardRef<
       </div>
 
       {scrollLock && <JumpToBottom onClick={onJumpToBottom} />}
+
+      <ImageViewer src={viewingImage} onClose={() => setViewingImage(null)} />
     </div>
   );
 });

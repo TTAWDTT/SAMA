@@ -1,6 +1,6 @@
 import React from "react";
 
-export type SidebarTab = "llm" | "actions" | "memory" | "console";
+export type SidebarTab = "llm" | "actions" | "memory" | "theme" | "console";
 
 export function SidebarDrawer(props: {
   open: boolean;
@@ -16,6 +16,7 @@ export function SidebarDrawer(props: {
     { id: "llm", label: "LLM", icon: "⚙" },
     { id: "actions", label: "Actions", icon: "🎭" },
     { id: "memory", label: "Memory", icon: "🧠" },
+    { id: "theme", label: "Theme", icon: "🎨" },
     { id: "console", label: "Console", icon: "🪵", hidden: !devMode }
   ];
 

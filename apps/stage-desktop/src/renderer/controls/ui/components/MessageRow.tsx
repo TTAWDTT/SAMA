@@ -6,10 +6,16 @@ import { stripMarkdown } from "../lib/stripMarkdown";
 import { Markdown } from "./Markdown";
 import samaAvatar from "../assets/sama-avatar.png";
 
+export type MessageImage = {
+  dataUrl: string;
+  name?: string;
+};
+
 export type UiMessage = ChatLogEntry & {
   status?: "sent" | "error";
   errorMessage?: string;
   retryText?: string;
+  images?: MessageImage[];
 };
 
 async function writeClipboard(api: StageDesktopApi | null, text: string) {
@@ -67,8 +73,9 @@ export function MessageRow(props: {
   onToast?: (msg: string, o?: any) => void;
   onRetry?: (text: string) => void;
   searchQuery?: string;
+  onViewImage?: (src: string) => void;
 }) {
-  const { api, message, onToast, onRetry, searchQuery } = props;
+  const { api, message, onToast, onRetry, searchQuery, onViewImage } = props;
   const [copied, setCopied] = useState<null | "text" | "md">(null);
   const [hovered, setHovered] = useState(false);
 
@@ -76,6 +83,7 @@ export function MessageRow(props: {
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
   const isError = message.status === "error";
+  const hasImages = message.images && message.images.length > 0;
 
   // Check if this message matches the search
   const isSearchMatch = searchQuery && message.content.toLowerCase().includes(searchQuery.toLowerCase());
@@ -111,14 +119,31 @@ export function MessageRow(props: {
         {/* Time - show above bubble */}
         <div className="chatTime">{formatTime(message.ts)}</div>
 
+        {/* Images */}
+        {hasImages && (
+          <div className="chatImages">
+            {message.images!.map((img, i) => (
+              <img
+                key={i}
+                src={img.dataUrl}
+                alt={img.name || `图片 ${i + 1}`}
+                className="chatImage"
+                onClick={() => onViewImage?.(img.dataUrl)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Bubble content */}
-        <div className={`bubbleContent ${isAssistant ? "markdown" : ""}`}>
-          {isAssistant ? (
-            <Markdown api={api} content={message.content} onToast={onToast} />
-          ) : (
-            <p className="userText">{message.content}</p>
-          )}
-        </div>
+        {message.content && (
+          <div className={`bubbleContent ${isAssistant ? "markdown" : ""}`}>
+            {isAssistant ? (
+              <Markdown api={api} content={message.content} onToast={onToast} />
+            ) : (
+              <p className="userText">{message.content}</p>
+            )}
+          </div>
+        )}
 
         {/* Error badge and message */}
         {isError && (

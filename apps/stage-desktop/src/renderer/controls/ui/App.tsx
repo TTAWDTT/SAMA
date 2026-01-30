@@ -5,14 +5,17 @@ import { Toast } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
 import { SidebarDrawer, type SidebarTab } from "./components/SidebarDrawer";
 import { ChatTimeline } from "./components/ChatTimeline";
-import { Composer } from "./components/Composer";
+import { Composer, type ImageAttachment } from "./components/Composer";
 import { SearchBar } from "./components/SearchBar";
-import type { UiMessage } from "./components/MessageRow";
+import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
+import { Onboarding, hasSeenOnboarding } from "./components/Onboarding";
+import type { UiMessage, MessageImage } from "./components/MessageRow";
 import { useToast } from "./hooks/useToast";
 import { ActionsPanel } from "./panels/ActionsPanel";
 import { ConsolePanel, type AppLogItem } from "./panels/ConsolePanel";
 import { LlmPanel } from "./panels/LlmPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
+import { ThemePanel, loadAccent, loadFontSize, loadBackground, loadCustomBgImage, applyAccentColor, applyFontSize, applyBackground, type ThemeMode } from "./panels/ThemePanel";
 import { scrollToBottom } from "./lib/utils";
 import { loadMotionUiSettings } from "./lib/motionUi";
 
@@ -50,7 +53,7 @@ function loadDevMode(): boolean {
 function loadTab(): SidebarTab {
   try {
     const v = String(localStorage.getItem(LS_TAB) ?? "");
-    if (v === "llm" || v === "actions" || v === "memory" || v === "console") return v;
+    if (v === "llm" || v === "actions" || v === "memory" || v === "theme" || v === "console") return v;
   } catch {}
   return "llm";
 }
@@ -81,6 +84,32 @@ export function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
+
+  // Keyboard shortcuts modal
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Onboarding
+  const [onboardingOpen, setOnboardingOpen] = useState(() => !hasSeenOnboarding());
+
+  // Initialize theme settings on mount
+  useEffect(() => {
+    const accent = loadAccent();
+    const fontSize = loadFontSize();
+    const background = loadBackground();
+    const customBgImage = loadCustomBgImage();
+    applyAccentColor(accent, theme === "dark");
+    applyFontSize(fontSize);
+    applyBackground(background, theme === "dark", customBgImage);
+  }, []);
+
+  // Re-apply accent and background when theme changes
+  useEffect(() => {
+    const accent = loadAccent();
+    const background = loadBackground();
+    const customBgImage = loadCustomBgImage();
+    applyAccentColor(accent, theme === "dark");
+    applyBackground(background, theme === "dark", customBgImage);
+  }, [theme]);
 
   // Calculate search matches
   const searchMatches = useMemo(() => {
@@ -126,6 +155,10 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === "f") {
         e.preventDefault();
         setSearchOpen(true);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -325,8 +358,14 @@ export function App() {
     };
   }, [api]);
 
+  // State for pending images (user-attached images that haven't been sent yet)
+  const [pendingImages, setPendingImages] = useState<Map<string, MessageImage[]>>(new Map());
+
   const uiMessages: UiMessage[] = useMemo(() => {
-    const msgs: UiMessage[] = entries.map((e) => ({ ...e, status: "sent" as const }));
+    const msgs: UiMessage[] = entries.map((e) => {
+      const images = pendingImages.get(e.id);
+      return { ...e, status: "sent" as const, images };
+    });
     if (sendError) {
       msgs.push({
         id: `err_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`,
@@ -339,16 +378,17 @@ export function App() {
       });
     }
     return msgs;
-  }, [entries, sendError]);
+  }, [entries, sendError, pendingImages]);
 
-  async function sendMessage(text: string) {
+  async function sendMessage(text: string, images?: ImageAttachment[]) {
     if (!api || typeof api.chatInvoke !== "function") {
       showToast("preload API 缺失：无法发送消息", { timeoutMs: 4200 });
       return;
     }
 
     const msg = String(text ?? "").trim();
-    if (!msg) return;
+    const hasImages = images && images.length > 0;
+    if (!msg && !hasImages) return;
 
     // If the user sends while scrolled up, we follow ChatGPT behavior: jump to bottom.
     jumpToBottom();
@@ -358,8 +398,30 @@ export function App() {
     try {
       localStorage.removeItem(LS_DRAFT);
     } catch {}
+
+    // Construct message content - for now just describe images since backend doesn't support them
+    let content = msg;
+    if (hasImages && !msg) {
+      content = `[发送了 ${images!.length} 张图片]`;
+    } else if (hasImages) {
+      content = `${msg}\n[附带 ${images!.length} 张图片]`;
+    }
+
     try {
-      await api.chatInvoke(msg);
+      await api.chatInvoke(content);
+      // Store image references for display (keyed by a temporary ID that will be replaced by actual message)
+      // Note: In a full implementation, images would be sent to the backend
+      if (hasImages) {
+        // We'll add images to the most recent user message after it's appended
+        const lastUserEntry = entries.filter((e) => e.role === "user").slice(-1)[0];
+        if (lastUserEntry) {
+          setPendingImages((prev) => {
+            const next = new Map(prev);
+            next.set(lastUserEntry.id, images!.map((img) => ({ dataUrl: img.dataUrl, name: img.name })));
+            return next;
+          });
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       showToast("请求失败", { timeoutMs: 2400 });
@@ -439,12 +501,26 @@ export function App() {
           <ActionsPanel api={api as StageDesktopApi | null} onToast={showToast} />
         ) : tab === "memory" ? (
           <MemoryPanel api={api} onToast={showToast} />
+        ) : tab === "theme" ? (
+          <ThemePanel
+            theme={theme}
+            onThemeChange={(mode: ThemeMode) => {
+              if (mode === "light" || mode === "dark") {
+                setTheme(mode);
+              }
+            }}
+            onToast={showToast}
+          />
         ) : (
           <ConsolePanel logs={logs} onClear={() => setLogs([])} />
         )}
       </SidebarDrawer>
 
       <Toast message={toast.message} visible={toast.visible} onDismiss={hideToast} />
+
+      <KeyboardShortcuts isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+
+      <Onboarding isOpen={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
     </div>
   );
 }

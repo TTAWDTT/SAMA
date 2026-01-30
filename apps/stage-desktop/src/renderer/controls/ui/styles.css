@@ -1983,6 +1983,139 @@ html, body {
   background: var(--surface);
 }
 
+/* ========== Keyboard Shortcuts Modal ========== */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modalContent {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.shortcutsModal {
+  width: 360px;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modalClose {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+}
+
+.modalClose:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.shortcutsList {
+  padding: 12px 20px;
+}
+
+.shortcutItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.shortcutItem:last-child {
+  border-bottom: none;
+}
+
+.shortcutKeys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.shortcutKey {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.shortcutPlus {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0 2px;
+}
+
+.shortcutDesc {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.modalFooter {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* ========== Reduced Motion ========== */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1991,3 +2124,378 @@ html, body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ========== Theme Panel ========== */
+.themePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.accentGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.accentBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.accentBtn:hover {
+  border-color: var(--preset-color);
+  background: var(--surface-hover);
+}
+
+.accentBtn.isActive {
+  border-color: var(--preset-color);
+  background: color-mix(in srgb, var(--preset-color) 10%, var(--surface));
+}
+
+.accentSwatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--preset-color);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.accentBtn.isActive .accentSwatch {
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px var(--preset-color);
+}
+
+.accentName {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.accentBtn.isActive .accentName {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.fontSizeRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fontSizeLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+}
+
+.fontSizeLabelLg {
+  font-size: 18px;
+  color: var(--text-muted);
+  width: 16px;
+  text-align: center;
+}
+
+.fontSizeValue {
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-width: 40px;
+  text-align: right;
+}
+
+[data-theme="dark"] .accentBtn {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .accentBtn:hover {
+  border-color: var(--preset-color);
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .accentBtn.isActive {
+  border-color: var(--preset-color);
+  background: color-mix(in srgb, var(--preset-color) 15%, var(--surface));
+}
+
+/* ========== Background Grid ========== */
+.bgGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.bgBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.bgBtn:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.bgBtn.isActive {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+.bgSwatch {
+  width: 48px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--bg-preview);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.bgCustom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+}
+
+.bgCustomImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bgAddIcon {
+  font-size: 20px;
+  color: var(--text-muted);
+}
+
+.bgName {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.bgBtn.isActive .bgName {
+  color: var(--text);
+  font-weight: 500;
+}
+
+[data-theme="dark"] .bgBtn {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .bgBtn:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .bgBtn.isActive {
+  border-color: var(--accent);
+}
+
+/* ========== Onboarding ========== */
+.onboardingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.onboardingCard {
+  width: 90%;
+  max-width: 400px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  animation: slideUp 0.3s ease-out;
+}
+
+.onboardingProgress {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.onboardingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: all var(--transition);
+}
+
+.onboardingDot.active {
+  width: 24px;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.onboardingDot.done {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.onboardingContent {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.onboardingIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.onboardingTitle {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 12px 0;
+}
+
+.onboardingDesc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.onboardingActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-theme="dark"] .onboardingCard {
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+/* ========== Composer Image Support ========== */
+.composerImagePreviews {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+
+.composerImagePreview {
+  position: relative;
+  flex-shrink: 0;
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.composerImagePreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composerImageRemove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+}
+
+.composerImageRemove:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.composerImageBtn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+}
+
+.composerImageBtn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.composerImageBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ========== Chat Image Message ========== */
+.chatImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.chatImage {
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform var(--transition);
+}
+
+.chatImage:hover {
+  transform: scale(1.02);
+}
+
+/* ========== Image Viewer Modal ========== */
+.imageViewerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.9);
+  cursor: zoom-out;
+}
+
+.imageViewerContent {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
