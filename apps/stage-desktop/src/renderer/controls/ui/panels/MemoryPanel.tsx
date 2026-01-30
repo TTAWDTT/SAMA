@@ -399,14 +399,14 @@ export function MemoryPanel(props: { api: StageDesktopApi | null; onToast: (msg:
                   <div className="memSummary">{safeString(f.value)}</div>
                   <div className="memMeta">
                     <span className="pill">{safeString(f.kind, "fact")}</span>
-                  </div>
-                  <div className="btnRow" style={{ marginTop: 10 }}>
-                    <button className="btn btnSm" type="button" onClick={() => openFactEdit(f)}>
-                      纠正
-                    </button>
-                    <button className="btn btnSm btnDanger" type="button" onClick={() => void deleteFact(f)}>
-                      忘掉
-                    </button>
+                    <div className="btnRow compact">
+                      <button className="btn btnXs" type="button" onClick={() => openFactEdit(f)}>
+                        纠正
+                      </button>
+                      <button className="btn btnXs btnDanger" type="button" onClick={() => void deleteFact(f)}>
+                        忘掉
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -434,19 +434,21 @@ export function MemoryPanel(props: { api: StageDesktopApi | null; onToast: (msg:
                   </div>
                   <div className="memSummary">{safeString(n.content)}</div>
                   <div className="memMeta">
-                    <span className="pill">{safeString(n.kind, "note")}</span>
-                    <span className="dots" aria-label={`confidence ${dots}`}>
-                      {"●".repeat(dots)}
-                      <span className="dotsOff">{"●".repeat(Math.max(0, 3 - dots))}</span>
-                    </span>
-                  </div>
-                  <div className="btnRow" style={{ marginTop: 10 }}>
-                    <button className="btn btnSm" type="button" onClick={() => openEdit(n)}>
-                      纠正
-                    </button>
-                    <button className="btn btnSm btnDanger" type="button" onClick={() => void deleteNote(n)}>
-                      忘掉
-                    </button>
+                    <div className="memMetaLeft">
+                      <span className="pill">{safeString(n.kind, "note")}</span>
+                      <span className="dots" aria-label={`confidence ${dots}`}>
+                        {"●".repeat(dots)}
+                        <span className="dotsOff">{"●".repeat(Math.max(0, 3 - dots))}</span>
+                      </span>
+                    </div>
+                    <div className="btnRow compact">
+                      <button className="btn btnXs" type="button" onClick={() => openEdit(n)}>
+                        纠正
+                      </button>
+                      <button className="btn btnXs btnDanger" type="button" onClick={() => void deleteNote(n)}>
+                        忘掉
+                      </button>
+                    </div>
                   </div>
                 </div>
               );

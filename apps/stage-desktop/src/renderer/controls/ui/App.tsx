@@ -21,7 +21,7 @@ import { loadMotionUiSettings } from "./lib/motionUi";
 
 type Theme = "light" | "dark";
 
-const LS_THEME = "sama.ui.theme.v1";
+const LS_THEME_MODE = "sama.ui.themeMode.v1";
 const LS_DEV = "sama.ui.devMode.v1";
 const LS_TAB = "sama.ui.sidebarTab.v1";
 const LS_DRAFT = "sama.ui.chatDraft.v1";
@@ -36,8 +36,12 @@ function loadDraft(): string {
 
 function loadTheme(): Theme {
   try {
-    const v = String(localStorage.getItem(LS_THEME) ?? "");
+    const v = String(localStorage.getItem(LS_THEME_MODE) ?? "");
     if (v === "dark" || v === "light") return v;
+    // Handle "system" mode
+    if (v === "system") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
   } catch {}
   return "light";
 }
@@ -203,7 +207,7 @@ export function App() {
   // Theme + persistence
   useEffect(() => {
     try {
-      localStorage.setItem(LS_THEME, theme);
+      localStorage.setItem(LS_THEME_MODE, theme);
     } catch {}
   }, [theme]);
 

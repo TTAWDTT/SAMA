@@ -86,24 +86,27 @@ export function loadCustomBgImage(): string | null {
 export function applyBackground(bgId: string, isDark: boolean, customImage?: string | null) {
   const root = document.documentElement;
 
-  if (bgId === "custom" && customImage) {
-    root.style.setProperty("--chat-bg", `url("${customImage}")`);
-    root.style.setProperty("--chat-bg-image", `url("${customImage}")`);
-    // Add overlay for readability
-    const overlayColor = isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(255, 255, 255, 0.7)";
-    document.querySelectorAll(".timeline, .chatShell").forEach((el) => {
-      (el as HTMLElement).style.background = `linear-gradient(${overlayColor}, ${overlayColor}), url("${customImage}") center/cover`;
-    });
-    return;
-  }
-
-  // Reset custom image styles
-  document.querySelectorAll(".timeline, .chatShell").forEach((el) => {
+  // Reset any inline background styles first
+  document.querySelectorAll(".timeline, .chatShell, .timelineWrap").forEach((el) => {
     (el as HTMLElement).style.background = "";
   });
 
+  if (bgId === "custom" && customImage) {
+    // For custom image, we need to set both CSS variable and inline style for overlay
+    const overlayColor = isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(255, 255, 255, 0.7)";
+    const bgValue = `linear-gradient(${overlayColor}, ${overlayColor}), url("${customImage}") center/cover fixed`;
+    root.style.setProperty("--chat-bg", bgValue);
+    root.style.setProperty("--chat-bg-size", "cover");
+    return;
+  }
+
   const preset = BACKGROUND_PRESETS.find((p) => p.id === bgId);
-  if (!preset) return;
+  if (!preset) {
+    // Fallback to default
+    const defaultValue = isDark ? "#111111" : "#ededed";
+    root.style.setProperty("--chat-bg", defaultValue);
+    return;
+  }
 
   const value = isDark && preset.darkValue ? preset.darkValue : preset.value;
   root.style.setProperty("--chat-bg", value);
