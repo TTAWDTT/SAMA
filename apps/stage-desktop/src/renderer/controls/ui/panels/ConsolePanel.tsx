@@ -46,10 +46,14 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
     });
   }, [logs, level, query]);
 
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
   const copyLog = async (log: AppLogItem) => {
     const text = `[${formatTime(log.ts)}] [${log.level.toUpperCase()}]${log.scope ? ` [${log.scope}]` : ""} ${log.message}`;
     try {
       await navigator.clipboard.writeText(text);
+      setCopyFeedback(log.ts.toString());
+      setTimeout(() => setCopyFeedback(null), 1500);
     } catch {}
   };
 
@@ -98,7 +102,7 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
           filtered.map((l, idx) => (
             <div
               key={`${l.ts}_${idx}`}
-              className={`logRow ${l.level} ${idx % 2 === 0 ? "even" : "odd"}`}
+              className={`logRow ${l.level} ${idx % 2 === 0 ? "even" : "odd"} ${copyFeedback === l.ts.toString() ? "copied" : ""}`}
               onClick={() => void copyLog(l)}
               title="点击复制"
             >

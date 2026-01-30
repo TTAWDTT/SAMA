@@ -117,7 +117,7 @@ export function TopBar(props: {
 
         <div className="topTitle">
           <div className="topName">{title}</div>
-          <div className="topSub">
+          <div className="topSub" aria-live="polite">
             <span className={`dot ${connection.connected ? "on" : ""}`} aria-hidden="true" />
             <span>{statusText}</span>
             {providerLabel && <span className="pill">{providerLabel}</span>}

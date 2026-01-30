@@ -143,7 +143,13 @@ export function CodeBlock(props: {
   const [copied, setCopied] = useState(false);
   const lang = useMemo(() => normalizeLanguage(className), [className]);
   const code = useMemo(() => extractText(children).replace(/\n$/, ""), [children]);
-  const highlighted = useMemo(() => highlightCode(code, lang), [code, lang]);
+
+  // Skip syntax highlighting for very large code blocks (> 10KB) for performance
+  const MAX_HIGHLIGHT_LENGTH = 10000;
+  const highlighted = useMemo(
+    () => (code.length > MAX_HIGHLIGHT_LENGTH ? code : highlightCode(code, lang)),
+    [code, lang]
+  );
 
   return (
     <div className="codeBlock">

@@ -168,6 +168,7 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
             className="input"
             type="password"
             autoComplete="off"
+            aria-label={`${label} API Key`}
             placeholder={p === "openai" ? "sk-..." : "..."}
             value={safeString(keyVal)}
             onChange={(e) => setKey(e.target.value)}

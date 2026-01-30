@@ -1330,6 +1330,11 @@ html, body {
   background: var(--bg-secondary);
 }
 
+.logRow.copied {
+  background: var(--accent-light);
+  transition: background 0.15s ease;
+}
+
 .logMeta {
   display: flex;
   align-items: center;
