@@ -110,6 +110,34 @@ export function Composer(props: {
     setImages((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Handle paste event for images
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageItems = Array.from(items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
+
+    // Prevent default only if we're handling images
+    e.preventDefault();
+
+    imageItems.forEach((item) => {
+      const file = item.getAsFile();
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setImages((prev) => {
+          // Limit to 4 images
+          if (prev.length >= 4) return prev;
+          return [...prev, { dataUrl, name: file.name || `pasted-${Date.now()}.png` }];
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   return (
     <div className="composerArea">
       <div className="composerContainer">
@@ -163,6 +191,7 @@ export function Composer(props: {
             spellCheck={false}
             disabled={Boolean(disabled)}
             onChange={(e) => onChange(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 (e.target as HTMLTextAreaElement).blur();

@@ -459,6 +459,20 @@ html, body {
   opacity: 0.9;
 }
 
+/* Grouped messages (not first in group) - reduce spacing */
+.chatMessage.isGrouped {
+  padding-top: 2px;
+}
+
+.chatMessage.isGrouped .chatAvatar {
+  visibility: hidden;
+}
+
+/* Hidden avatar placeholder to maintain alignment */
+.chatAvatar.hidden {
+  visibility: hidden;
+}
+
 @keyframes messageIn {
   from {
     opacity: 0;

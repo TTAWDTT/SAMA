@@ -26,14 +26,20 @@ export const ChatTimeline = forwardRef<
   const showLlmHint = String(llmProvider ?? "") === "fallback";
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
-  // Group messages by date for date separators
+  // Group messages by date for date separators and consecutive sender grouping
+  // isGroupStart: true if this message starts a new group (different sender or time gap > 2 min)
   const messagesWithDates = useMemo(() => {
-    const result: Array<{ type: "date"; date: string; key: string } | { type: "message"; message: UiMessage }> = [];
+    const result: Array<{ type: "date"; date: string; key: string } | { type: "message"; message: UiMessage; isGroupStart: boolean }> = [];
     let lastDateKey = "";
+    let lastRole: string | null = null;
+    let lastTs = 0;
+    const GROUP_GAP_MS = 2 * 60 * 1000; // 2 minutes
 
     for (const m of messages) {
       const dateKey = getDateKey(m.ts);
-      if (dateKey !== lastDateKey) {
+      const isNewDate = dateKey !== lastDateKey;
+
+      if (isNewDate) {
         result.push({
           type: "date",
           date: formatDateSeparator(m.ts),
@@ -41,7 +47,13 @@ export const ChatTimeline = forwardRef<
         });
         lastDateKey = dateKey;
       }
-      result.push({ type: "message", message: m });
+
+      // Check if this is the start of a new message group
+      const isGroupStart = isNewDate || lastRole !== m.role || (m.ts - lastTs > GROUP_GAP_MS);
+
+      result.push({ type: "message", message: m, isGroupStart });
+      lastRole = m.role;
+      lastTs = m.ts;
     }
     return result;
   }, [messages]);
@@ -81,6 +93,7 @@ export const ChatTimeline = forwardRef<
                   key={item.message.id}
                   api={api}
                   message={item.message}
+                  isGroupStart={item.isGroupStart}
                   onToast={onToast}
                   onRetry={onRetry}
                   searchQuery={searchQuery}

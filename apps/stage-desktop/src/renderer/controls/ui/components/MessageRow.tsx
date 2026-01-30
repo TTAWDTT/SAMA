@@ -70,12 +70,13 @@ function RetryIcon() {
 export function MessageRow(props: {
   api: StageDesktopApi | null;
   message: UiMessage;
+  isGroupStart?: boolean;
   onToast?: (msg: string, o?: any) => void;
   onRetry?: (text: string) => void;
   searchQuery?: string;
   onViewImage?: (src: string) => void;
 }) {
-  const { api, message, onToast, onRetry, searchQuery, onViewImage } = props;
+  const { api, message, isGroupStart = true, onToast, onRetry, searchQuery, onViewImage } = props;
   const [copied, setCopied] = useState<null | "text" | "md">(null);
   const [hovered, setHovered] = useState(false);
 
@@ -103,21 +104,21 @@ export function MessageRow(props: {
   return (
     <div
       id={`msg-${message.id}`}
-      className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""}`}
+      className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""} ${!isGroupStart ? "isGrouped" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Avatar - only show for assistant (SAMA) */}
+      {/* Avatar - only show for assistant (SAMA) and only on group start */}
       {isAssistant && (
-        <div className="chatAvatar">
+        <div className={`chatAvatar ${!isGroupStart ? "hidden" : ""}`}>
           <img src={samaAvatar} alt="SAMA" className="avatarImg" />
         </div>
       )}
 
       {/* Message bubble */}
       <div className="chatBubble">
-        {/* Time - show above bubble */}
-        <div className="chatTime">{formatTime(message.ts)}</div>
+        {/* Time - show above bubble only on group start */}
+        {isGroupStart && <div className="chatTime">{formatTime(message.ts)}</div>}
 
         {/* Images */}
         {hasImages && (

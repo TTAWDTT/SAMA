@@ -83,7 +83,16 @@ export function App() {
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [currentMatch, setCurrentMatch] = useState(0);
+
+  // Debounce search query for performance
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Keyboard shortcuts modal
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -111,10 +120,10 @@ export function App() {
     applyBackground(background, theme === "dark", customBgImage);
   }, [theme]);
 
-  // Calculate search matches
+  // Calculate search matches (uses debounced query for performance)
   const searchMatches = useMemo(() => {
-    if (!searchQuery.trim()) return [];
-    const query = searchQuery.toLowerCase();
+    if (!debouncedSearchQuery.trim()) return [];
+    const query = debouncedSearchQuery.toLowerCase();
     const matches: { index: number; id: string }[] = [];
     entries.forEach((entry, index) => {
       if (entry.content.toLowerCase().includes(query)) {
@@ -122,7 +131,7 @@ export function App() {
       }
     });
     return matches;
-  }, [entries, searchQuery]);
+  }, [entries, debouncedSearchQuery]);
 
   // Search navigation
   const goToMatch = useCallback((matchIndex: number) => {
