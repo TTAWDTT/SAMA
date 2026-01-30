@@ -20,12 +20,6 @@ function pickApproachExpression(state: CompanionState, isNight: boolean): Action
   return isNight ? "TIRED" : "NEUTRAL";
 }
 
-function truncateByCodepoints(s: string, max: number) {
-  const arr = Array.from(String(s ?? "").trim());
-  if (arr.length <= max) return arr.join("");
-  return arr.slice(0, max).join("") + "…";
-}
-
 function normalizeBubbleText(s: string) {
   return String(s ?? "")
     .replace(/\r\n/g, "\n")
@@ -685,7 +679,7 @@ export class CoreService {
           this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: reply });
         } catch {}
 
-        const bubble = truncateByCodepoints(normalizeBubbleText(pickBubbleTextFromReply(reply)), 180);
+        const bubble = normalizeBubbleText(pickBubbleTextFromReply(reply));
         const cmd: ActionCommand = {
           type: "ACTION_COMMAND",
           ts: replyTs,
@@ -715,7 +709,7 @@ export class CoreService {
         this.#memory.logChatMessage({ ts: replyTs, role: "assistant", content: reply });
       } catch {}
 
-      const bubble = truncateByCodepoints(normalizeBubbleText(pickBubbleTextFromReply(reply)), 180);
+      const bubble = normalizeBubbleText(pickBubbleTextFromReply(reply));
       const cmd: ActionCommand = {
         type: "ACTION_COMMAND",
         ts: replyTs,
@@ -828,7 +822,7 @@ export class CoreService {
     } catch {}
 
     // Chat reply is rendered as a bubble near the character (separate from the input UI).
-    const bubble = truncateByCodepoints(normalizeBubbleText(pickBubbleTextFromReply(reply)), 180);
+    const bubble = normalizeBubbleText(pickBubbleTextFromReply(reply));
     const cmd: ActionCommand = {
       type: "ACTION_COMMAND",
       ts: replyTs,

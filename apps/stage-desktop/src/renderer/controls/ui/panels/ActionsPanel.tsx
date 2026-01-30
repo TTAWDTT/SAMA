@@ -18,6 +18,7 @@ import {
 import { VRMA_PRESETS, loadPresetBytes, type VrmaPreset } from "../lib/vrmaPresets";
 
 const LS_QUIET = "sama.ui.quietMode.v1";
+const LS_PRESET_CAROUSEL = "sama.ui.vrma.presetCarousel.v1";
 
 function loadQuietMode() {
   try {
@@ -30,6 +31,23 @@ function loadQuietMode() {
 function saveQuietMode(v: boolean) {
   try {
     localStorage.setItem(LS_QUIET, v ? "1" : "0");
+  } catch {}
+}
+
+function loadPresetCarouselEnabled() {
+  try {
+    const v = localStorage.getItem(LS_PRESET_CAROUSEL);
+    // Default: enabled (action showcase).
+    if (v === null) return true;
+    return v === "1";
+  } catch {
+    return true;
+  }
+}
+
+function savePresetCarouselEnabled(v: boolean) {
+  try {
+    localStorage.setItem(LS_PRESET_CAROUSEL, v ? "1" : "0");
   } catch {}
 }
 
@@ -70,6 +88,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const { api, onToast } = props;
 
   const [quiet, setQuiet] = useState(loadQuietMode);
+  const [presetCarousel, setPresetCarousel] = useState(loadPresetCarouselEnabled);
 
   const [displayMode, setDisplayMode] = useState<PetDisplayModeConfig>({ mode: "normal" });
 
@@ -90,6 +109,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const [libLoading, setLibLoading] = useState(false);
   const [library, setLibrary] = useState<VrmaLibraryItem[]>([]);
   const [presetLoading, setPresetLoading] = useState<string | null>(null);
+  const presetLoadingRef = useRef<string | null>(null);
 
   const pendingVrmaCfg = useRef<any>({});
   const vrmaCfgTimer = useRef<number | null>(null);
@@ -97,8 +117,11 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const idleCfgTimer = useRef<number | null>(null);
   const pendingWalkCfg = useRef<any>({});
   const walkCfgTimer = useRef<number | null>(null);
+  const presetCarouselTimer = useRef<number | null>(null);
+  const presetCarouselIdx = useRef<number>(0);
 
   useEffect(() => saveQuietMode(quiet), [quiet]);
+  useEffect(() => savePresetCarouselEnabled(presetCarousel), [presetCarousel]);
 
   useEffect(() => {
     if (!api || typeof api.onPetState !== "function") return;
@@ -200,21 +223,78 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     }
   }
 
-  async function playPreset(preset: VrmaPreset) {
-    if (presetLoading) return;
+  async function playPreset(preset: VrmaPreset, opts?: { silent?: boolean }) {
+    if (presetLoadingRef.current) return;
+    presetLoadingRef.current = preset.id;
     setPresetLoading(preset.id);
     try {
       const bytes = await loadPresetBytes(preset);
       await loadVrmaBytes(bytes);
       setVrmaStatus(`预设：${preset.name}（已加载）`);
-      onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
+      if (!opts?.silent) onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      onToast(`加载预设动作失败：${msg}`, { timeoutMs: 5200 });
+      setVrmaStatus(`预设：${preset.name}（失败）`);
+      if (!opts?.silent) onToast(`加载预设动作失败：${msg}`, { timeoutMs: 5200 });
     } finally {
+      presetLoadingRef.current = null;
       setPresetLoading(null);
     }
   }
+
+  // Default: auto carousel preset motions (action showcase).
+  useEffect(() => {
+    if (!presetCarousel) {
+      if (presetCarouselTimer.current !== null) {
+        window.clearTimeout(presetCarouselTimer.current);
+        presetCarouselTimer.current = null;
+      }
+      return;
+    }
+    if (!api) return;
+    if (!VRMA_PRESETS.length) return;
+
+    let cancelled = false;
+    const intervalMs = 10_000;
+
+    const schedule = () => {
+      if (cancelled) return;
+      presetCarouselTimer.current = window.setTimeout(async () => {
+        if (cancelled) return;
+        const preset = VRMA_PRESETS[presetCarouselIdx.current % VRMA_PRESETS.length] ?? VRMA_PRESETS[0]!;
+        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % VRMA_PRESETS.length;
+        try {
+          await playPreset(preset, { silent: true });
+        } catch {
+          // ignore; toast already handled by playPreset
+        }
+        schedule();
+      }, intervalMs);
+    };
+
+    // Kick off quickly on mount / toggle-on, then continue on a fixed cadence.
+    presetCarouselTimer.current = window.setTimeout(() => {
+      // Reuse the same code path as schedule() but without waiting full interval.
+      void (async () => {
+        if (cancelled) return;
+        const preset = VRMA_PRESETS[presetCarouselIdx.current % VRMA_PRESETS.length] ?? VRMA_PRESETS[0]!;
+        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % VRMA_PRESETS.length;
+        try {
+          await playPreset(preset, { silent: true });
+        } catch {}
+        schedule();
+      })();
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      if (presetCarouselTimer.current !== null) {
+        window.clearTimeout(presetCarouselTimer.current);
+        presetCarouselTimer.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, presetCarousel]);
 
   function toggleDisplayMode() {
     const nextMode = displayMode.mode === "normal" ? "peek" : "normal";
@@ -405,6 +485,18 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
         <div className="field">
           <div className="label">预设动作</div>
           <div className="help">来自 pixiv VRoid Project 的预设动作（点击播放）</div>
+          <label className="switchRow" style={{ marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={presetCarousel}
+              onChange={(e) => {
+                const v = Boolean(e.target.checked);
+                setPresetCarousel(v);
+                onToast(v ? "已开启：自动轮播预设动作" : "已关闭：自动轮播", { timeoutMs: 1800 });
+              }}
+            />
+            <span className="switchLabel">自动轮播</span>
+          </label>
           <div className="chipRow" style={{ marginTop: 8 }}>
             {VRMA_PRESETS.map((preset) => (
               <button
