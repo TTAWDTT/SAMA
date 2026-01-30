@@ -30,10 +30,10 @@ export function KeyboardShortcuts(props: { isOpen: boolean; onClose: () => void 
   if (!isOpen) return null;
 
   return (
-    <div className="modalOverlay" onClick={onClose}>
+    <div className="modalOverlay" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
       <div className="modalContent shortcutsModal" onClick={(e) => e.stopPropagation()}>
         <div className="modalHeader">
-          <h3>键盘快捷键</h3>
+          <h3 id="shortcuts-title">键盘快捷键</h3>
           <button className="modalClose" type="button" onClick={onClose} aria-label="关闭">
             ×
           </button>

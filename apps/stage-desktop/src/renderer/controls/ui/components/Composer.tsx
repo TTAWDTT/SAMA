@@ -99,6 +99,9 @@ export function Composer(props: {
           return [...prev, { dataUrl, name: file.name }];
         });
       };
+      reader.onerror = () => {
+        console.warn("Failed to read image file:", file.name);
+      };
       reader.readAsDataURL(file);
     });
 
@@ -133,6 +136,9 @@ export function Composer(props: {
           if (prev.length >= 4) return prev;
           return [...prev, { dataUrl, name: file.name || `pasted-${Date.now()}.png` }];
         });
+      };
+      reader.onerror = () => {
+        console.warn("Failed to read pasted image");
       };
       reader.readAsDataURL(file);
     });

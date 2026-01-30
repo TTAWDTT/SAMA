@@ -60,7 +60,7 @@ export const ChatTimeline = forwardRef<
 
   return (
     <div className="timelineWrap">
-      <div ref={ref} className="timeline" role="log" aria-live="polite">
+      <div ref={ref} className="timeline" role="log" aria-live="polite" aria-busy={isThinking}>
         {showLlmHint ? (
           <div className="hintBanner" role="note">
             <div className="hintTitle">未配置 LLM</div>

@@ -22,7 +22,13 @@ export function ImageViewer(props: ImageViewerProps) {
   if (!src) return null;
 
   return (
-    <div className="imageViewerOverlay" onClick={onClose}>
+    <div
+      className="imageViewerOverlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="图片查看器"
+    >
       <img
         src={src}
         alt="查看图片"

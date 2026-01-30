@@ -128,10 +128,10 @@ export function Onboarding(props: OnboardingProps) {
   const isLast = step === ONBOARDING_STEPS.length - 1;
 
   return (
-    <div className="onboardingOverlay">
+    <div className="onboardingOverlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
       <div className="onboardingCard">
         {/* Progress */}
-        <div className="onboardingProgress">
+        <div className="onboardingProgress" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={ONBOARDING_STEPS.length}>
           {ONBOARDING_STEPS.map((_, i) => (
             <div
               key={i}
@@ -143,7 +143,7 @@ export function Onboarding(props: OnboardingProps) {
         {/* Content */}
         <div className="onboardingContent">
           <div className="onboardingIcon">{currentStep.icon}</div>
-          <h2 className="onboardingTitle">{currentStep.title}</h2>
+          <h2 id="onboarding-title" className="onboardingTitle">{currentStep.title}</h2>
           <p className="onboardingDesc">{currentStep.description}</p>
         </div>
 

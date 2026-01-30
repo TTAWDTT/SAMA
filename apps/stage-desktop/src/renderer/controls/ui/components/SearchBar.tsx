@@ -86,6 +86,7 @@ export function SearchBar(props: SearchBarProps) {
           placeholder="搜索消息..."
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
+          aria-label="搜索消息"
         />
         {searchQuery && (
           <span className="searchCount">

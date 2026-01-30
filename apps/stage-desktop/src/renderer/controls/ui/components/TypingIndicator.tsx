@@ -3,7 +3,7 @@ import samaAvatar from "../assets/sama-avatar.png";
 
 export function TypingIndicator() {
   return (
-    <div className="chatMessage assistant typing">
+    <div className="chatMessage assistant typing" role="status" aria-label="SAMA 正在输入">
       {/* Avatar */}
       <div className="chatAvatar">
         <img src={samaAvatar} alt="SAMA" className="avatarImg" />
