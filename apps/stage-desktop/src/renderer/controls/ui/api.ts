@@ -5,6 +5,8 @@ export type LlmConfig = {
   openai?: { apiKey?: string; model?: string; baseUrl?: string };
   deepseek?: { apiKey?: string; model?: string; baseUrl?: string };
   aistudio?: { apiKey?: string; model?: string; baseUrl?: string };
+  webSearch?: { enabled?: boolean; tavilyApiKey?: string; maxResults?: number };
+  skills?: { dir?: string; enabled?: string[] };
 };
 
 export type ManualActionPayload = {
@@ -51,7 +53,13 @@ export type StageDesktopApi = {
   sendManualAction?: (m: ManualActionPayload) => void;
 
   // LLM config
-  getLlmConfig?: () => Promise<{ stored: LlmConfig | null; effective: LlmConfig | null; provider: string }>;
+  getLlmConfig?: () => Promise<{
+    stored: LlmConfig | null;
+    effective: LlmConfig | null;
+    provider: string;
+    skillsDir?: string;
+    availableSkills?: string[];
+  }>;
   setLlmConfig?: (cfg: LlmConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
 
   // Long-term memory (SQLite) helpers

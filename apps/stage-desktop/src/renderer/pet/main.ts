@@ -421,7 +421,7 @@ async function boot() {
       }
 
       if (msg.action === "LOAD_VRMA_BYTES") {
-        setBootStatus("正在从控制台加载 VRMA…");
+        // Avoid noisy boot status updates when Controls triggers a VRMA load.
         const ok = await scene.loadVrmAnimationBytes(msg.bytes);
         hudState.vrmaLoaded = ok;
         renderHud();

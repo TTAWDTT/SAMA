@@ -35,11 +35,15 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
 
   const [loading, setLoading] = useState(false);
   const [runtimeProvider, setRuntimeProvider] = useState("unknown");
+  const [skillsDir, setSkillsDir] = useState("");
+  const [availableSkills, setAvailableSkills] = useState<string[]>([]);
   const [cfg, setCfg] = useState<LlmConfig>({
     provider: "auto",
     openai: { apiKey: "", model: "", baseUrl: "" },
     deepseek: { apiKey: "", model: "", baseUrl: "" },
-    aistudio: { apiKey: "", model: "", baseUrl: "" }
+    aistudio: { apiKey: "", model: "", baseUrl: "" },
+    webSearch: { enabled: false, tavilyApiKey: "", maxResults: 6 },
+    skills: { dir: "", enabled: [] }
   });
   const [persona, setPersona] = useState<Persona>(loadPersona);
 
@@ -75,6 +79,8 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
     try {
       const res = await api.getLlmConfig();
       const stored = (res?.stored ?? null) || {};
+      setSkillsDir(safeString((res as any)?.skillsDir));
+      setAvailableSkills(Array.isArray((res as any)?.availableSkills) ? ((res as any).availableSkills as any[]).map((s) => safeString(s)).filter(Boolean) : []);
 
       setCfg({
         provider: safeString((stored as any).provider, "auto"),
@@ -92,6 +98,17 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
           apiKey: safeString((stored as any).aistudio?.apiKey),
           model: safeString((stored as any).aistudio?.model),
           baseUrl: safeString((stored as any).aistudio?.baseUrl)
+        },
+        webSearch: {
+          enabled: Boolean((stored as any).webSearch?.enabled ?? false),
+          tavilyApiKey: safeString((stored as any).webSearch?.tavilyApiKey),
+          maxResults: clamp(Number((stored as any).webSearch?.maxResults ?? 6), 1, 10)
+        },
+        skills: {
+          dir: safeString((stored as any).skills?.dir),
+          enabled: Array.isArray((stored as any).skills?.enabled)
+            ? ((stored as any).skills.enabled as any[]).map((x) => safeString(x)).filter(Boolean)
+            : []
         }
       });
 
@@ -229,6 +246,112 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
 
         <div className="divider" />
 
+        <div className="field">
+          <div className="label">Web Search（联网搜索）</div>
+          <label className="switchRow" style={{ marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={Boolean((cfg as any).webSearch?.enabled)}
+              onChange={(e) => {
+                const v = Boolean(e.target.checked);
+                setCfg((c) => ({ ...c, webSearch: { ...(c as any).webSearch, enabled: v } }));
+              }}
+              disabled={loading}
+            />
+            <span className="switchLabel">启用 Web Search（/search 与 /web）</span>
+          </label>
+          <div className="help">实现方式：Tavily；用于让 SAMA 能“搜一下再回答”。</div>
+
+          <div className="divider" />
+
+          <div className="field">
+            <div className="label">Tavily API Key</div>
+            <input
+              className="input"
+              type="password"
+              autoComplete="off"
+              placeholder="tvly-..."
+              value={safeString((cfg as any).webSearch?.tavilyApiKey)}
+              onChange={(e) => setCfg((c) => ({ ...c, webSearch: { ...(c as any).webSearch, tavilyApiKey: e.target.value } }))}
+              disabled={loading}
+            />
+            <div className="help">会保存到本地配置（请勿泄露）。也可用环境变量 `TAVILY_API_KEY`。</div>
+          </div>
+
+          <div className="field">
+            <div className="label">Max results</div>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={10}
+              value={Number((cfg as any).webSearch?.maxResults ?? 6)}
+              onChange={(e) =>
+                setCfg((c) => ({
+                  ...c,
+                  webSearch: { ...(c as any).webSearch, maxResults: clamp(Number(e.target.value || 6), 1, 10) }
+                }))
+              }
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        <div className="field">
+          <div className="label">Skills（本地）</div>
+          <div className="help">从 `{skillsDir || "~/.claude/skills"}` 读取。勾选后会注入 system prompt（影响后续对话）。</div>
+
+          <div className="btnRow" style={{ marginTop: 8 }}>
+            <button className="btn btnSm" type="button" onClick={() => void loadConfig()} disabled={loading}>
+              刷新列表
+            </button>
+            <button
+              className="btn btnSm"
+              type="button"
+              onClick={() => setCfg((c) => ({ ...c, skills: { ...(c as any).skills, enabled: [] } }))}
+              disabled={loading}
+            >
+              全部取消
+            </button>
+          </div>
+
+          {availableSkills.length ? (
+            <div className="memList" style={{ marginTop: 10, maxHeight: 260, overflow: "auto" }}>
+              {availableSkills.map((name) => {
+                const enabled = new Set(Array.isArray((cfg as any).skills?.enabled) ? (cfg as any).skills.enabled : []);
+                const checked = enabled.has(name);
+                return (
+                  <label key={name} className="switchRow" style={{ padding: "8px 10px" }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = Boolean(e.target.checked);
+                        setCfg((c) => {
+                          const cur = new Set(Array.isArray((c as any).skills?.enabled) ? (c as any).skills.enabled : []);
+                          if (next) cur.add(name);
+                          else cur.delete(name);
+                          return { ...c, skills: { ...(c as any).skills, enabled: Array.from(cur) } };
+                        });
+                      }}
+                      disabled={loading}
+                    />
+                    <span className="switchLabel">{name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="help" style={{ marginTop: 8 }}>
+              未发现任何 skill（需要每个子目录下有 `SKILL.md`）。
+            </div>
+          )}
+        </div>
+
+        <div className="divider" />
+
         <div className="segRow">
           <div className="segLabel">Reply style</div>
           <div className="seg">
@@ -303,4 +426,3 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
     </div>
   );
 }
-

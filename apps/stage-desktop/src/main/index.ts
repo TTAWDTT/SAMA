@@ -32,6 +32,7 @@ import { MemoryService } from "./services/memory.service";
 import { SensingService } from "./services/sensing.service";
 import { ShortcutsService } from "./services/shortcuts.service";
 import { TrayService } from "./services/tray.service";
+import { SkillService } from "./services/skill.service";
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -202,6 +203,34 @@ function sanitizeLlmConfig(raw: unknown): LLMConfig {
   if (deepseek) cfg.deepseek = deepseek;
   const aistudio = pickProviderBlock("aistudio");
   if (aistudio) cfg.aistudio = aistudio;
+
+  // Web search config (Tavily)
+  if (isPlainObject((raw as any).webSearch)) {
+    const b: any = (raw as any).webSearch;
+    const out: any = {};
+    if (typeof b.enabled === "boolean") out.enabled = b.enabled;
+    // allow empty string so users can explicitly clear it.
+    if (typeof b.tavilyApiKey === "string") out.tavilyApiKey = b.tavilyApiKey;
+    if (b.maxResults !== undefined) {
+      const n = Math.floor(Number(b.maxResults) || 0);
+      if (Number.isFinite(n) && n > 0) out.maxResults = Math.max(1, Math.min(10, n));
+    }
+    cfg.webSearch = out;
+  }
+
+  // Skills config (~/.claude/skills)
+  if (isPlainObject((raw as any).skills)) {
+    const b: any = (raw as any).skills;
+    const out: any = {};
+    if (typeof b.dir === "string") {
+      const s = b.dir.trim();
+      if (s) out.dir = s;
+    }
+    if (Array.isArray(b.enabled)) {
+      out.enabled = b.enabled.map((x: any) => String(x ?? "").trim()).filter((x: string) => x);
+    }
+    cfg.skills = out;
+  }
   return cfg;
 }
 
@@ -211,7 +240,9 @@ function mergeLlmConfig(base: LLMConfig | null | undefined, override: LLMConfig 
     provider: (override?.provider ?? base?.provider) as any,
     openai: { ...(base?.openai ?? {}), ...(override?.openai ?? {}) },
     deepseek: { ...(base?.deepseek ?? {}), ...(override?.deepseek ?? {}) },
-    aistudio: { ...(base?.aistudio ?? {}), ...(override?.aistudio ?? {}) }
+    aistudio: { ...(base?.aistudio ?? {}), ...(override?.aistudio ?? {}) },
+    webSearch: { ...(base?.webSearch ?? {}), ...(override?.webSearch ?? {}) },
+    skills: { ...(base?.skills ?? {}), ...(override?.skills ?? {}) }
   };
 }
 
@@ -306,6 +337,8 @@ async function bootstrap() {
   const llm = new LLMService({ config: mergeLlmConfig(baseLlmConfig, persistedLlmConfig) });
   console.log(`[llm] provider=${llm.providerName}`);
 
+  let core: CoreService | null = null;
+
   // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
   // but we keep this resolver defensive to avoid "preload API missing" in case of outDir mismatch.
   const preloadResolved = resolvePreloadPath();
@@ -396,11 +429,16 @@ async function bootstrap() {
   ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked, llmProvider: llm.providerName }));
 
   ipcMain.handle(IPC_HANDLES.llmConfigGet, async () => {
+    const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+    const skillsDir = String(effective?.skills?.dir ?? "").trim() || undefined;
+    const skillSvc = new SkillService({ skillsDir });
     return {
       storagePath: llmConfigStatePath,
       stored: persistedLlmConfig,
-      effective: mergeLlmConfig(baseLlmConfig, persistedLlmConfig),
-      provider: llm.providerName
+      effective,
+      provider: llm.providerName,
+      skillsDir: skillSvc.skillsDir,
+      availableSkills: skillSvc.listSkills().map((s) => s.name)
     };
   });
 
@@ -410,7 +448,9 @@ async function bootstrap() {
       const cfg = sanitizeLlmConfig(rawCfg);
       writePersistedLlmConfig(llmConfigStatePath, cfg);
       persistedLlmConfig = cfg;
-      llm.setConfig(mergeLlmConfig(baseLlmConfig, persistedLlmConfig));
+      const nextEffective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+      llm.setConfig(nextEffective);
+      core?.setAssistantConfig(nextEffective);
       return { ok: true, provider: llm.providerName };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -754,7 +794,7 @@ async function bootstrap() {
     pushAppLog("error", args);
   };
 
-  const core = new CoreService({
+  core = new CoreService({
     llm,
     memory,
     onAction: (cmd, meta) => {
@@ -789,6 +829,7 @@ async function bootstrap() {
       if (cmd.action === "RETREAT") moveTo(homePosition, cmd.durationMs || 1500);
     }
   });
+  core.setAssistantConfig(mergeLlmConfig(baseLlmConfig, persistedLlmConfig));
 
   const sensing = new SensingService({
     configPath,

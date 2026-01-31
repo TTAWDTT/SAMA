@@ -5,7 +5,6 @@
 
 // Import VRMA files as static assets
 import vrma01 from "../assets/vrma/VRMA_01.vrma?url";
-import vrma02 from "../assets/vrma/VRMA_02.vrma?url";
 import vrma03 from "../assets/vrma/VRMA_03.vrma?url";
 import vrma04 from "../assets/vrma/VRMA_04.vrma?url";
 import vrma05 from "../assets/vrma/VRMA_05.vrma?url";
@@ -27,13 +26,6 @@ export const VRMA_PRESETS: VrmaPreset[] = [
     nameEn: "Show full body",
     url: vrma01,
     description: "展示角色全身的动作"
-  },
-  {
-    id: "vrma_02",
-    name: "打招呼",
-    nameEn: "Greeting",
-    url: vrma02,
-    description: "友好的问候动作"
   },
   {
     id: "vrma_03",

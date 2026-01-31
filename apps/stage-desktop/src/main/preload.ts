@@ -79,6 +79,8 @@ export type StageDesktopAPI = {
     stored: LLMConfig | null;
     effective: LLMConfig | null;
     provider: string;
+    skillsDir?: string;
+    availableSkills?: string[];
   }>;
   setLlmConfig: (config: LLMConfig) => Promise<{ ok: boolean; provider?: string; message?: string }>;
   getMemoryStats: () => Promise<{ enabled: boolean; chatCount: number; noteCount: number; factCount: number }>;

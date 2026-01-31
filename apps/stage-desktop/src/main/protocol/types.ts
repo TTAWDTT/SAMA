@@ -21,11 +21,27 @@ export type AIStudioConfig = {
   baseUrl?: string;
 };
 
+export type WebSearchConfig = {
+  enabled?: boolean;
+  /** Tavily API key (optional; can also be set via env TAVILY_API_KEY). */
+  tavilyApiKey?: string;
+  maxResults?: number;
+};
+
+export type SkillsConfig = {
+  /** Skills directory (default: ~/.claude/skills). */
+  dir?: string;
+  /** Enabled skill folder names. */
+  enabled?: string[];
+};
+
 export type LLMConfig = {
   provider?: LLMProviderName;
   openai?: OpenAIConfig;
   deepseek?: DeepSeekConfig;
   aistudio?: AIStudioConfig;
+  webSearch?: WebSearchConfig;
+  skills?: SkillsConfig;
 };
 
 export type AppConfig = {

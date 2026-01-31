@@ -14,6 +14,8 @@ export interface LLMProvider {
       memory?: string;
       /** Rolling short-term summary for continuity (best-practice working memory). */
       summary?: string;
+      /** Optional injected skill instructions (local-only). */
+      skills?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
@@ -570,11 +572,12 @@ class OpenAICompatibleProvider implements LLMProvider {
       mood: number;
       memory?: string;
       summary?: string;
+      skills?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
   ) {
-    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary });
+    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary, skills: (ctx as any)?.skills });
     const raw = await openAICompatibleChat(
       this.#opts,
       [
@@ -815,11 +818,12 @@ class AIStudioProvider implements LLMProvider {
       mood: number;
       memory?: string;
       summary?: string;
+      skills?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
   ) {
-    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary });
+    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary, skills: (ctx as any)?.skills });
 
     if (this.#baseUrl) {
       const raw = await openAICompatibleChat(
@@ -1155,6 +1159,7 @@ export class LLMService {
       memory?: string;
       /** Rolling short-term summary for continuity (best-practice working memory). */
       summary?: string;
+      skills?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string

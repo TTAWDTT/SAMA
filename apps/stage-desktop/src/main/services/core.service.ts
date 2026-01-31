@@ -2,6 +2,8 @@ import type { ActionCommand, ChatRequest, ChatResponse, SensorUpdate, UserIntera
 import type { CompanionState } from "../protocol/types";
 import { LLMService } from "./llm.service";
 import { MemoryService } from "./memory.service";
+import { SkillService } from "./skill.service";
+import { webSearch } from "./web-search.service";
 
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
@@ -251,6 +253,8 @@ function ruleBasedMemoryExtract(userMsg: string): { kind: "preference" | "profil
 export class CoreService {
   #llm: LLMService;
   #memory: MemoryService;
+  #skills: SkillService;
+  #enabledSkills: string[] = [];
   #onAction: (cmd: ActionCommand, meta: { proactive: boolean }) => void;
 
   #state: CompanionState = "IDLE";
@@ -272,6 +276,28 @@ export class CoreService {
   #summaryInFlight = false;
   #lastSummaryUpdateTs = 0;
 
+  #webSearchEnabled = false;
+  #webSearchApiKey = "";
+  #webSearchMaxResults = 6;
+
+  setAssistantConfig(cfg: any) {
+    const c = cfg && typeof cfg === "object" ? cfg : null;
+
+    const ws = c && typeof (c as any).webSearch === "object" ? (c as any).webSearch : null;
+    this.#webSearchEnabled = Boolean(ws?.enabled ?? false);
+    this.#webSearchApiKey = typeof ws?.tavilyApiKey === "string" ? ws.tavilyApiKey : "";
+    const mr = Math.floor(Number(ws?.maxResults ?? 6) || 0);
+    this.#webSearchMaxResults = mr > 0 ? Math.max(1, Math.min(10, mr)) : 6;
+
+    const skills = c && typeof (c as any).skills === "object" ? (c as any).skills : null;
+    const dir = typeof skills?.dir === "string" ? skills.dir.trim() : "";
+    this.#skills = new SkillService({ skillsDir: dir || undefined });
+    const enabled = Array.isArray(skills?.enabled) ? skills.enabled : null;
+    if (enabled) {
+      this.#enabledSkills = enabled.map((x: any) => String(x ?? "").trim()).filter(Boolean);
+    }
+  }
+
   constructor(opts: {
     llm: LLMService;
     memory: MemoryService;
@@ -280,6 +306,15 @@ export class CoreService {
     this.#llm = opts.llm;
     this.#memory = opts.memory;
     this.#onAction = opts.onAction;
+    this.#skills = new SkillService();
+
+    // Optional: enable skills by default via env (comma-separated).
+    // (This can be overridden later by `setAssistantConfig()`.)
+    const envSkills = String(process.env.SAMA_SKILLS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (envSkills.length) this.#enabledSkills = envSkills;
 
     // Long-term memory v1: persist chat history locally and restore it on boot
     // so conversations continue across restarts.
@@ -587,6 +622,102 @@ export class CoreService {
 
       const cfg = this.#memory.getAgentMemoryConfig();
 
+      if (slash.cmd === "search" || slash.cmd === "websearch") {
+        const q = slash.args.trim();
+        if (!q) return respond("用法：/search <query>");
+        try {
+          if (!this.#webSearchEnabled) return respond("联网搜索未启用：请在 LLM 面板开启 Web Search。");
+          const apiKey = String(this.#webSearchApiKey || process.env.TAVILY_API_KEY || "").trim();
+          if (!apiKey) return respond("未配置 Tavily API Key：请在 LLM 面板填写（或设置环境变量 TAVILY_API_KEY）。");
+
+          const results = await webSearch(q, { apiKey, maxResults: this.#webSearchMaxResults, timeoutMs: 12_000 });
+          if (!results.length) return respond("（没有搜到结果）");
+          const lines = results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet || ""}`.trim());
+          return respond(`【联网搜索结果】\n\n${lines.join("\n\n")}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (String(msg).includes("missing TAVILY_API_KEY")) {
+            return respond("未配置联网搜索：请在 LLM 面板填写 Tavily API Key（或设置环境变量 TAVILY_API_KEY）。");
+          }
+          return respond(`联网搜索失败：${msg}`);
+        }
+      }
+
+      if (slash.cmd === "web" || slash.cmd === "browse") {
+        const q = slash.args.trim();
+        if (!q) return respond("用法：/web <query>\n说明：先联网搜索，再让 LLM 基于结果回答。");
+
+        let results: { title: string; url: string; snippet: string }[] = [];
+        try {
+          if (!this.#webSearchEnabled) return respond("联网搜索未启用：请在 LLM 面板开启 Web Search。");
+          const apiKey = String(this.#webSearchApiKey || process.env.TAVILY_API_KEY || "").trim();
+          if (!apiKey) return respond("未配置 Tavily API Key：请在 LLM 面板填写（或设置环境变量 TAVILY_API_KEY）。");
+
+          results = await webSearch(q, { apiKey, maxResults: this.#webSearchMaxResults, timeoutMs: 12_000 });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (String(msg).includes("missing TAVILY_API_KEY")) {
+            return respond("未配置联网搜索：请在 LLM 面板填写 Tavily API Key（或设置环境变量 TAVILY_API_KEY）。");
+          }
+          return respond(`联网搜索失败：${msg}`);
+        }
+
+        const webBlock = results.length
+          ? results
+              .map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet || ""}`.trim())
+              .join("\n\n")
+          : "（没有搜到结果）";
+
+        const summary = this.#memory.getConversationSummary().summary;
+        const ctx = {
+          state: this.#state,
+          isNight: this.#lastSensor?.isNight ?? false,
+          mood: this.#mood,
+          history: this.#chatHistory,
+          memory: "",
+          summary,
+          skills: this.#skills.renderSkillsPrompt(this.#enabledSkills)
+        };
+
+        const userMsg =
+          "请基于以下【联网搜索结果】回答用户问题；若结论依赖某条信息，请在句末用括号附上对应 URL。\n\n" +
+          `【用户问题】\n${q}\n\n` +
+          `【联网搜索结果】\n${webBlock}\n`;
+
+        const reply = await this.#llm.chatReply(ctx as any, userMsg);
+        return respond(reply);
+      }
+
+      if (slash.cmd === "skill" || slash.cmd === "skills") {
+        const a = slash.args.trim();
+        const lower = a.toLowerCase();
+        if (!a || lower === "list") {
+          const skills = this.#skills.listSkills();
+          if (!skills.length) return respond(`未发现 skills。\n路径：${this.#skills.skillsDir}`);
+          const enabled = new Set(this.#enabledSkills);
+          const lines = skills.map((s) => `${enabled.has(s.name) ? "✓" : "-"} ${s.name}`);
+          return respond(`Skills（路径：${this.#skills.skillsDir}）\n\n${lines.join("\n")}\n\n用法：/skill use <name> | /skill off | /skill show`);
+        }
+        if (lower === "off" || lower === "clear" || lower === "reset") {
+          this.#enabledSkills = [];
+          return respond("已关闭所有 skills（仅影响后续对话）。");
+        }
+        if (lower === "show") {
+          return respond(this.#enabledSkills.length ? `已启用：${this.#enabledSkills.join(", ")}` : "（当前未启用任何 skill）");
+        }
+        if (lower.startsWith("use ")) {
+          const name = a.slice("use ".length).trim();
+          if (!name) return respond("用法：/skill use <name>");
+          const exists = this.#skills.listSkills().some((s) => s.name === name);
+          if (!exists) return respond(`未找到 skill：「${name}」\n用 /skill list 查看可用列表。`);
+          const set = new Set(this.#enabledSkills);
+          set.add(name);
+          this.#enabledSkills = Array.from(set);
+          return respond(`已启用 skill：「${name}」（仅影响后续对话）。`);
+        }
+        return respond("用法：/skill list | /skill use <name> | /skill off | /skill show");
+      }
+
       if (slash.cmd === "summary" || slash.cmd === "sum") {
         const a = slash.args.toLowerCase();
         if (a === "clear" || a === "reset") {
@@ -641,7 +772,7 @@ export class CoreService {
         } else {
           lines.push("\n【Notes】\n- （空）");
         }
-        lines.push("\n用法：/summary | /summary clear | /memory search <query> | /memory clear notes|facts|all | /forget note <id> | /forget fact <id>");
+        lines.push("\n用法：/summary | /summary clear | /search <query> | /web <query> | /skill list | /memory search <query> | /memory clear notes|facts|all | /forget note <id> | /forget fact <id>");
         return respond(lines.join("\n").trim());
       }
 
@@ -791,7 +922,8 @@ export class CoreService {
       mood: this.#mood,
       history: this.#chatHistory,
       memory: memoryPrompt,
-      summary
+      summary,
+      skills: this.#skills.renderSkillsPrompt(this.#enabledSkills)
     };
 
     // UX: show an immediate "thinking" indicator near the avatar so users get feedback
