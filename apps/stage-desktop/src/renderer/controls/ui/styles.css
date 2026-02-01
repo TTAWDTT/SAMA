@@ -70,16 +70,18 @@
   --font-heading: "Poppins", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
 
-  /* Spacing */
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  /* Spacing - more organic rounded corners */
+  --radius-sm: 12px;
+  --radius: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
 
-  /* Transitions */
-  --transition-fast: 100ms ease;
-  --transition: 150ms ease;
-  --transition-slow: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Transitions - smoother with spring-like feel */
+  --transition-fast: 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Focus */
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
@@ -267,24 +269,43 @@ html, body {
 
 /* ========== Button ========== */
 .btn {
-  height: 36px;
-  padding: 0 16px;
-  border-radius: var(--radius-sm);
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: all var(--transition), transform var(--transition-bounce);
+  position: relative;
+  overflow: hidden;
+}
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(255,255,255,0.3) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity var(--transition);
 }
 .btn:hover {
   background: var(--surface-hover);
   border-color: var(--border-focus);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+.btn:hover::before {
+  opacity: 1;
+}
+.btn:active {
+  transform: translateY(0) scale(0.98);
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
 }
 .btn:focus-visible {
   outline: none;
@@ -295,22 +316,25 @@ html, body {
   background: var(--accent);
   border-color: var(--accent);
   color: white;
+  box-shadow: 0 2px 8px rgba(217, 119, 87, 0.25);
 }
 .btnPrimary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+  box-shadow: 0 4px 16px rgba(217, 119, 87, 0.35);
 }
 
 .btnSm {
   height: 32px;
-  padding: 0 12px;
+  padding: 0 14px;
   font-size: 13px;
 }
 
 .btnXs {
-  height: 24px;
-  padding: 0 8px;
+  height: 26px;
+  padding: 0 10px;
   font-size: 11px;
+  border-radius: var(--radius-lg);
 }
 
 .btnRow.compact {
@@ -1088,17 +1112,23 @@ html, body {
 }
 
 .card {
-  padding: 16px;
-  border-radius: var(--radius);
+  padding: 20px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
   margin-bottom: 16px;
+  transition: all var(--transition), box-shadow var(--transition-slow);
+}
+
+.card:hover {
+  box-shadow: var(--shadow);
+  border-color: var(--border-focus);
 }
 
 .divider {
   height: 1px;
-  background: var(--border);
-  margin: 16px 0;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+  margin: 20px 0;
 }
 
 .field {
@@ -1124,20 +1154,25 @@ html, body {
 
 .input, .select {
   width: 100%;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: var(--radius-sm);
+  height: 42px;
+  padding: 0 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   font-size: 14px;
-  transition: border-color var(--transition);
+  transition: all var(--transition);
 }
 
 .input:focus, .select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
+  box-shadow: 0 0 0 4px var(--accent-light);
+  transform: translateY(-1px);
+}
+
+.input:hover:not(:focus), .select:hover:not(:focus) {
+  border-color: var(--border-focus);
 }
 
 .range {
@@ -1175,19 +1210,31 @@ html, body {
 }
 
 .chip {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 16px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: all var(--transition), transform var(--transition-bounce);
 }
 
 .chip:hover {
   border-color: var(--accent);
+  background: var(--accent-light);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.chip:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.chip.loading {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .segRow {
@@ -1205,16 +1252,19 @@ html, body {
 
 .seg {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
+  background: var(--bg-tertiary);
+  padding: 4px;
+  border-radius: var(--radius-full);
 }
 
 .segBtn {
   flex: 1;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--surface);
+  height: 32px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -1222,14 +1272,19 @@ html, body {
 }
 
 .segBtn:hover {
-  border-color: var(--border-focus);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme="dark"] .segBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .segBtn.isActive {
-  background: var(--accent-light);
-  border-color: var(--accent);
+  background: var(--surface);
   color: var(--accent);
   font-weight: 500;
+  box-shadow: var(--shadow-sm);
 }
 
 .subDetails {
@@ -1692,6 +1747,178 @@ html, body {
 }
 
 [data-theme="dark"] .jumpBtn {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* ========== SAMA Display Frame ========== */
+.samaFrameControl {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
+.samaFrameControl .field {
+  margin-bottom: 12px;
+}
+
+.samaFrameControl .field:last-child {
+  margin-bottom: 0;
+}
+
+.framePreview {
+  width: 100%;
+  height: 80px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition);
+}
+
+.framePreview.hasFrame {
+  border-style: solid;
+  border-color: var(--accent);
+}
+
+.framePreviewInner {
+  width: 40px;
+  height: 60px;
+  background: linear-gradient(135deg, var(--accent-light), var(--brand-blue));
+  border-radius: var(--radius-sm);
+  opacity: 0.6;
+}
+
+.frameSliderRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.frameSliderRow .range {
+  flex: 1;
+}
+
+.frameSliderRow .frameValue {
+  min-width: 50px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ========== Micro-interactions & Animations ========== */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 300ms ease forwards;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 200ms ease forwards;
+}
+
+.animate-slideInLeft {
+  animation: slideInLeft 250ms ease forwards;
+}
+
+/* Staggered animation delays */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+
+/* Hover lift effect for interactive elements */
+.hover-lift {
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+/* Pulse animation for loading states */
+.pulse-loading {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Shimmer loading effect */
+.shimmer-loading {
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--surface-hover) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Smooth focus transitions */
+.focus-animate:focus {
+  transition: all var(--transition), box-shadow var(--transition-bounce);
+}
+
+/* Icon button hover rotation */
+.iconBtn:hover svg {
+  transition: transform var(--transition);
+}
+
+.iconBtn.rotate-hover:hover svg {
+  transform: rotate(15deg);
+}
   background: var(--surface);
   border-color: var(--border);
 }

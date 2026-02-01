@@ -19,6 +19,10 @@ import { VRMA_PRESETS, loadPresetBytes, type VrmaPreset } from "../lib/vrmaPrese
 
 const LS_QUIET = "sama.ui.quietMode.v1";
 const LS_PRESET_CAROUSEL = "sama.ui.vrma.presetCarousel.v1";
+const LS_FRAME_ENABLED = "sama.ui.frame.enabled.v1";
+const LS_FRAME_SIZE = "sama.ui.frame.size.v1";
+const LS_FRAME_RADIUS = "sama.ui.frame.radius.v1";
+const LS_FRAME_COLOR = "sama.ui.frame.color.v1";
 
 function loadQuietMode() {
   try {
@@ -48,6 +52,63 @@ function loadPresetCarouselEnabled() {
 function savePresetCarouselEnabled(v: boolean) {
   try {
     localStorage.setItem(LS_PRESET_CAROUSEL, v ? "1" : "0");
+  } catch {}
+}
+
+// Frame settings loaders/savers
+function loadFrameEnabled() {
+  try {
+    return localStorage.getItem(LS_FRAME_ENABLED) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveFrameEnabled(v: boolean) {
+  try {
+    localStorage.setItem(LS_FRAME_ENABLED, v ? "1" : "0");
+  } catch {}
+}
+
+function loadFrameSize() {
+  try {
+    const v = parseInt(localStorage.getItem(LS_FRAME_SIZE) || "", 10);
+    if (v >= 1 && v <= 10) return v;
+  } catch {}
+  return 3;
+}
+
+function saveFrameSize(v: number) {
+  try {
+    localStorage.setItem(LS_FRAME_SIZE, String(v));
+  } catch {}
+}
+
+function loadFrameRadius() {
+  try {
+    const v = parseInt(localStorage.getItem(LS_FRAME_RADIUS) || "", 10);
+    if (v >= 0 && v <= 50) return v;
+  } catch {}
+  return 12;
+}
+
+function saveFrameRadius(v: number) {
+  try {
+    localStorage.setItem(LS_FRAME_RADIUS, String(v));
+  } catch {}
+}
+
+function loadFrameColor() {
+  try {
+    return localStorage.getItem(LS_FRAME_COLOR) || "#d97757";
+  } catch {
+    return "#d97757";
+  }
+}
+
+function saveFrameColor(v: string) {
+  try {
+    localStorage.setItem(LS_FRAME_COLOR, v);
   } catch {}
 }
 
@@ -90,6 +151,12 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const [quiet, setQuiet] = useState(loadQuietMode);
   const [presetCarousel, setPresetCarousel] = useState(loadPresetCarouselEnabled);
 
+  // SAMA display frame settings
+  const [frameEnabled, setFrameEnabled] = useState(loadFrameEnabled);
+  const [frameSize, setFrameSize] = useState(loadFrameSize);
+  const [frameRadius, setFrameRadius] = useState(loadFrameRadius);
+  const [frameColor, setFrameColor] = useState(loadFrameColor);
+
   const [displayMode, setDisplayMode] = useState<PetDisplayModeConfig>({ mode: "normal" });
 
   const [slots, setSlots] = useState<SlotsState>({
@@ -122,6 +189,21 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
 
   useEffect(() => saveQuietMode(quiet), [quiet]);
   useEffect(() => savePresetCarouselEnabled(presetCarousel), [presetCarousel]);
+
+  // Save frame settings and send to pet window
+  useEffect(() => {
+    saveFrameEnabled(frameEnabled);
+    sendPetControl(api, {
+      type: "PET_CONTROL",
+      ts: Date.now(),
+      action: "SET_FRAME_CONFIG",
+      config: { enabled: frameEnabled, size: frameSize, radius: frameRadius, color: frameColor }
+    } as any);
+  }, [frameEnabled, frameSize, frameRadius, frameColor, api]);
+
+  useEffect(() => saveFrameSize(frameSize), [frameSize]);
+  useEffect(() => saveFrameRadius(frameRadius), [frameRadius]);
+  useEffect(() => saveFrameColor(frameColor), [frameColor]);
 
   useEffect(() => {
     if (!api || typeof api.onPetState !== "function") return;
@@ -471,6 +553,110 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
           </button>
           <div className="help">保存当前角色姿势为 PNG 图片。</div>
         </div>
+      </div>
+
+      {/* SAMA Display Frame */}
+      <div className="card">
+        <div className="field">
+          <div className="label">展示区域边框</div>
+          <div className="help">当鼠标悬停在 SAMA 展示区域时显示边框，可调节边框大小和样式。</div>
+        </div>
+
+        <label className="switchRow" style={{ marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={frameEnabled}
+            onChange={(e) => {
+              const v = Boolean(e.target.checked);
+              setFrameEnabled(v);
+              onToast(v ? "边框已启用" : "边框已禁用", { timeoutMs: 1400 });
+            }}
+          />
+          <span className="switchLabel">启用悬停边框</span>
+        </label>
+
+        {frameEnabled && (
+          <div className="samaFrameControl">
+            <div className="framePreview hasFrame" style={{
+              borderWidth: `${frameSize}px`,
+              borderColor: frameColor,
+              borderRadius: `${frameRadius}px`
+            }}>
+              <div className="framePreviewInner" style={{ borderRadius: `${Math.max(0, frameRadius - 4)}px` }} />
+            </div>
+
+            <div className="field">
+              <div className="label">边框粗细</div>
+              <div className="frameSliderRow">
+                <input
+                  className="range"
+                  type="range"
+                  min={1}
+                  max={10}
+                  step={1}
+                  value={frameSize}
+                  onChange={(e) => setFrameSize(clamp(Number(e.target.value), 1, 10))}
+                />
+                <span className="frameValue">{frameSize}px</span>
+              </div>
+            </div>
+
+            <div className="field">
+              <div className="label">边框圆角</div>
+              <div className="frameSliderRow">
+                <input
+                  className="range"
+                  type="range"
+                  min={0}
+                  max={50}
+                  step={1}
+                  value={frameRadius}
+                  onChange={(e) => setFrameRadius(clamp(Number(e.target.value), 0, 50))}
+                />
+                <span className="frameValue">{frameRadius}px</span>
+              </div>
+            </div>
+
+            <div className="field">
+              <div className="label">边框颜色</div>
+              <div className="row">
+                <input
+                  type="color"
+                  value={frameColor}
+                  onChange={(e) => setFrameColor(e.target.value)}
+                  style={{ width: 48, height: 36, padding: 2, borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer' }}
+                />
+                <input
+                  className="input"
+                  type="text"
+                  value={frameColor}
+                  onChange={(e) => setFrameColor(e.target.value)}
+                  style={{ flex: 1 }}
+                  placeholder="#d97757"
+                />
+              </div>
+            </div>
+
+            <div className="chipRow" style={{ marginTop: 12 }}>
+              {["#d97757", "#6a9bcc", "#788c5d", "#8b5cf6", "#ec4899", "#f59e0b"].map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  className="chip"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    padding: 0,
+                    background: color,
+                    border: frameColor === color ? '2px solid var(--text)' : '2px solid transparent'
+                  }}
+                  onClick={() => setFrameColor(color)}
+                  title={color}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* VRMA */}
