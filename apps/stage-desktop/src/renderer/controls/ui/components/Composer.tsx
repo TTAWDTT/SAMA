@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { SkillToolSelector, type SelectedItem, type ToolInfo, type SkillInfo } from "./SkillToolSelector";
 
 // Send icon SVG
 function SendIcon() {
@@ -45,17 +46,25 @@ export type ImageAttachment = {
   name: string;
 };
 
+export type ComposerMeta = {
+  tools?: string[];
+  skills?: string[];
+};
+
 export function Composer(props: {
   value: string;
   busy: boolean;
   disabled?: boolean;
   onChange: (v: string) => void;
-  onSend: (text: string, images?: ImageAttachment[]) => Promise<void> | void;
+  onSend: (text: string, images?: ImageAttachment[], meta?: ComposerMeta) => Promise<void> | void;
+  availableTools?: ToolInfo[];
+  availableSkills?: SkillInfo[];
 }) {
-  const { value, busy, disabled, onChange, onSend } = props;
+  const { value, busy, disabled, onChange, onSend, availableTools = [], availableSkills = [] } = props;
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
 
   const canSend = useMemo(() => !disabled && !busy && (Boolean(value.trim()) || images.length > 0), [disabled, busy, value, images]);
 
@@ -76,8 +85,17 @@ export function Composer(props: {
     const msg = value.trim();
     if (!msg && images.length === 0) return;
     if (busy) return;
-    await onSend(msg, images.length > 0 ? images : undefined);
+
+    // Build meta from selected items
+    const meta: ComposerMeta = {};
+    const tools = selectedItems.filter((i) => i.type === "tool").map((i) => i.name);
+    const skills = selectedItems.filter((i) => i.type === "skill").map((i) => i.name);
+    if (tools.length > 0) meta.tools = tools;
+    if (skills.length > 0) meta.skills = skills;
+
+    await onSend(msg, images.length > 0 ? images : undefined, Object.keys(meta).length > 0 ? meta : undefined);
     setImages([]);
+    setSelectedItems([]);
   }
 
   const handleImageSelect = () => {
@@ -148,6 +166,26 @@ export function Composer(props: {
   return (
     <div className="composerArea">
       <div className="composerContainer">
+        {/* Selected tools/skills bar */}
+        {selectedItems.length > 0 && (
+          <div className="selectedItemsBar">
+            {selectedItems.map((item) => (
+              <span key={`${item.type}:${item.name}`} className={`selectedTag ${item.type}`}>
+                <span className="selectedTagType">{item.type === "tool" ? "T" : "S"}</span>
+                <span className="selectedTagName">{item.name}</span>
+                <button
+                  type="button"
+                  className="selectedTagRemove"
+                  onClick={() => setSelectedItems((prev) => prev.filter((i) => !(i.type === item.type && i.name === item.name)))}
+                  aria-label={`移除 ${item.name}`}
+                >
+                  <CloseIcon />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Image previews */}
         {images.length > 0 && (
           <div className="composerImagePreviews">
@@ -189,6 +227,15 @@ export function Composer(props: {
           >
             <ImageIcon />
           </button>
+
+          {/* Skill/Tool selector button */}
+          <SkillToolSelector
+            tools={availableTools}
+            skills={availableSkills}
+            selectedItems={selectedItems}
+            onSelectionChange={setSelectedItems}
+            disabled={Boolean(disabled) || busy}
+          />
 
           <textarea
             ref={inputRef}

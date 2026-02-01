@@ -1,5 +1,17 @@
 import type { ChatLogMessage, PetControlMessage, PetControlResult, PetStateMessage, PetWindowStateMessage } from "@sama/shared";
 
+export type ToolInfo = {
+  name: string;
+  title?: string;
+  description?: string;
+  args?: string;
+};
+
+export type SkillInfo = {
+  name: string;
+  description?: string;
+};
+
 export type LlmConfig = {
   provider?: string;
   openai?: { apiKey?: string; model?: string; baseUrl?: string };

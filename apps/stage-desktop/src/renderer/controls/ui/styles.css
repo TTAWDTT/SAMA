@@ -2557,3 +2557,270 @@ html, body {
   border-radius: 8px;
 }
 
+/* ========== Skill/Tool Selector ========== */
+.composerSkillBtn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.composerSkillBtn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.composerSkillBtn.active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.composerSkillBtn.hasSelection {
+  color: var(--accent);
+}
+
+.composerSkillBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.selectionBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skillToolPanel {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 8px;
+  width: 280px;
+  max-height: 320px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.skillToolSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.skillToolSearchInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.skillToolSearchInput::placeholder {
+  color: var(--text-muted);
+}
+
+.skillToolList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.skillToolGroup {
+  margin-bottom: 8px;
+}
+
+.skillToolGroup:last-child {
+  margin-bottom: 0;
+}
+
+.skillToolGroupTitle {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.skillToolItem {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.skillToolItem:hover {
+  background: var(--surface-hover);
+}
+
+.skillToolItem.selected {
+  background: var(--accent-light);
+}
+
+.skillToolItemCheck {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.skillToolItemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.skillToolItemName {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.skillToolItemDesc {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.skillToolEmpty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Selected Items Bar */
+.selectedItemsBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.selectedTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: var(--accent-light);
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.selectedTag.tool {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+}
+
+.selectedTag.skill {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.selectedTagType {
+  font-weight: 600;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.selectedTagName {
+  font-weight: 500;
+}
+
+.selectedTagRemove {
+  width: 14px;
+  height: 14px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: 2px;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+}
+
+.selectedTagRemove:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .selectedTag.tool {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="dark"] .selectedTag.skill {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+[data-theme="dark"] .selectedTagRemove:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .skillToolPanel {
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .skillToolItem:hover {
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .skillToolItem.selected {
+  background: var(--accent-light);
+}
+
