@@ -20,16 +20,16 @@ type BackgroundPreset = {
 };
 
 const ACCENT_PRESETS: ThemePreset[] = [
-  { id: "green", name: "绿色", light: "#10a37f", dark: "#19c37d" },
-  { id: "blue", name: "蓝色", light: "#3b82f6", dark: "#60a5fa" },
+  { id: "orange", name: "橙色", light: "#d97757", dark: "#e8956a" },
+  { id: "blue", name: "蓝色", light: "#6a9bcc", dark: "#8bb4d9" },
+  { id: "green", name: "绿色", light: "#788c5d", dark: "#9aad7e" },
   { id: "purple", name: "紫色", light: "#8b5cf6", dark: "#a78bfa" },
-  { id: "orange", name: "橙色", light: "#f59e0b", dark: "#fbbf24" },
   { id: "pink", name: "粉色", light: "#ec4899", dark: "#f472b6" },
   { id: "red", name: "红色", light: "#ef4444", dark: "#f87171" }
 ];
 
 const BACKGROUND_PRESETS: BackgroundPreset[] = [
-  { id: "default", name: "默认", type: "solid", value: "#ededed", darkValue: "#111111" },
+  { id: "default", name: "默认", type: "solid", value: "#faf9f5", darkValue: "#141413" },
   { id: "warm", name: "温暖", type: "solid", value: "#fef3c7", darkValue: "#1c1917" },
   { id: "cool", name: "冷色", type: "solid", value: "#e0f2fe", darkValue: "#0c1929" },
   { id: "mint", name: "薄荷", type: "solid", value: "#d1fae5", darkValue: "#0d1f17" },
@@ -50,7 +50,7 @@ export function loadAccent(): AccentColor {
     const v = localStorage.getItem(LS_ACCENT);
     if (v && ACCENT_PRESETS.some((p) => p.id === v)) return v as AccentColor;
   } catch {}
-  return "green";
+  return "orange";
 }
 
 export function loadFontSize(): number {

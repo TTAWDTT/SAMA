@@ -1,63 +1,73 @@
-/* SAMA Chat UI - Claude/ChatGPT Style */
+/* SAMA Chat UI - Anthropic Brand Style */
 
 /* ========== CSS Variables ========== */
 :root {
-  /* Accent colors - set by JS, with defaults */
-  --accent: #10a37f;
-  --accent-hover: #0d8a6a;
-  --accent-light: rgba(16, 163, 127, 0.1);
+  /* Anthropic Brand Colors */
+  --brand-dark: #141413;
+  --brand-light: #faf9f5;
+  --brand-mid-gray: #b0aea5;
+  --brand-light-gray: #e8e6dc;
+  --brand-orange: #d97757;
+  --brand-blue: #6a9bcc;
+  --brand-green: #788c5d;
+
+  /* Accent colors - set by JS, with defaults (using brand orange) */
+  --accent: #d97757;
+  --accent-hover: #c4684a;
+  --accent-light: rgba(217, 119, 87, 0.1);
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
-  /* Background colors */
-  --bg: #ffffff;
-  --bg-secondary: #f9fafb;
-  --bg-tertiary: #f3f4f6;
+  /* Background colors - Anthropic brand */
+  --bg: #faf9f5;
+  --bg-secondary: #f5f4f0;
+  --bg-tertiary: #e8e6dc;
 
   /* Surface colors */
   --surface: #ffffff;
-  --surface-hover: #f9fafb;
-  --surface-active: #f3f4f6;
+  --surface-hover: #f5f4f0;
+  --surface-active: #e8e6dc;
 
   /* Border colors */
-  --border: #e5e7eb;
-  --border-light: #f3f4f6;
-  --border-focus: #d1d5db;
+  --border: #e8e6dc;
+  --border-light: #f0efe9;
+  --border-focus: #b0aea5;
 
-  /* Text colors */
-  --text: #111827;
-  --text-secondary: #4b5563;
-  --text-tertiary: #6b7280;
-  --text-muted: #9ca3af;
+  /* Text colors - Anthropic brand */
+  --text: #141413;
+  --text-secondary: #3d3d3c;
+  --text-tertiary: #6b6a68;
+  --text-muted: #b0aea5;
 
   /* Status colors */
   --error: #ef4444;
   --error-light: rgba(239, 68, 68, 0.1);
-  --warning: #f59e0b;
-  --success: #10b981;
+  --warning: #d97757;
+  --success: #788c5d;
 
   /* User message */
-  --user-bg: #f3f4f6;
-  --user-border: #e5e7eb;
+  --user-bg: #f5f4f0;
+  --user-border: #e8e6dc;
 
   /* Assistant message */
   --assistant-bg: transparent;
 
-  /* Chat background - WeChat style */
-  --chat-bg: #ededed;
+  /* Chat background - Anthropic style */
+  --chat-bg: #faf9f5;
   --bubble-user: #ffffff;
-  --bubble-user-text: #000000;
+  --bubble-user-text: #141413;
   --bubble-assistant: #ffffff;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  /* Shadows - softer for brand feel */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 19, 0.04);
+  --shadow: 0 4px 12px -2px rgba(20, 20, 19, 0.08), 0 2px 4px -2px rgba(20, 20, 19, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(20, 20, 19, 0.12), 0 4px 8px -4px rgba(20, 20, 19, 0.06);
 
-  /* Typography */
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Typography - Anthropic brand fonts */
+  --font: "Lora", Georgia, "Times New Roman", serif;
+  --font-heading: "Poppins", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
 
   /* Spacing */
@@ -78,49 +88,49 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Background colors */
-  --bg: #212121;
-  --bg-secondary: #2f2f2f;
-  --bg-tertiary: #3a3a3a;
+  /* Background colors - Anthropic dark */
+  --bg: #141413;
+  --bg-secondary: #1e1e1d;
+  --bg-tertiary: #2a2a28;
 
   /* Surface colors */
-  --surface: #2f2f2f;
-  --surface-hover: #3a3a3a;
-  --surface-active: #454545;
+  --surface: #1e1e1d;
+  --surface-hover: #2a2a28;
+  --surface-active: #363634;
 
   /* Border colors */
-  --border: #404040;
-  --border-light: #4a4a4a;
-  --border-focus: #555555;
+  --border: #2a2a28;
+  --border-light: #363634;
+  --border-focus: #4a4a47;
 
-  /* Text colors */
-  --text: #ececec;
-  --text-secondary: #b4b4b4;
-  --text-tertiary: #8e8e8e;
-  --text-muted: #6e6e6e;
+  /* Text colors - Anthropic brand */
+  --text: #faf9f5;
+  --text-secondary: #d4d3cf;
+  --text-tertiary: #9a9995;
+  --text-muted: #6b6a68;
 
   /* Note: --accent, --accent-hover, --accent-light are set by JS and inherited from :root */
 
   /* Status colors - adjusted for dark mode visibility */
   --error: #f87171;
   --error-light: rgba(248, 113, 113, 0.15);
-  --warning: #fbbf24;
-  --warning-light: rgba(251, 191, 36, 0.15);
-  --success: #34d399;
-  --success-light: rgba(52, 211, 153, 0.15);
+  --warning: #e8956a;
+  --warning-light: rgba(232, 149, 106, 0.15);
+  --success: #9aad7e;
+  --success-light: rgba(154, 173, 126, 0.15);
 
   /* User message */
-  --user-bg: #2f2f2f;
-  --user-border: #404040;
+  --user-bg: #1e1e1d;
+  --user-border: #2a2a28;
 
   /* Assistant message */
   --assistant-bg: transparent;
 
-  /* Chat background - WeChat dark style */
-  --chat-bg: #111111;
-  --bubble-user: #2c2c2c;
-  --bubble-user-text: #ffffff;
-  --bubble-assistant: #2c2c2c;
+  /* Chat background - Anthropic dark style */
+  --chat-bg: #141413;
+  --bubble-user: #1e1e1d;
+  --bubble-user-text: #faf9f5;
+  --bubble-assistant: #1e1e1d;
 
   /* Shadows - darker for dark mode */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
