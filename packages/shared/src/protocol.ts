@@ -32,7 +32,17 @@ export type UserInteraction =
       action: ActionCommand["action"];
     };
 
-export type ChatRequest = { type: "CHAT_REQUEST"; ts: number; message: string };
+export type ChatRequest = {
+  type: "CHAT_REQUEST";
+  ts: number;
+  message: string;
+  meta?: {
+    /** Optional per-message tool allowlist (UI pinned). When omitted, use global config. */
+    tools?: string[];
+    /** Optional per-message skill allowlist (UI pinned). When omitted, use global config. */
+    skills?: string[];
+  };
+};
 export type ChatResponse = { type: "CHAT_RESPONSE"; ts: number; message: string };
 
 // Chat log (for UI). This is separate from the "bubble" UX.

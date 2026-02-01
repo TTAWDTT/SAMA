@@ -20,10 +20,11 @@ export function buildBubbleSystemPrompt() {
  * Main chat prompt: used for replies in the chat timeline AND as the content that later becomes a bubble.
  * Memory is local-only and may be incomplete; the current user message always wins on conflicts.
  */
-export function buildChatSystemPrompt(opts?: { memory?: string; summary?: string; skills?: string }) {
+export function buildChatSystemPrompt(opts?: { memory?: string; summary?: string; skills?: string; tools?: string }) {
   const memory = normalizeMemory(opts?.memory);
   const summary = normalizeMemory(opts?.summary);
   const skills = normalizeMemory(opts?.skills);
+  const tools = normalizeMemory(opts?.tools);
   const base =
     "你是 SAMA，一个桌面陪伴助手，但在聊天中要像一个靠谱的通用助理（能写代码、能排错、能解释、能给方案）。" +
     "中文为主，允许多行输出，优先使用 Markdown（列表/标题/代码块）。" +
@@ -32,7 +33,7 @@ export function buildChatSystemPrompt(opts?: { memory?: string; summary?: string
     "不要声称你完全理解用户；避免只回复“我听到了/收到”。" +
     "不要在回答中提到“短期记忆/长期记忆/摘要”等内部提示。";
 
-  if (!summary && !memory && !skills) return base;
+  if (!summary && !memory && !skills && !tools) return base;
 
   let out = base;
 
@@ -46,6 +47,16 @@ export function buildChatSystemPrompt(opts?: { memory?: string; summary?: string
 
   if (skills) {
     out += `\n\n【Skills（来自本地 ~/.claude/skills，仅用于遵循工作流）】\n${skills}`;
+  }
+
+  if (tools) {
+    out += `\n\n【Tools（可调用）】\n${tools}`;
+    out +=
+      "\n\n工具调用格式：\n" +
+      "- 需要调用工具时，你必须只输出一个 fenced code block，语言标记为 tool_calls，内容为 JSON。\n" +
+      "- JSON 形态：[{\"name\": \"tool_name\", \"arguments\": { ... }}]\n" +
+      "- 不要输出除 tool_calls 代码块之外的任何其他文本。\n" +
+      "- 工具返回后，你会拿到结果，再继续正常回答用户。";
   }
 
   out += "\n\n如果记忆与用户当前消息冲突，以用户当前消息为准。";

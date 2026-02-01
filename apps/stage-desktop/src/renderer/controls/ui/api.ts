@@ -7,6 +7,7 @@ export type LlmConfig = {
   aistudio?: { apiKey?: string; model?: string; baseUrl?: string };
   webSearch?: { enabled?: boolean; tavilyApiKey?: string; maxResults?: number };
   skills?: { dir?: string; enabled?: string[] };
+  tools?: { enabled?: string[]; fsRoots?: string[]; maxReadBytes?: number };
 };
 
 export type ManualActionPayload = {
@@ -36,7 +37,7 @@ export type StageDesktopApi = {
   getAppInfo?: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
   onChatLog?: (cb: (msg: ChatLogMessage) => void) => () => void;
   getChatLog?: () => Promise<ChatLogMessage>;
-  chatInvoke?: (message: string) => Promise<any>;
+  chatInvoke?: (payload: string | { message: string; meta?: { tools?: string[]; skills?: string[] } }) => Promise<any>;
   sendUserInteraction?: (i: any) => void;
 
   // Renderer helpers (preload wrappers)

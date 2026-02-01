@@ -33,6 +33,7 @@ import { SensingService } from "./services/sensing.service";
 import { ShortcutsService } from "./services/shortcuts.service";
 import { TrayService } from "./services/tray.service";
 import { SkillService } from "./services/skill.service";
+import { ToolService } from "./services/tool.service";
 
 function easeInOutQuad(t: number) {
   return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
@@ -231,6 +232,23 @@ function sanitizeLlmConfig(raw: unknown): LLMConfig {
     }
     cfg.skills = out;
   }
+
+  // Tools config (global allowlist + fs sandbox)
+  if (isPlainObject((raw as any).tools)) {
+    const b: any = (raw as any).tools;
+    const out: any = {};
+    if (Array.isArray(b.enabled)) {
+      out.enabled = b.enabled.map((x: any) => String(x ?? "").trim()).filter((x: string) => x);
+    }
+    if (Array.isArray(b.fsRoots)) {
+      out.fsRoots = b.fsRoots.map((x: any) => String(x ?? "").trim()).filter((x: string) => x);
+    }
+    if (b.maxReadBytes !== undefined) {
+      const n = Math.floor(Number(b.maxReadBytes) || 0);
+      if (Number.isFinite(n) && n > 0) out.maxReadBytes = Math.max(1000, Math.min(500_000, n));
+    }
+    cfg.tools = out;
+  }
   return cfg;
 }
 
@@ -242,7 +260,8 @@ function mergeLlmConfig(base: LLMConfig | null | undefined, override: LLMConfig 
     deepseek: { ...(base?.deepseek ?? {}), ...(override?.deepseek ?? {}) },
     aistudio: { ...(base?.aistudio ?? {}), ...(override?.aistudio ?? {}) },
     webSearch: { ...(base?.webSearch ?? {}), ...(override?.webSearch ?? {}) },
-    skills: { ...(base?.skills ?? {}), ...(override?.skills ?? {}) }
+    skills: { ...(base?.skills ?? {}), ...(override?.skills ?? {}) },
+    tools: { ...(base?.tools ?? {}), ...(override?.tools ?? {}) }
   };
 }
 
@@ -432,13 +451,15 @@ async function bootstrap() {
     const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
     const skillsDir = String(effective?.skills?.dir ?? "").trim() || undefined;
     const skillSvc = new SkillService({ skillsDir });
+    const toolSvc = new ToolService(effective ?? {});
     return {
       storagePath: llmConfigStatePath,
       stored: persistedLlmConfig,
       effective,
       provider: llm.providerName,
       skillsDir: skillSvc.skillsDir,
-      availableSkills: skillSvc.listSkills().map((s) => s.name)
+      availableSkills: skillSvc.listSkills().map((s) => s.name),
+      availableTools: toolSvc.availableToolNames
     };
   });
 

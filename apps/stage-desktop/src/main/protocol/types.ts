@@ -35,6 +35,15 @@ export type SkillsConfig = {
   enabled?: string[];
 };
 
+export type ToolsConfig = {
+  /** Enabled tool names (global allowlist). */
+  enabled?: string[];
+  /** Allowed filesystem roots for fs_* tools (optional). */
+  fsRoots?: string[];
+  /** Max bytes returned by fs_read/fetch_url (best-effort). */
+  maxReadBytes?: number;
+};
+
 export type LLMConfig = {
   provider?: LLMProviderName;
   openai?: OpenAIConfig;
@@ -42,6 +51,7 @@ export type LLMConfig = {
   aistudio?: AIStudioConfig;
   webSearch?: WebSearchConfig;
   skills?: SkillsConfig;
+  tools?: ToolsConfig;
 };
 
 export type AppConfig = {

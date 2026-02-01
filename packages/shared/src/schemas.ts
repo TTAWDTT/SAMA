@@ -48,7 +48,13 @@ export const UserInteractionSchema = z.discriminatedUnion("event", [
 export const ChatRequestSchema = z.object({
   type: z.literal("CHAT_REQUEST"),
   ts: z.number(),
-  message: z.string().min(1).max(4000)
+  message: z.string().min(1).max(4000),
+  meta: z
+    .object({
+      tools: z.array(z.string()).optional(),
+      skills: z.array(z.string()).optional()
+    })
+    .optional()
 });
 
 export const ChatResponseSchema = z.object({

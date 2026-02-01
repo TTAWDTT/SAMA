@@ -132,7 +132,7 @@ export type StageDesktopAPI = {
   clearChatHistory: () => Promise<{ ok: boolean }>;
   clearMemoryNotes: () => Promise<{ ok: boolean }>;
   clearMemoryFacts: () => Promise<{ ok: boolean }>;
-  chatInvoke: (message: string) => Promise<ChatResponse>;
+  chatInvoke: (payload: string | { message: string; meta?: { tools?: string[]; skills?: string[] } }) => Promise<ChatResponse>;
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
   sendPetControlResult: (r: PetControlResult) => void;
@@ -211,8 +211,15 @@ const api: StageDesktopAPI = {
   clearChatHistory: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearChat),
   clearMemoryNotes: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearNotes),
   clearMemoryFacts: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearFacts),
-  chatInvoke: async (message: string) => {
-    const req: ChatRequest = { type: "CHAT_REQUEST", ts: Date.now(), message };
+  chatInvoke: async (payload) => {
+    const message = typeof payload === "string" ? payload : String(payload?.message ?? "");
+    const meta = typeof payload === "string" ? undefined : (payload as any)?.meta;
+    const req: ChatRequest = {
+      type: "CHAT_REQUEST",
+      ts: Date.now(),
+      message,
+      meta: meta && typeof meta === "object" ? meta : undefined
+    };
     return ipcRenderer.invoke(IPC_HANDLES.chatInvoke, req);
   },
   sendPetControl: (m) => ipcRenderer.send(IPC_CHANNELS.petControl, m),
