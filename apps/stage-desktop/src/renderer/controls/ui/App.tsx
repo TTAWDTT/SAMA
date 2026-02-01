@@ -1,11 +1,11 @@
 import type { ChatLogEntry, ChatLogMessage } from "@sama/shared";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getApi, type StageDesktopApi } from "./api";
+import { getApi, type StageDesktopApi, type ToolInfo, type SkillInfo } from "./api";
 import { Toast } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
 import { SidebarDrawer, type SidebarTab } from "./components/SidebarDrawer";
 import { ChatTimeline } from "./components/ChatTimeline";
-import { Composer, type ImageAttachment } from "./components/Composer";
+import { Composer, type ImageAttachment, type ComposerMeta } from "./components/Composer";
 import { SearchBar } from "./components/SearchBar";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
 import { Onboarding, hasSeenOnboarding } from "./components/Onboarding";
@@ -83,6 +83,10 @@ export function App() {
   const [provider, setProvider] = useState<string>("unknown");
 
   const [logs, setLogs] = useState<AppLogItem[]>([]);
+
+  // Available tools and skills for the composer
+  const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
 
   // Search state
   const [searchOpen, setSearchOpen] = useState(false);
@@ -300,6 +304,29 @@ export function App() {
     })();
   }, [api]);
 
+  // Load available tools and skills
+  useEffect(() => {
+    if (!api) return;
+    void (async () => {
+      try {
+        if (typeof (api as any).getAvailableTools === "function") {
+          const result = await (api as any).getAvailableTools();
+          if (result?.tools && Array.isArray(result.tools)) {
+            setAvailableTools(result.tools);
+          }
+        }
+      } catch {}
+      try {
+        if (typeof (api as any).getAvailableSkills === "function") {
+          const result = await (api as any).getAvailableSkills();
+          if (result?.skills && Array.isArray(result.skills)) {
+            setAvailableSkills(result.skills);
+          }
+        }
+      } catch {}
+    })();
+  }, [api]);
+
   // Chat log subscription
   useEffect(() => {
     if (!api) {
@@ -393,7 +420,7 @@ export function App() {
     return msgs;
   }, [entries, sendError, pendingImages]);
 
-  async function sendMessage(text: string, images?: ImageAttachment[]) {
+  async function sendMessage(text: string, images?: ImageAttachment[], meta?: ComposerMeta) {
     if (!api || typeof api.chatInvoke !== "function") {
       showToast("preload API 缺失：无法发送消息", { timeoutMs: 4200 });
       return;
@@ -421,7 +448,9 @@ export function App() {
     }
 
     try {
-      await api.chatInvoke(content);
+      // Pass meta (tools/skills) to the backend
+      const payload = meta ? { message: content, meta } : content;
+      await api.chatInvoke(payload);
       // Store image references for display (keyed by a temporary ID that will be replaced by actual message)
       // Note: In a full implementation, images would be sent to the backend
       if (hasImages) {
@@ -498,7 +527,14 @@ export function App() {
           onToast={showToast}
           searchQuery={searchQuery}
         />
-        <Composer value={draft} onChange={setDraft} onSend={sendMessage} busy={isThinking} />
+        <Composer
+          value={draft}
+          onChange={setDraft}
+          onSend={sendMessage}
+          busy={isThinking}
+          availableTools={availableTools}
+          availableSkills={availableSkills}
+        />
       </div>
 
       <SidebarDrawer

@@ -463,6 +463,31 @@ async function bootstrap() {
     };
   });
 
+  ipcMain.handle("handle:available-tools-get", async () => {
+    const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+    const toolSvc = new ToolService(effective ?? {});
+    const { ALL_TOOLS } = await import("./services/tool.service");
+    return {
+      tools: ALL_TOOLS.map((t) => ({
+        name: t.name,
+        title: t.title,
+        description: t.description
+      }))
+    };
+  });
+
+  ipcMain.handle("handle:available-skills-get", async () => {
+    const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+    const skillsDir = String(effective?.skills?.dir ?? "").trim() || undefined;
+    const skillSvc = new SkillService({ skillsDir });
+    return {
+      skills: skillSvc.listSkills().map((s) => ({
+        name: s.name,
+        description: s.description || undefined
+      }))
+    };
+  });
+
   ipcMain.handle(IPC_HANDLES.llmConfigSet, async (_evt, payload: any) => {
     try {
       const rawCfg = isPlainObject(payload) && isPlainObject(payload.config) ? payload.config : payload;

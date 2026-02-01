@@ -44,6 +44,8 @@ const IPC_HANDLES = {
   appInfoGet: "handle:app-info-get",
   llmConfigGet: "handle:llm-config-get",
   llmConfigSet: "handle:llm-config-set",
+  availableToolsGet: "handle:available-tools-get",
+  availableSkillsGet: "handle:available-skills-get",
   memoryStatsGet: "handle:memory-stats-get",
   memoryConfigGet: "handle:memory-config-get",
   memoryConfigSet: "handle:memory-config-set",
@@ -133,6 +135,11 @@ export type StageDesktopAPI = {
   clearMemoryNotes: () => Promise<{ ok: boolean }>;
   clearMemoryFacts: () => Promise<{ ok: boolean }>;
   chatInvoke: (payload: string | { message: string; meta?: { tools?: string[]; skills?: string[] } }) => Promise<ChatResponse>;
+
+  // Tools and Skills
+  getAvailableTools: () => Promise<{ tools: { name: string; title: string; description: string }[] }>;
+  getAvailableSkills: () => Promise<{ skills: { name: string; description?: string }[] }>;
+
   sendPetControl: (m: PetControlMessage) => void;
   onPetControl: (cb: (m: PetControlMessage) => void) => Unsubscribe;
   sendPetControlResult: (r: PetControlResult) => void;
@@ -211,6 +218,8 @@ const api: StageDesktopAPI = {
   clearChatHistory: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearChat),
   clearMemoryNotes: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearNotes),
   clearMemoryFacts: async () => ipcRenderer.invoke(IPC_HANDLES.memoryClearFacts),
+  getAvailableTools: async () => ipcRenderer.invoke(IPC_HANDLES.availableToolsGet),
+  getAvailableSkills: async () => ipcRenderer.invoke(IPC_HANDLES.availableSkillsGet),
   chatInvoke: async (payload) => {
     const message = typeof payload === "string" ? payload : String(payload?.message ?? "");
     const meta = typeof payload === "string" ? undefined : (payload as any)?.meta;
