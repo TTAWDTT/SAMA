@@ -801,6 +801,7 @@ html, body {
   border: 1px solid var(--border);
   background: var(--surface);
   transition: border-color var(--transition);
+  position: relative;
 }
 
 .composerBox:focus-within {
