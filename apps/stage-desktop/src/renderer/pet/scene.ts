@@ -142,12 +142,12 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     camera.lookAt(viewTarget);
   };
 
-  // Camera preset configurations
+  // Camera preset configurations - adjusted for better framing
   const CAMERA_PRESETS: Record<CameraPreset, { targetY: number; distance: number; pitch: number }> = {
-    full: { targetY: 1.0, distance: 2.8, pitch: 0 },
-    half: { targetY: 1.25, distance: 1.8, pitch: 0 },
-    closeup: { targetY: 1.45, distance: 1.0, pitch: 0.1 },
-    face: { targetY: 1.55, distance: 0.6, pitch: 0.15 }
+    full: { targetY: 0.9, distance: 2.4, pitch: 0 },
+    half: { targetY: 1.15, distance: 1.5, pitch: 0.05 },
+    closeup: { targetY: 1.35, distance: 0.85, pitch: 0.1 },
+    face: { targetY: 1.5, distance: 0.5, pitch: 0.12 }
   };
 
   const applyCameraPreset = (preset: CameraPreset) => {
@@ -640,9 +640,10 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     const maxY = (box.max.y + dy) * scale;
 
     // Composition margins expressed as a fraction of NDC (-1..1). Small values = tighter framing.
-    const BOTTOM_MARGIN = 0.02;
-    const TOP_MARGIN = 0.06;
-    const SIDE_MARGIN = 0.07;
+    // Reduced margins for SAMA to fill more of the viewport.
+    const BOTTOM_MARGIN = 0.01;
+    const TOP_MARGIN = 0.03;
+    const SIDE_MARGIN = 0.04;
     const b = THREE.MathUtils.clamp(1 - BOTTOM_MARGIN, 0.5, 0.995);
     const t = THREE.MathUtils.clamp(1 - TOP_MARGIN, 0.5, 0.995);
     const side = THREE.MathUtils.clamp(1 - SIDE_MARGIN, 0.5, 0.995);
