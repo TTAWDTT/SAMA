@@ -557,6 +557,55 @@
       #hoverFrame.previewing {
         opacity: 1;
       }
+
+      /* Quick action buttons in bottom-left */
+      #quickActions {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        display: flex;
+        gap: 6px;
+        opacity: 0;
+        transition: opacity 180ms ease;
+        pointer-events: none;
+        z-index: 20;
+      }
+      body:hover #quickActions {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .quickBtn {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: rgba(255, 255, 255, 0.88);
+        color: rgba(15, 23, 42, 0.82);
+        font-size: 14px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 120ms ease;
+        -webkit-app-region: no-drag;
+      }
+      .quickBtn:hover {
+        background: rgba(255, 255, 255, 0.95);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+      }
+      .quickBtn:active {
+        transform: translateY(0) scale(0.96);
+      }
+      .quickBtn.dragHandle {
+        cursor: move;
+        -webkit-app-region: drag;
+      }
+      .quickBtn[data-active="1"] {
+        background: rgba(217, 119, 87, 0.15);
+        border-color: rgba(217, 119, 87, 0.4);
+        color: #d97757;
+      }
     </style>
   </head>
   <body>
@@ -572,6 +621,13 @@
     <div id="dragHandle" style="display: none;" title="Drag to move (requires click-through OFF)">拖动窗口</div>
     <!-- Hover frame overlay -->
     <div id="hoverFrame"></div>
+    <!-- Quick action buttons -->
+    <div id="quickActions">
+      <button id="btnCameraPreset" class="quickBtn" type="button" title="切换视角：全身/半身/特写">👤</button>
+      <button id="btnDragMove" class="quickBtn dragHandle" type="button" title="拖动移动窗口">✋</button>
+      <button id="btnMotion" class="quickBtn" type="button" title="切换动作">💃</button>
+      <button id="btnOpenChat" class="quickBtn" type="button" title="打开聊天窗口">💬</button>
+    </div>
     <div id="boot">
       <div id="bootCard">
         <button id="bootClose" type="button" title="关闭提示">×</button>

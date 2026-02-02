@@ -37,6 +37,14 @@ const bootHint = bootHintEl instanceof HTMLDivElement ? bootHintEl : null;
 const hoverFrameEl = document.getElementById("hoverFrame");
 const hoverFrame = hoverFrameEl instanceof HTMLDivElement ? hoverFrameEl : null;
 
+// Quick action buttons
+const btnCameraPresetEl = document.getElementById("btnCameraPreset");
+const btnCameraPreset = btnCameraPresetEl instanceof HTMLButtonElement ? btnCameraPresetEl : null;
+const btnMotionEl = document.getElementById("btnMotion");
+const btnMotion = btnMotionEl instanceof HTMLButtonElement ? btnMotionEl : null;
+const btnOpenChatEl = document.getElementById("btnOpenChat");
+const btnOpenChat = btnOpenChatEl instanceof HTMLButtonElement ? btnOpenChatEl : null;
+
 const BC_NAME = "sama:pet-bus";
 const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(BC_NAME) : null;
 let lastCaptionReadyAt = 0;
@@ -818,6 +826,42 @@ async function boot() {
         setBootStatus(`动作加载失败：${formatErr(err)}`);
         sendPetState();
         sendPetStatus("error", `动作加载失败：${formatErr(err)}`);
+      }
+    });
+  }
+
+  // Quick action buttons
+  const cameraPresets: Array<"full" | "half" | "closeup" | "face"> = ["full", "half", "closeup", "face"];
+  let currentPresetIdx = 0;
+
+  if (btnCameraPreset) {
+    btnCameraPreset.addEventListener("click", () => {
+      currentPresetIdx = (currentPresetIdx + 1) % cameraPresets.length;
+      const preset = cameraPresets[currentPresetIdx]!;
+      scene.setCameraPreset?.(preset);
+      const labels: Record<string, string> = { full: "全身", half: "半身", closeup: "特写", face: "面部" };
+      const icons: Record<string, string> = { full: "👤", half: "👕", closeup: "🔍", face: "😊" };
+      btnCameraPreset.textContent = icons[preset] ?? "👤";
+      showBanner(`视角：${labels[preset] ?? preset}`, { timeoutMs: 1200 });
+    });
+  }
+
+  if (btnMotion) {
+    btnMotion.addEventListener("click", () => {
+      // Toggle between idle and action states
+      scene.clearVrmAnimation();
+      showBanner("动作已重置", { timeoutMs: 1200 });
+    });
+  }
+
+  if (btnOpenChat) {
+    btnOpenChat.addEventListener("click", () => {
+      const api: any = (window as any).stageDesktop;
+      if (api && typeof api.openControlsWindow === "function") {
+        api.openControlsWindow();
+        showBanner("打开控制台...", { timeoutMs: 1000 });
+      } else {
+        showBanner("无法打开聊天窗口", { timeoutMs: 1500 });
       }
     });
   }

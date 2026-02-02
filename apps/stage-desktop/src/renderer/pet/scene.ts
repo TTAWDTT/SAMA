@@ -640,10 +640,10 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     const maxY = (box.max.y + dy) * scale;
 
     // Composition margins expressed as a fraction of NDC (-1..1). Small values = tighter framing.
-    // Reduced margins for SAMA to fill more of the viewport.
-    const BOTTOM_MARGIN = 0.01;
-    const TOP_MARGIN = 0.03;
-    const SIDE_MARGIN = 0.04;
+    // Minimal margins for SAMA to fill maximum viewport space.
+    const BOTTOM_MARGIN = 0.005;
+    const TOP_MARGIN = 0.02;
+    const SIDE_MARGIN = 0.02;
     const b = THREE.MathUtils.clamp(1 - BOTTOM_MARGIN, 0.5, 0.995);
     const t = THREE.MathUtils.clamp(1 - TOP_MARGIN, 0.5, 0.995);
     const side = THREE.MathUtils.clamp(1 - SIDE_MARGIN, 0.5, 0.995);
