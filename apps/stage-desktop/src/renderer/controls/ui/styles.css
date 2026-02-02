@@ -107,19 +107,19 @@
 
   /* Text colors - Anthropic brand */
   --text: #faf9f5;
-  --text-secondary: #d4d3cf;
-  --text-tertiary: #9a9995;
-  --text-muted: #6b6a68;
+  --text-secondary: #e2e8f0;
+  --text-tertiary: #cbd5e1;
+  --text-muted: #94a3b8;
 
   /* Note: --accent, --accent-hover, --accent-light are set by JS and inherited from :root */
 
   /* Status colors - adjusted for dark mode visibility */
   --error: #f87171;
   --error-light: rgba(248, 113, 113, 0.15);
-  --warning: #e8956a;
-  --warning-light: rgba(232, 149, 106, 0.15);
-  --success: #9aad7e;
-  --success-light: rgba(154, 173, 126, 0.15);
+  --warning: #fbbf24;
+  --warning-light: rgba(251, 191, 36, 0.15);
+  --success: #4ade80;
+  --success-light: rgba(74, 222, 128, 0.15);
 
   /* User message */
   --user-bg: #1e1e1d;
@@ -141,6 +141,17 @@
 
   /* Focus ring for dark mode */
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+/* Ensure select options are readable in dark mode (Windows/Chrome issue) */
+[data-theme="dark"] .select option {
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+/* Ensure panel headers are always visible */
+.panelHeader {
+  color: var(--text);
 }
 
 /* ========== Base Styles ========== */
