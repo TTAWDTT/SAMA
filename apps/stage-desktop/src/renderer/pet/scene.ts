@@ -154,15 +154,35 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     const cfg = CAMERA_PRESETS[preset];
     if (!cfg) return;
     currentCameraPreset = preset;
-    viewTarget.y = cfg.targetY;
-    viewBaseDistance = cfg.distance;
-    orbitPitch = cfg.pitch;
-    orbitYaw = 0; // Reset yaw for consistent view
 
-    // Reset model offset for proper centering
+    // Cancel any pending refit that could override our preset values
+    if (pendingRefitRaf) {
+      cancelAnimationFrame(pendingRefitRaf);
+      pendingRefitRaf = 0;
+    }
+
+    // Reset ALL user offsets when switching presets
     modelTransform.offsetX = 0;
+    modelTransform.offsetY = 0;
     modelTransform.offsetZ = 0;
-    applyModelTransform();
+
+    // Call fitCameraToModel to align model position based on preset
+    // After this call, the alignment point (feet/hips/neck) is at Y=0
+    fitCameraToModel();
+
+    // Override viewBaseDistance with preset's fixed value
+    viewBaseDistance = cfg.distance;
+
+    // Calculate correct viewTarget.y so that Y=0 (alignment point) is at screen bottom
+    // Visible vertical range = 2 * distance * tan(FOV/2)
+    // For alignment point at bottom, viewTarget.y = visible_range / 2
+    const vFovRad = THREE.MathUtils.degToRad(camera.fov);
+    const halfVisibleHeight = cfg.distance * Math.tan(vFovRad / 2);
+    viewTarget.y = halfVisibleHeight;
+
+    orbitPitch = cfg.pitch;
+    orbitYaw = 0;
+
     applyView();
   };
 
@@ -246,6 +266,8 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     offsetY: 0,
     offsetZ: 0
   };
+  // originModelPos: position when VRM was first loaded (never changes, used for preset switching)
+  const originModelPos = new THREE.Vector3();
   const baseModelPos = new THREE.Vector3();
   const baseModelQuat = new THREE.Quaternion();
   const baseModelScale = new THREE.Vector3(1, 1, 1);
@@ -555,8 +577,8 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   const fitCameraToModel = () => {
     if (!vrm) return;
 
-    // Fit against the base transform (exclude user offsets/yaw so repeated fits stay stable).
-    vrm.scene.position.copy(baseModelPos);
+    // IMPORTANT: Start from ORIGIN position to avoid accumulated offsets when switching presets
+    vrm.scene.position.copy(originModelPos);
     vrm.scene.quaternion.copy(baseModelQuat);
     vrm.scene.scale.copy(baseModelScale);
 
@@ -767,6 +789,8 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       (vrm.lookAt as any).target = lookTargetObj;
     }
 
+    // Save ORIGIN position (never changes, used for preset switching)
+    originModelPos.copy(vrm.scene.position);
     baseModelPos.copy(vrm.scene.position);
     baseModelQuat.copy(vrm.scene.quaternion);
     baseModelScale.copy(vrm.scene.scale);
@@ -931,10 +955,10 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       if (!bytes.byteLength) {
         vrmAnimationLastLoaded = null;
         vrmAnimationAction = null;
-      const now = safeNowMs();
-      syncAnimationForMovement(now, computeMovementState(now));
-      return false;
-    }
+        const now = safeNowMs();
+        syncAnimationForMovement(now, computeMovementState(now));
+        return false;
+      }
 
       try {
         vrmAnimationLastLoaded = await loadVrmAnimationFromBytes(bytes);
