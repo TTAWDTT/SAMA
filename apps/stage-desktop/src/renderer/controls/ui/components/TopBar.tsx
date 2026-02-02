@@ -171,20 +171,9 @@ export function TopBar(props: {
                   setMenuOpen(false);
                 }}
               >
-                <span>导出聊天记录 (.md)</span>
+                <span>导出聊天记录</span>
               </button>
             )}
-            <button
-              className="menuItem"
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                window.print();
-              }}
-            >
-              <span>打印 / 另存为 PDF</span>
-            </button>
             <button
               className="menuItem"
               type="button"
@@ -193,31 +182,7 @@ export function TopBar(props: {
                 window.location.reload();
               }}
             >
-              <span>重新加载界面 (Reload)</span>
-            </button>
-            <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
-            <button
-              className="menuItem"
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onToggleDevMode();
-                setMenuOpen(false);
-              }}
-            >
-              <span>开发者模式</span>
-              <span className="menuItemValue">{devMode ? "开启" : "关闭"}</span>
-            </button>
-            <button
-              className="menuItem"
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onClearUiLogs();
-                setMenuOpen(false);
-              }}
-            >
-              清空 UI 日志
+              <span>重新加载界面</span>
             </button>
           </div>
         )}
