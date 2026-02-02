@@ -267,12 +267,12 @@ export function App() {
     if (stickToBottomRef.current) scrollToBottom(el);
   }, [entries, sendError, isThinking]);
 
-  const jumpToBottom = () => {
+  const jumpToBottom = useCallback(() => {
     const el = timelineRef.current;
     if (el) scrollToBottom(el);
     setScrollLock(false);
     stickToBottomRef.current = true;
-  };
+  }, []);
 
   // Track "open chat" so proactive ignore logic doesn't misfire.
   useEffect(() => {
@@ -379,6 +379,25 @@ export function App() {
   // App logs subscription (Dev Console)
   useEffect(() => {
     if (!api || typeof api.onAppLog !== "function") return;
+
+    const logBuffer = { current: [] as AppLogItem[] };
+    let flushTimer: number | null = null;
+
+    const flushLogs = () => {
+      if (logBuffer.current.length === 0) {
+        flushTimer = null;
+        return;
+      }
+      const newItems = [...logBuffer.current];
+      logBuffer.current = [];
+      
+      setLogs((prev) => {
+        const next = [...prev, ...newItems];
+        return next.length > 800 ? next.slice(-650) : next;
+      });
+      flushTimer = null;
+    };
+
     const unsub = api.onAppLog((m: any) => {
       if (!m || typeof m !== "object") return;
       if (m.type !== "APP_LOG") return;
@@ -388,13 +407,17 @@ export function App() {
         message: String(m.message ?? ""),
         scope: m.scope ? String(m.scope) : undefined
       };
-      setLogs((prev) => {
-        const next = [...prev, item];
-        return next.length > 800 ? next.slice(-650) : next;
-      });
+      
+      logBuffer.current.push(item);
+      
+      if (!flushTimer) {
+        flushTimer = window.setTimeout(flushLogs, 160);
+      }
     });
+
     return () => {
       try {
+        if (flushTimer) clearTimeout(flushTimer);
         unsub?.();
       } catch {}
     };
@@ -422,7 +445,7 @@ export function App() {
     return msgs;
   }, [entries, sendError, pendingImages]);
 
-  async function sendMessage(text: string, images?: ImageAttachment[], meta?: ComposerMeta) {
+  const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], meta?: ComposerMeta) => {
     if (!api || typeof api.chatInvoke !== "function") {
       showToast("preload API 缺失：无法发送消息", { timeoutMs: 4200 });
       return;
@@ -472,7 +495,16 @@ export function App() {
       setSendError({ message, retryText: msg });
       setIsThinking(false);
     }
-  }
+  }, [api, entries, jumpToBottom, showToast]);
+
+  const handleOpenLlmSettings = useCallback(() => {
+    setDrawerOpen(true);
+    setTab("llm");
+  }, []);
+  
+  const handleRetry = useCallback((text: string) => {
+    void sendMessage(text);
+  }, [sendMessage]);
 
   const connection = useMemo(() => {
     const p = String(provider || "unknown");
@@ -517,15 +549,12 @@ export function App() {
           ref={timelineRef}
           api={api}
           llmProvider={provider}
-          onOpenLlmSettings={() => {
-            setDrawerOpen(true);
-            setTab("llm");
-          }}
+          onOpenLlmSettings={handleOpenLlmSettings}
           messages={uiMessages}
           isThinking={isThinking}
           scrollLock={scrollLock}
           onJumpToBottom={jumpToBottom}
-          onRetry={(text) => void sendMessage(text)}
+          onRetry={handleRetry}
           onToast={showToast}
           searchQuery={searchQuery}
         />

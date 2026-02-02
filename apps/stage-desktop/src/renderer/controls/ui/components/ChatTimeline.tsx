@@ -7,7 +7,7 @@ import { DateSeparator, formatDateSeparator, getDateKey } from "./DateSeparator"
 import { ImageViewer } from "./ImageViewer";
 import samaAvatar from "../assets/sama-avatar.png";
 
-export const ChatTimeline = forwardRef<
+export const ChatTimeline = React.memo(forwardRef<
   HTMLDivElement,
   {
     api: StageDesktopApi | null;
@@ -112,4 +112,4 @@ export const ChatTimeline = forwardRef<
       <ImageViewer src={viewingImage} onClose={() => setViewingImage(null)} />
     </div>
   );
-});
+}));
