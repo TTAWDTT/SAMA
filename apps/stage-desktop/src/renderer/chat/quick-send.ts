@@ -1,5 +1,5 @@
-export function setupQuickSend(opts: { inputEl: HTMLTextAreaElement }) {
-  const inputEl = opts.inputEl;
+export function setupQuickSend(opts: { inputEl: HTMLTextAreaElement; sendBtnEl?: HTMLButtonElement | null }) {
+  const { inputEl, sendBtnEl } = opts;
 
   const api: any = (window as any).stageDesktop;
 
@@ -49,6 +49,13 @@ export function setupQuickSend(opts: { inputEl: HTMLTextAreaElement }) {
     e.preventDefault();
     void send();
   });
+
+  if (sendBtnEl) {
+    sendBtnEl.addEventListener("click", (e) => {
+      e.preventDefault();
+      void send();
+    });
+  }
 
   // Focus on open (fast window).
   inputEl.focus();

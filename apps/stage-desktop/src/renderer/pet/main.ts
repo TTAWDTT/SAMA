@@ -423,6 +423,7 @@ async function boot() {
         setBootStatus("正在从控制台加载 VRM…");
         await scene.loadVrmBytes(msg.bytes);
         hudState.vrmLoaded = msg.bytes.byteLength > 0;
+        scene.setCameraPreset?.("full"); // Apply full body preset on console load
         renderHud();
         sendPetState();
         if (hudState.vrmLoaded) bootRoot?.setAttribute("data-hidden", "1");
@@ -600,6 +601,7 @@ async function boot() {
       const vrmBytes = await pickVrmBytes();
       await scene.loadVrmBytes(vrmBytes);
       hudState.vrmLoaded = vrmBytes.byteLength > 0;
+      scene.setCameraPreset?.("full");
       renderHud();
       if (vrmBytes.byteLength) bootRoot?.setAttribute("data-hidden", "1");
       sendPetState();

@@ -219,15 +219,31 @@
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-12px); }
       }
-      
       @keyframes breathe {
-        0%, 100% { transform: scale(1); filter: drop-shadow(0 10px 15px rgba(37, 99, 235, 0.15)); }
-        50% { transform: scale(1.03); filter: drop-shadow(0 15px 25px rgba(37, 99, 235, 0.25)); }
+        0%, 100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(56, 189, 248, 0.4)); }
+        50% { transform: scale(1.02); filter: drop-shadow(0 0 25px rgba(56, 189, 248, 0.6)); }
       }
-
-      @keyframes blurIn {
-        0% { opacity: 0; filter: blur(10px); transform: translateY(10px); }
-        100% { opacity: 1; filter: blur(0); transform: translateY(0); }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      @keyframes scan {
+        0% { top: 0%; opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { top: 100%; opacity: 0; }
+      }
+      @keyframes glitch {
+        0% { transform: translate(0); }
+        20% { transform: translate(-2px, 2px); }
+        40% { transform: translate(-2px, -2px); }
+        60% { transform: translate(2px, 2px); }
+        80% { transform: translate(2px, -2px); }
+        100% { transform: translate(0); }
+      }
+      @keyframes textBlurIn {
+        0% { filter: blur(12px); opacity: 0; transform: translateY(10px) scale(0.9); }
+        100% { filter: blur(0); opacity: 1; transform: translateY(0) scale(1); }
       }
 
       /* Boot Container */
@@ -241,6 +257,7 @@
         z-index: 50;
         transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1);
         background: transparent;
+        perspective: 1000px;
       }
       
       .emptyState {
@@ -248,17 +265,48 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        pointer-events: none; /* 关键：让整个开场区域对鼠标透明，点击可穿透到 canvas */
+        pointer-events: none;
         user-select: none;
+        position: relative;
+      }
+
+      /* Holographic Portal Effect */
+      .portal-container {
+        position: relative;
+        width: 180px;
+        height: 180px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 24px;
+      }
+
+      .portal-ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 2px dashed rgba(56, 189, 248, 0.3);
+        border-top-color: rgba(56, 189, 248, 0.8);
+        border-bottom-color: rgba(56, 189, 248, 0.8);
+        animation: spin 10s linear infinite;
+        box-shadow: 0 0 30px rgba(56, 189, 248, 0.1);
+      }
+      
+      .portal-ring::before {
+        content: "";
+        position: absolute;
+        inset: -10px;
+        border-radius: 50%;
+        border: 1px solid rgba(56, 189, 248, 0.1);
+        animation: spin 15s linear infinite reverse;
       }
 
       .emptyIcon {
-        width: 140px;
-        height: 140px;
-        margin-bottom: 24px;
+        width: 130px;
+        height: 130px;
         position: relative;
+        z-index: 2;
         animation: float 6s ease-in-out infinite;
-        pointer-events: none;
       }
 
       .emptyIcon img {
@@ -268,51 +316,59 @@
         animation: breathe 4s ease-in-out infinite;
         -webkit-user-drag: none;
         pointer-events: none;
+        filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.5));
       }
       
-      /* subtle glow behind avatar */
-      .emptyIcon::before {
-        content: "";
+      /* Scanner Line */
+      .scanner-line {
         position: absolute;
-        inset: 10%;
-        background: radial-gradient(circle, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0) 70%);
-        opacity: 0.6;
-        z-index: -1;
-        filter: blur(20px);
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.8), transparent);
+        box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+        animation: scan 3s ease-in-out infinite;
+        z-index: 5;
+        pointer-events: none;
       }
 
       .emptyTitle {
         font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-        font-size: 32px;
-        font-weight: 700;
-        color: rgba(30, 41, 59, 0.95);
-        letter-spacing: -0.02em;
+        font-size: 36px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
         text-align: center;
         
-        /* Modern text styling */
-        background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+        /* Holographic Text */
+        background: linear-gradient(135deg, #e0f2fe 0%, #38bdf8 50%, #0284c7 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
         
-        /* Shadow for readability on wallpapers */
-        filter: drop-shadow(0 2px 4px rgba(255, 255, 255, 0.8));
-        
-        animation: blurIn 1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s forwards;
-        opacity: 0; /* start hidden for animation */
+        filter: drop-shadow(0 2px 10px rgba(56, 189, 248, 0.3));
+        animation: textBlurIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s forwards;
+        opacity: 0;
       }
       
       .emptySub {
         margin-top: 8px;
-        font-size: 13px;
-        color: rgba(71, 85, 105, 0.8);
-        font-weight: 500;
-        background: rgba(255, 255, 255, 0.7);
-        padding: 4px 12px;
-        border-radius: 20px;
-        backdrop-filter: blur(4px);
-        animation: blurIn 1s cubic-bezier(0.2, 0.8, 0.2, 1) 0.5s forwards;
+        font-size: 12px;
+        color: rgba(56, 189, 248, 0.7);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+        animation: textBlurIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s forwards;
         opacity: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .emptySub::before, .emptySub::after {
+        content: "";
+        width: 20px;
+        height: 1px;
+        background: rgba(56, 189, 248, 0.3);
       }
       #boot[data-hidden="1"] {
         opacity: 0;
@@ -642,11 +698,15 @@
     </div>
     <div id="boot">
       <div class="emptyState">
-        <div class="emptyIcon">
-          <img src="./sama-avatar.png" alt="SAMA" draggable="false" />
+        <div class="portal-container">
+          <div class="portal-ring"></div>
+          <div class="emptyIcon">
+            <img src="./sama-avatar.png" alt="SAMA" draggable="false" />
+            <div class="scanner-line"></div>
+          </div>
         </div>
-        <div class="emptyTitle">你好，我是 SAMA</div>
-        <div class="emptySub">Waiting for wake up...</div>
+        <div class="emptyTitle">SAMA OS</div>
+        <div class="emptySub">SYSTEM INITIALIZED</div>
       </div>
     </div>
     <div id="hud"></div>
