@@ -30,8 +30,12 @@ function savePersona(p: Persona) {
   }
 }
 
-export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: string, o?: any) => void }) {
-  const { api, onToast } = props;
+export function LlmPanel(props: {
+  api: StageDesktopApi | null;
+  onToast: (msg: string, o?: any) => void;
+  onConfigSaved?: () => void;
+}) {
+  const { api, onToast, onConfigSaved } = props;
 
   const [loading, setLoading] = useState(false);
   const [runtimeProvider, setRuntimeProvider] = useState("unknown");
@@ -137,6 +141,7 @@ export function LlmPanel(props: { api: StageDesktopApi | null; onToast: (msg: st
       savePersona(persona);
       await refreshRuntime();
       onToast("已保存（无需重启）", { timeoutMs: 1600 });
+      onConfigSaved?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onToast(`保存失败：${msg}`, { timeoutMs: 5200 });

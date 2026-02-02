@@ -289,20 +289,22 @@ export function App() {
   }, [api]);
 
   // App info (provider)
-  useEffect(() => {
+  const refreshProvider = useCallback(async () => {
     if (!api || typeof api.getAppInfo !== "function") {
       setProvider("preload missing");
       return;
     }
-    void (async () => {
-      try {
-        const info = await api.getAppInfo?.();
-        setProvider(String(info?.llmProvider ?? "unknown") || "unknown");
-      } catch {
-        setProvider("unknown");
-      }
-    })();
+    try {
+      const info = await api.getAppInfo();
+      setProvider(String(info?.llmProvider ?? "unknown") || "unknown");
+    } catch {
+      setProvider("unknown");
+    }
   }, [api]);
+
+  useEffect(() => {
+    void refreshProvider();
+  }, [refreshProvider]);
 
   // Load available tools and skills
   useEffect(() => {
@@ -545,7 +547,7 @@ export function App() {
         onTabChange={(next) => setTab(next)}
       >
         {tab === "llm" ? (
-          <LlmPanel api={api} onToast={showToast} />
+          <LlmPanel api={api} onToast={showToast} onConfigSaved={refreshProvider} />
         ) : tab === "actions" ? (
           <ActionsPanel api={api as StageDesktopApi | null} onToast={showToast} />
         ) : tab === "memory" ? (
