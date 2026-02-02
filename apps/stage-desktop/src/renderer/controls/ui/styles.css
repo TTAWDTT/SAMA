@@ -1325,6 +1325,71 @@ html, body {
 }
 
 /* ========== Memory Panel ========== */
+/* Memory Panel Tab Bar */
+.memTabRow {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.memTabRow::-webkit-scrollbar {
+  display: none;
+}
+
+.memTabBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.memTabBtn:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.memTabBtn.isActive {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.memTabIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.memTabLabel {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (max-width: 400px) {
+  .memTabLabel {
+    display: none;
+  }
+  .memTabBtn {
+    padding: 10px 8px;
+  }
+  .memTabIcon {
+    font-size: 18px;
+  }
+}
+
 .memList {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

@@ -283,23 +283,28 @@ export function MemoryPanel(props: { api: StageDesktopApi | null; onToast: (msg:
       </div>
 
       <div className="card">
-        <div className="segRow" style={{ marginBottom: 10 }}>
-          <div className="segLabel">View</div>
-          <div className="seg">
-            {(["overview", "summary", "facts", "notes", "settings"] as const).map((v) => (
-              <button
-                key={v}
-                className={`segBtn ${tab === v ? "isActive" : ""}`}
-                type="button"
-                onClick={() => setTab(v)}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
+        <div className="memTabRow">
+          {([
+            { id: "overview", icon: "📊", label: "概览" },
+            { id: "summary", icon: "📝", label: "摘要" },
+            { id: "facts", icon: "📌", label: "Facts" },
+            { id: "notes", icon: "📒", label: "Notes" },
+            { id: "settings", icon: "⚙️", label: "设置" }
+          ] as const).map((v) => (
+            <button
+              key={v.id}
+              className={`memTabBtn ${tab === v.id ? "isActive" : ""}`}
+              type="button"
+              onClick={() => setTab(v.id)}
+              title={v.label}
+            >
+              <span className="memTabIcon">{v.icon}</span>
+              <span className="memTabLabel">{v.label}</span>
+            </button>
+          ))}
         </div>
 
-        <div className="row">
+        <div className="row" style={{ marginTop: 12 }}>
           <input
             className="input"
             type="text"

@@ -533,6 +533,26 @@
         gap: 8px;
         color: rgba(15, 23, 42, 0.78);
       }
+
+      /* Hover frame overlay */
+      #hoverFrame {
+        position: fixed;
+        inset: 4px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 180ms ease;
+        border-style: solid;
+        border-width: 3px;
+        border-color: #d97757;
+        border-radius: 16px;
+        box-sizing: border-box;
+      }
+      #hoverFrame.enabled {
+        /* Only show on hover when enabled */
+      }
+      body:hover #hoverFrame.enabled {
+        opacity: 1;
+      }
     </style>
   </head>
   <body>
@@ -545,7 +565,9 @@
         <div id="dropHint">.vrm = 模型 · .vrma = 动作（加载后可设为 Idle/Walk 槽位）</div>
       </div>
     </div>
-    <div id="dragHandle" title="Drag to move (requires click-through OFF)">拖动窗口</div>
+    <div id="dragHandle" style="display: none;" title="Drag to move (requires click-through OFF)">拖动窗口</div>
+    <!-- Hover frame overlay -->
+    <div id="hoverFrame"></div>
     <div id="boot">
       <div id="bootCard">
         <button id="bootClose" type="button" title="关闭提示">×</button>

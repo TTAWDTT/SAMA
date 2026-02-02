@@ -34,6 +34,9 @@ const bootClose = bootCloseEl instanceof HTMLButtonElement ? bootCloseEl : null;
 const bootHintEl = document.getElementById("bootHint");
 const bootHint = bootHintEl instanceof HTMLDivElement ? bootHintEl : null;
 
+const hoverFrameEl = document.getElementById("hoverFrame");
+const hoverFrame = hoverFrameEl instanceof HTMLDivElement ? hoverFrameEl : null;
+
 const BC_NAME = "sama:pet-bus";
 const bc = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(BC_NAME) : null;
 let lastCaptionReadyAt = 0;
@@ -520,6 +523,27 @@ async function boot() {
           sendPetControlResult((msg as any).requestId, true, dataUrl);
         } else {
           sendPetControlResult((msg as any).requestId, false, "截图失败");
+        }
+        return;
+      }
+
+      if (msg.action === "SET_FRAME_CONFIG") {
+        const cfg: any = (msg as any).config ?? {};
+        if (hoverFrame) {
+          if (cfg.enabled) {
+            hoverFrame.classList.add("enabled");
+            if (typeof cfg.size === "number") {
+              hoverFrame.style.borderWidth = `${cfg.size}px`;
+            }
+            if (typeof cfg.radius === "number") {
+              hoverFrame.style.borderRadius = `${cfg.radius}px`;
+            }
+            if (typeof cfg.color === "string") {
+              hoverFrame.style.borderColor = cfg.color;
+            }
+          } else {
+            hoverFrame.classList.remove("enabled");
+          }
         }
         return;
       }
