@@ -538,8 +538,16 @@ async function boot() {
       if (msg.action === "SET_FRAME_CONFIG") {
         const cfg: any = (msg as any).config ?? {};
         if (hoverFrame) {
-          if (cfg.enabled) {
+          // Only toggle enabled class when explicitly set (not undefined)
+          if (cfg.enabled === true) {
             hoverFrame.classList.add("enabled");
+          } else if (cfg.enabled === false) {
+            hoverFrame.classList.remove("enabled");
+            hoverFrame.classList.remove("previewing");
+          }
+
+          // Apply style settings if frame is enabled
+          if (hoverFrame.classList.contains("enabled")) {
             if (typeof cfg.size === "number") {
               hoverFrame.style.borderWidth = `${cfg.size}px`;
             }
@@ -550,14 +558,11 @@ async function boot() {
               hoverFrame.style.borderColor = cfg.color;
             }
             // Show frame while adjusting settings (previewing mode)
-            if (cfg.previewing) {
+            if (cfg.previewing === true) {
               hoverFrame.classList.add("previewing");
-            } else {
+            } else if (cfg.previewing === false) {
               hoverFrame.classList.remove("previewing");
             }
-          } else {
-            hoverFrame.classList.remove("enabled");
-            hoverFrame.classList.remove("previewing");
           }
         }
         return;
@@ -831,7 +836,7 @@ async function boot() {
   }
 
   // Quick action buttons
-  const cameraPresets: Array<"full" | "half" | "closeup" | "face"> = ["full", "half", "closeup", "face"];
+  const cameraPresets: Array<"full" | "half" | "closeup"> = ["full", "half", "closeup"];
   let currentPresetIdx = 0;
 
   if (btnCameraPreset) {
@@ -839,8 +844,8 @@ async function boot() {
       currentPresetIdx = (currentPresetIdx + 1) % cameraPresets.length;
       const preset = cameraPresets[currentPresetIdx]!;
       scene.setCameraPreset?.(preset);
-      const labels: Record<string, string> = { full: "全身", half: "半身", closeup: "特写", face: "面部" };
-      const icons: Record<string, string> = { full: "👤", half: "👕", closeup: "🔍", face: "😊" };
+      const labels: Record<string, string> = { full: "全身", half: "半身", closeup: "特写" };
+      const icons: Record<string, string> = { full: "👤", half: "👕", closeup: "😊" };
       btnCameraPreset.textContent = icons[preset] ?? "👤";
       showBanner(`视角：${labels[preset] ?? preset}`, { timeoutMs: 1200 });
     });

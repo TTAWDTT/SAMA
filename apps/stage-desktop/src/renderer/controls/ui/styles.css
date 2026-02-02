@@ -3143,3 +3143,261 @@ html, body {
   background: var(--accent-light);
 }
 
+/* ========== Actions Panel - Expand/Collapse UI ========== */
+.expandBtnRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.expandBtn {
+  flex: 1;
+  height: 38px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.expandBtn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-focus);
+}
+
+.expandBtn.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.expandPanel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 250ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
+  opacity: 0;
+}
+
+.expandPanel.open {
+  max-height: 300px;
+  opacity: 1;
+  margin-top: 12px;
+}
+
+.expandPanelInner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-light);
+}
+
+.expandItem {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.expandItem:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.expandItem:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.expandItem.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.expandItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Frame Controls */
+.frameControls {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.frameLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 32px;
+}
+
+.frameValue {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 24px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.colorRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.colorDot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.colorDot:hover {
+  transform: scale(1.1);
+}
+
+.colorDot.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px currentColor;
+}
+
+/* Motion Library List */
+.libList {
+  margin-top: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.libItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+  transition: background var(--transition-fast);
+}
+
+.libItem:last-child {
+  border-bottom: none;
+}
+
+.libItem:hover {
+  background: var(--surface-hover);
+}
+
+.libName {
+  font-size: 13px;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.libBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.libBtn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.libBtn.danger {
+  color: var(--error);
+}
+
+.libBtn.danger:hover {
+  background: var(--error-light);
+  border-color: var(--error);
+}
+
+/* Dark mode overrides for Actions Panel */
+[data-theme="dark"] .expandBtn {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .expandBtn:hover {
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .expandBtn.active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+[data-theme="dark"] .expandPanelInner {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .expandItem {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .expandItem:hover {
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .libList {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .libItem:hover {
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .libBtn {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .libBtn:hover {
+  background: var(--surface-hover);
+}
+
+[data-theme="dark"] .colorDot.active {
+  border-color: var(--text);
+}

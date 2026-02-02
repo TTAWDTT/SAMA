@@ -34,7 +34,7 @@ export type VrmAnimationSlotsStatus = {
   hasAction: boolean;
 };
 
-export type CameraPreset = "full" | "half" | "closeup" | "face";
+export type CameraPreset = "full" | "half" | "closeup";
 
 export type PetScene = {
   start: () => void;
@@ -143,11 +143,11 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   };
 
   // Camera preset configurations - adjusted for better framing
+  // full: show entire body, half: show upper body with waist at bottom, closeup: show head with neck at bottom
   const CAMERA_PRESETS: Record<CameraPreset, { targetY: number; distance: number; pitch: number }> = {
     full: { targetY: 0.9, distance: 2.4, pitch: 0 },
-    half: { targetY: 1.15, distance: 1.5, pitch: 0.05 },
-    closeup: { targetY: 1.35, distance: 0.85, pitch: 0.1 },
-    face: { targetY: 1.5, distance: 0.5, pitch: 0.12 }
+    half: { targetY: 1.0, distance: 1.2, pitch: 0.08 },
+    closeup: { targetY: 1.4, distance: 0.6, pitch: 0.1 }
   };
 
   const applyCameraPreset = (preset: CameraPreset) => {
@@ -158,6 +158,11 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     viewBaseDistance = cfg.distance;
     orbitPitch = cfg.pitch;
     orbitYaw = 0; // Reset yaw for consistent view
+
+    // Reset model offset for proper centering
+    modelTransform.offsetX = 0;
+    modelTransform.offsetZ = 0;
+    applyModelTransform();
     applyView();
   };
 
@@ -563,12 +568,14 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     box.getSize(size);
     box.getCenter(center);
 
-    // Place the model so it "feels" centered:
-    // - Prefer hips for X/Z anchor (more stable than bbox when hair/accessories skew bounds).
-    // - Prefer feet for ground when bbox includes extra geometry below the soles (e.g., a hidden plane).
+    // Get bone positions for alignment
     let anchorX = center.x;
     let anchorZ = center.z;
     let groundY = box.min.y;
+    let hipsY = center.y;
+    let headY = box.max.y;
+    let neckY = center.y + size.y * 0.3; // Estimate neck position
+
     try {
       const humanoid: any = (vrm as any).humanoid;
       const getNode = (name: string) =>
@@ -582,6 +589,19 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
         hips.getWorldPosition(tmpFitWorld);
         anchorX = tmpFitWorld.x;
         anchorZ = tmpFitWorld.z;
+        hipsY = tmpFitWorld.y;
+      }
+
+      const head = getNode("head");
+      if (head && typeof head.getWorldPosition === "function") {
+        head.getWorldPosition(tmpFitWorld);
+        headY = tmpFitWorld.y;
+      }
+
+      const neck = getNode("neck");
+      if (neck && typeof neck.getWorldPosition === "function") {
+        neck.getWorldPosition(tmpFitWorld);
+        neckY = tmpFitWorld.y;
       }
 
       const lFoot = getNode("leftFoot");
@@ -597,101 +617,89 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       }
       if (footYs.length) {
         const footY = Math.min(...footYs);
-        // If bbox min is far below the feet, treat it as an outlier and anchor to feet instead.
         const diff = footY - box.min.y;
         const threshold = Math.max(0.03, size.y * 0.06);
         if (diff > threshold) {
-          // Foot bones are usually around the ankle, so drop a small pad to approximate the sole.
           groundY = footY - Math.max(0.015, size.y * 0.03);
         }
       }
     } catch {}
 
+    const scale = Math.max(0.05, Number(modelTransform.scale) || 1);
+    const scaledHeight = size.y * scale;
+
+    // Calculate alignment based on current preset
+    let alignY: number;
+    let visibleTop: number;
+    let visibleBottom: number;
+
+    if (currentCameraPreset === "closeup") {
+      // Closeup: align neck to bottom, show head area
+      alignY = neckY;
+      visibleBottom = neckY;
+      visibleTop = box.max.y + (box.max.y - headY) * 0.2; // Add space above head
+    } else if (currentCameraPreset === "half") {
+      // Half body: align hips to bottom, show from hips to above head
+      alignY = hipsY;
+      visibleBottom = hipsY;
+      visibleTop = box.max.y + (box.max.y - headY) * 0.15;
+    } else {
+      // Full body: align feet to bottom, show entire body
+      alignY = groundY;
+      visibleBottom = groundY;
+      visibleTop = box.max.y;
+    }
+
     const dx = -anchorX;
-    const dy = -groundY;
+    const dy = -alignY;
     const dz = -anchorZ;
     vrm.scene.position.x += dx;
     vrm.scene.position.y += dy;
     vrm.scene.position.z += dz;
 
     // Eye height heuristic
-    const scale = Math.max(0.05, Number(modelTransform.scale) || 1);
-    const scaledHeight = size.y * scale;
     eyeBaseY = Math.max(0.6, scaledHeight * 0.78);
     pointerTarget.y = eyeBaseY;
     fixationTarget.y = eyeBaseY;
     lookTargetObj.position.y = eyeBaseY;
 
-    // Frame the avatar so it feels "grounded":
-    // - put the feet/ground line near the bottom of the viewport
-    // - keep the top (head/hair) comfortably inside the top margin
-    //
-    // This gives a nicer default presentation than symmetric "fit bbox" framing,
-    // and matches the UX expectation that the avatar stands on the bottom edge.
+    // Calculate visible range after translation
+    const visibleHeight = (visibleTop - visibleBottom) * scale;
+    const minX = (box.min.x + dx) * scale;
+    const maxX = (box.max.x + dx) * scale;
+
+    // Frame the avatar - MUST fill either width or height completely
     const vFovRad = THREE.MathUtils.degToRad(camera.fov);
     const vTan = Math.max(0.0001, Math.tan(vFovRad / 2));
     const hFovRad = 2 * Math.atan(vTan * camera.aspect);
     const hTan = Math.max(0.0001, Math.tan(hFovRad / 2));
 
-    // Visible bounds after our grounding translation (and applying the user's virtual scale).
-    const minX = (box.min.x + dx) * scale;
-    const maxX = (box.max.x + dx) * scale;
-    const minY = (box.min.y + dy) * scale;
-    const maxY = (box.max.y + dy) * scale;
+    // Minimal margins - SAMA should fill the frame
+    const MARGIN = 0.01;
 
-    // Composition margins expressed as a fraction of NDC (-1..1). Small values = tighter framing.
-    // Minimal margins for SAMA to fill maximum viewport space.
-    const BOTTOM_MARGIN = 0.005;
-    const TOP_MARGIN = 0.02;
-    const SIDE_MARGIN = 0.02;
-    const b = THREE.MathUtils.clamp(1 - BOTTOM_MARGIN, 0.5, 0.995);
-    const t = THREE.MathUtils.clamp(1 - TOP_MARGIN, 0.5, 0.995);
-    const side = THREE.MathUtils.clamp(1 - SIDE_MARGIN, 0.5, 0.995);
-
-    // We treat y=0 as the "ground plane" after grounding. If the bbox has outliers below the feet,
-    // they are expected to clip below the viewport rather than creating empty space under the soles.
-    const topY = Math.max(0.05, Number.isFinite(maxY) ? maxY : 0.05);
-
-    const pitch = THREE.MathUtils.clamp(Number(orbitPitch) || 0, -1.05, 1.05);
-    const sinPitch = Math.sin(pitch);
-    const cosPitch = Math.cos(pitch);
-
-    // Analytic vertical solve for a lookAt-orbit camera:
-    // Choose radius r so that:
-    // - ground (y=0) is at NDC y = -(1 - BOTTOM_MARGIN)
-    // - top (y=topY) is at NDC y = +(1 - TOP_MARGIN)
-    //
-    // Then compute viewTarget.y that satisfies the bottom condition for that r.
-    let distV = 0;
-    const A = cosPitch - b * vTan * sinPitch;
-    const B = cosPitch + t * vTan * sinPitch;
-    if (topY > 0.05 && A > 0.001 && B > 0.001) {
-      const denom = vTan * (b / A + t / B);
-      if (denom > 0.001) distV = topY / denom;
-    }
-
-    // Horizontal fit (keep the model comfortably inside the sides).
+    // Calculate distances needed to fit width and height
     const halfW = Math.max(0.1, Math.max(Math.abs(minX), Math.abs(maxX)));
-    const distW = halfW / (hTan * side);
+    const distW = halfW / (hTan * (1 - MARGIN));
+    const distH = (visibleHeight / 2) / (vTan * (1 - MARGIN));
 
-    const canUseVerticalSolve = distV > 0.001 && A > 0.001 && B > 0.001;
+    // Use the SMALLER distance so SAMA fills at least one dimension completely
+    const radius = Math.max(0.5, Math.min(distH, distW));
 
-    let radius = Math.max(1.0, distW);
-    if (canUseVerticalSolve) {
-      radius = Math.max(radius, distV);
-      const targetY = (b * vTan * radius) / A;
-      viewTarget.set(0, Math.max(0.1, targetY), 0);
-      viewBaseDistance = radius;
-      applyView();
+    // Position camera target at center of visible range
+    const targetY = visibleHeight / 2;
+    viewTarget.set(0, Math.max(0.1, targetY), 0);
+    viewBaseDistance = radius;
+
+    // Apply preset-specific pitch adjustments
+    if (currentCameraPreset === "closeup") {
+      orbitPitch = 0.12;
+    } else if (currentCameraPreset === "half") {
+      orbitPitch = 0.08;
     } else {
-      // Fallback: old symmetric bbox fit around a "grounded" target.
-      // This keeps things usable even if the analytic solve becomes numerically unstable.
-      viewTarget.set(0, scaledHeight * 0.56, 0);
-      const halfH = Math.max(0.1, Math.max(Math.abs(minY - viewTarget.y), Math.abs(maxY - viewTarget.y)));
-      const distH = halfH / vTan;
-      viewBaseDistance = Math.max(1.0, Math.max(distH, distW) * 1.12);
-      applyView();
+      orbitPitch = 0;
     }
+
+    applyView();
 
     baseModelPos.copy(vrm.scene.position);
     baseModelQuat.copy(vrm.scene.quaternion);
