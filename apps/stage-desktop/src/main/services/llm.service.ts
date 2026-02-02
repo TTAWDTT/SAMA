@@ -588,8 +588,8 @@ class OpenAICompatibleProvider implements LLMProvider {
         ...(ctx.history ?? []).slice(-20),
         { role: "user", content: userMsg }
       ],
-      600,
-      40_000 // Increased timeout for DeepSeek which can be slower
+      4096,
+      180_000 // Increased timeout for DeepSeek which can be slower
     );
     return sanitizeChatText(raw);
   }
@@ -833,8 +833,8 @@ class AIStudioProvider implements LLMProvider {
           ...(ctx.history ?? []).slice(-20),
           { role: "user", content: userMsg }
         ],
-        600,
-        40_000 // Increased timeout for DeepSeek which can be slower
+        4096,
+        180_000 // Increased timeout for DeepSeek which can be slower
       );
       return sanitizeChatText(raw);
     }
@@ -850,8 +850,8 @@ class AIStudioProvider implements LLMProvider {
       model: this.#model,
       systemInstruction: system,
       contents: [...history, { role: "user", parts: [{ text: userMsg }] }],
-      maxOutputTokens: 512,
-      timeoutMs: 40_000 // Increased timeout
+      maxOutputTokens: 8192,
+      timeoutMs: 180_000 // Increased timeout
     });
 
     return sanitizeChatText(raw);
