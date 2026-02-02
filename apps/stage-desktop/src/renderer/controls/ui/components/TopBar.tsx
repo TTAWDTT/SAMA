@@ -70,6 +70,7 @@ export function TopBar(props: {
   onToggleDevMode: () => void;
   onClearUiLogs: () => void;
   onToggleSearch?: () => void;
+  onExportChat?: () => void;
 }) {
   const {
     title,
@@ -80,7 +81,8 @@ export function TopBar(props: {
     onToggleTheme,
     onToggleDevMode,
     onClearUiLogs,
-    onToggleSearch
+    onToggleSearch,
+    onExportChat
   } = props;
 
   const [menuOpen, setMenuOpen] = useState(false);
@@ -159,6 +161,41 @@ export function TopBar(props: {
 
         {menuOpen && (
           <div className="menu" role="menu">
+            {onExportChat && (
+              <button
+                className="menuItem"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onExportChat();
+                  setMenuOpen(false);
+                }}
+              >
+                <span>导出聊天记录 (.md)</span>
+              </button>
+            )}
+            <button
+              className="menuItem"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                window.print();
+              }}
+            >
+              <span>打印 / 另存为 PDF</span>
+            </button>
+            <button
+              className="menuItem"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                window.location.reload();
+              }}
+            >
+              <span>重新加载界面 (Reload)</span>
+            </button>
+            <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
             <button
               className="menuItem"
               type="button"

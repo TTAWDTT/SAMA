@@ -20,9 +20,12 @@ export const ChatTimeline = React.memo(forwardRef<
     onRetry?: (text: string) => void;
     onToast?: (msg: string, o?: any) => void;
     searchQuery?: string;
+    selectionMode?: boolean;
+    selectedIds?: Set<string>;
+    onToggleSelect?: (id: string) => void;
   }
 >(function ChatTimeline(props, ref) {
-  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery } = props;
+  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery, selectionMode, selectedIds, onToggleSelect } = props;
   const showLlmHint = String(llmProvider ?? "") === "fallback";
   const [viewingImage, setViewingImage] = useState<string | null>(null);
 
@@ -98,6 +101,9 @@ export const ChatTimeline = React.memo(forwardRef<
                   onRetry={onRetry}
                   searchQuery={searchQuery}
                   onViewImage={setViewingImage}
+                  selectionMode={selectionMode}
+                  selected={selectedIds?.has(item.message.id)}
+                  onSelect={() => onToggleSelect?.(item.message.id)}
                 />
               )
             )}

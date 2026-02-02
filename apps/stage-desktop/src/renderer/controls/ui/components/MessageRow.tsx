@@ -57,8 +57,11 @@ export function MessageRow(props: {
   onRetry?: (text: string) => void;
   searchQuery?: string;
   onViewImage?: (src: string) => void;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onSelect?: () => void;
 }) {
-  const { api, message, isGroupStart = true, onToast, onRetry, searchQuery, onViewImage } = props;
+  const { api, message, isGroupStart = true, onToast, onRetry, searchQuery, onViewImage, selectionMode, selected, onSelect } = props;
   const [copied, setCopied] = useState<null | "text" | "md">(null);
   const [hovered, setHovered] = useState(false);
 
@@ -86,10 +89,18 @@ export function MessageRow(props: {
   return (
     <div
       id={`msg-${message.id}`}
-      className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""} ${!isGroupStart ? "isGrouped" : ""}`}
+      className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""} ${!isGroupStart ? "isGrouped" : ""} ${selectionMode ? "selectionMode" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onClick={selectionMode ? onSelect : undefined}
+      style={selectionMode ? { cursor: "pointer", opacity: selected ? 1 : 0.6 } : undefined}
     >
+      {selectionMode && (
+        <div className={`selectCheckbox ${selected ? "checked" : ""}`}>
+          {selected && <CheckIcon />}
+        </div>
+      )}
+
       {/* Avatar - only show for assistant (SAMA) and only on group start */}
       {isAssistant && (
         <div className={`chatAvatar ${!isGroupStart ? "hidden" : ""}`}>

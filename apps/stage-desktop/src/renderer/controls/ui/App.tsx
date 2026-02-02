@@ -84,11 +84,112 @@ export function App() {
 
   const [logs, setLogs] = useState<AppLogItem[]>([]);
 
+  // Selection Mode
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
   // Available tools and skills for the composer
   const [availableTools, setAvailableTools] = useState<ToolInfo[]>([]);
   const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
 
-  // Search state
+  // ... (search code)
+
+  const handleExportChat = useCallback(() => {
+    setSelectionMode(true);
+    showToast("请勾选要导出的消息", { timeoutMs: 2000 });
+  }, [showToast]);
+
+  const handleToggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleConfirmExport = useCallback(async () => {
+    if (selectedIds.size === 0) {
+      showToast("未选择任何消息", { timeoutMs: 1500 });
+      return;
+    }
+
+    const selectedEntries = entries.filter((e) => selectedIds.has(e.id));
+    if (selectedEntries.length === 0) return;
+
+    showToast("正在生成图片...", { timeoutMs: 5000 });
+
+    try {
+      // Safer import for html2canvas (handles both default and named exports)
+      const mod = await import("html2canvas");
+      const html2canvas = mod.default || mod;
+      
+      // Create off-screen container
+      const container = document.createElement("div");
+      container.style.position = "absolute";
+      container.style.left = "-9999px";
+      container.style.top = "0";
+      container.style.width = "600px"; // Fixed width for nice export
+      container.style.background = theme === "dark" ? "#141413" : "#faf9f5";
+      container.style.padding = "40px";
+      container.style.fontFamily = "var(--font)";
+      document.body.appendChild(container);
+
+      // Render messages to HTML string (simple reconstruction)
+      let html = `<div style="display: flex; flex-direction: column; gap: 16px;">`;
+      selectedEntries.forEach((e) => {
+        const isUser = e.role === "user";
+        const align = isUser ? "flex-end" : "flex-start";
+        const bg = isUser ? (theme === "dark" ? "#1e1e1d" : "#f5f4f0") : (theme === "dark" ? "#faf9f5" : "#ffffff"); // white/dark bubble
+        const color = isUser ? "inherit" : (theme === "dark" ? "#141413" : "inherit"); // SAMA bubble text color fix
+        // SAMA bubble in light mode is white bg, black text. In dark mode, white bg, black text looks good?
+        // Wait, app logic: assistant bubble is var(--bubble-assistant) -> transparent/white.
+        // Let's stick to simple readable colors.
+        
+        const bubbleStyle = `
+          padding: 12px 16px; 
+          border-radius: 12px; 
+          background: ${isUser ? (theme === "dark" ? "#333" : "#eee") : (theme === "dark" ? "#ccc" : "#fff")}; 
+          color: ${isUser ? (theme === "dark" ? "#fff" : "#000") : "#000"};
+          max-width: 80%;
+          line-height: 1.5;
+          font-size: 14px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        `;
+        
+        html += `
+          <div style="display: flex; justify-content: ${align};">
+            <div style="${bubbleStyle}">
+              ${e.content.replace(/\n/g, "<br/>")}
+            </div>
+          </div>
+        `;
+      });
+      html += `</div>`;
+      container.innerHTML = html;
+
+      const canvas = await html2canvas(container, {
+        backgroundColor: theme === "dark" ? "#141413" : "#faf9f5",
+        scale: 2 // Retina
+      });
+
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sama-chat-${Date.now()}.png`;
+      a.click();
+
+      document.body.removeChild(container);
+      setSelectionMode(false);
+      setSelectedIds(new Set());
+      showToast("已导出图片", { timeoutMs: 2000 });
+    } catch (err) {
+      console.error(err);
+      showToast("导出失败", { timeoutMs: 3000 });
+    }
+  }, [entries, selectedIds, theme, showToast]);
+
+  // Debounce search query for performance
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
@@ -506,6 +607,11 @@ export function App() {
     void sendMessage(text);
   }, [sendMessage]);
 
+  const handleExportChat = useCallback(() => {
+    setSelectionMode(true);
+    showToast("请勾选要导出的消息", { timeoutMs: 2000 });
+  }, [showToast]);
+
   const connection = useMemo(() => {
     const p = String(provider || "unknown");
     const connected = p !== "off" && p !== "preload missing" && p !== "fallback";
@@ -524,6 +630,7 @@ export function App() {
         onToggleDevMode={() => setDevMode((v) => !v)}
         onClearUiLogs={() => setLogs([])}
         onToggleSearch={() => setSearchOpen((v) => !v)}
+        onExportChat={handleExportChat}
       />
 
       <SearchBar
@@ -557,15 +664,33 @@ export function App() {
           onRetry={handleRetry}
           onToast={showToast}
           searchQuery={searchQuery}
+          selectionMode={selectionMode}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
         />
-        <Composer
-          value={draft}
-          onChange={setDraft}
-          onSend={sendMessage}
-          busy={isThinking}
-          availableTools={availableTools}
-          availableSkills={availableSkills}
-        />
+        {!selectionMode ? (
+          <Composer
+            value={draft}
+            onChange={setDraft}
+            onSend={sendMessage}
+            busy={isThinking}
+            availableTools={availableTools}
+            availableSkills={availableSkills}
+          />
+        ) : (
+          <div className="selectionBar">
+            <div className="selectionCount">已选 {selectedIds.size} 条</div>
+            <button className="btn btnSm" onClick={() => {
+              setSelectionMode(false);
+              setSelectedIds(new Set());
+            }}>
+              取消
+            </button>
+            <button className="btn btnSm btnPrimary" onClick={() => void handleConfirmExport()}>
+              导出图片
+            </button>
+          </div>
+        )}
       </div>
 
       <SidebarDrawer
