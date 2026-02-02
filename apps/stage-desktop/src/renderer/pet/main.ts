@@ -541,8 +541,15 @@ async function boot() {
             if (typeof cfg.color === "string") {
               hoverFrame.style.borderColor = cfg.color;
             }
+            // Show frame while adjusting settings (previewing mode)
+            if (cfg.previewing) {
+              hoverFrame.classList.add("previewing");
+            } else {
+              hoverFrame.classList.remove("previewing");
+            }
           } else {
             hoverFrame.classList.remove("enabled");
+            hoverFrame.classList.remove("previewing");
           }
         }
         return;

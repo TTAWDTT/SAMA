@@ -156,6 +156,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const [frameSize, setFrameSize] = useState(loadFrameSize);
   const [frameRadius, setFrameRadius] = useState(loadFrameRadius);
   const [frameColor, setFrameColor] = useState(loadFrameColor);
+  const [framePreviewing, setFramePreviewing] = useState(false);
 
   const [displayMode, setDisplayMode] = useState<PetDisplayModeConfig>({ mode: "normal" });
 
@@ -193,7 +194,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   useEffect(() => savePresetCarouselEnabled(presetCarousel), [presetCarousel]);
 
   // Throttled frame config sender for smooth slider experience
-  function queueFrameConfig(cfg: { enabled?: boolean; size?: number; radius?: number; color?: string }) {
+  function queueFrameConfig(cfg: { enabled?: boolean; size?: number; radius?: number; color?: string; previewing?: boolean }) {
     pendingFrameCfg.current = { ...pendingFrameCfg.current, ...cfg };
     if (frameCfgTimer.current !== null) return;
     frameCfgTimer.current = window.setTimeout(() => {
@@ -209,25 +210,38 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     }, 16); // ~60fps throttle for smooth updates
   }
 
+  // End preview mode (called on slider release)
+  function endFramePreview() {
+    setFramePreviewing(false);
+    queueFrameConfig({ previewing: false });
+  }
+
+  // Start preview mode (called on slider interaction)
+  function startFramePreview() {
+    if (!framePreviewing) {
+      setFramePreviewing(true);
+    }
+  }
+
   // Save frame settings (debounced persistence, immediate local state)
   useEffect(() => {
     saveFrameEnabled(frameEnabled);
-    queueFrameConfig({ enabled: frameEnabled, size: frameSize, radius: frameRadius, color: frameColor });
+    queueFrameConfig({ enabled: frameEnabled, size: frameSize, radius: frameRadius, color: frameColor, previewing: framePreviewing });
   }, [frameEnabled]);
 
   useEffect(() => {
     saveFrameSize(frameSize);
-    queueFrameConfig({ size: frameSize });
+    queueFrameConfig({ size: frameSize, previewing: framePreviewing });
   }, [frameSize]);
 
   useEffect(() => {
     saveFrameRadius(frameRadius);
-    queueFrameConfig({ radius: frameRadius });
+    queueFrameConfig({ radius: frameRadius, previewing: framePreviewing });
   }, [frameRadius]);
 
   useEffect(() => {
     saveFrameColor(frameColor);
-    queueFrameConfig({ color: frameColor });
+    queueFrameConfig({ color: frameColor, previewing: framePreviewing });
   }, [frameColor]);
 
   useEffect(() => {
@@ -620,6 +634,9 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
                   max={10}
                   step={1}
                   value={frameSize}
+                  onMouseDown={startFramePreview}
+                  onMouseUp={endFramePreview}
+                  onBlur={endFramePreview}
                   onChange={(e) => setFrameSize(clamp(Number(e.target.value), 1, 10))}
                 />
                 <span className="frameValue">{frameSize}px</span>
@@ -636,6 +653,9 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
                   max={50}
                   step={1}
                   value={frameRadius}
+                  onMouseDown={startFramePreview}
+                  onMouseUp={endFramePreview}
+                  onBlur={endFramePreview}
                   onChange={(e) => setFrameRadius(clamp(Number(e.target.value), 0, 50))}
                 />
                 <span className="frameValue">{frameRadius}px</span>
