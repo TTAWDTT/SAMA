@@ -5,6 +5,7 @@ import os from "node:os";
 export type SkillInfo = {
   name: string;
   path: string;
+  description?: string;
 };
 
 function safeReadText(p: string) {
@@ -38,7 +39,17 @@ export class SkillService {
         const name = e.name;
         const p = join(this.#skillsDir, name, "SKILL.md");
         if (!existsSync(p)) continue;
-        out.push({ name, path: p });
+
+        // Best-effort description: first non-empty line (usually a heading/summary).
+        const md = safeReadText(p);
+        const firstLine =
+          md
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean)[0] ?? "";
+        const description = firstLine.replace(/^#+\s*/, "").trim();
+
+        out.push({ name, path: p, description: description || undefined });
       }
       out.sort((a, b) => a.name.localeCompare(b.name));
       return out;
@@ -82,4 +93,3 @@ export class SkillService {
     return out.trim();
   }
 }
-

@@ -3,7 +3,9 @@ import type { CompanionState } from "../protocol/types";
 import { LLMService } from "./llm.service";
 import { MemoryService } from "./memory.service";
 import { SkillService } from "./skill.service";
+import { ToolService, renderToolDocs } from "./tool.service";
 import { webSearch } from "./web-search.service";
+import { formatToolResults, parseToolCalls } from "../agent/tool-parser";
 
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
@@ -257,6 +259,7 @@ export class CoreService {
   #memory: MemoryService;
   #skills: SkillService;
   #enabledSkills: string[] = [];
+  #tools: ToolService | null = null;
   #onAction: (cmd: ActionCommand, meta: { proactive: boolean }) => void;
 
   #state: CompanionState = "IDLE";
@@ -298,6 +301,13 @@ export class CoreService {
     if (enabled) {
       this.#enabledSkills = enabled.map((x: any) => String(x ?? "").trim()).filter(Boolean);
     }
+
+    // Tools runtime (for tool_calls execution)
+    try {
+      this.#tools = new ToolService(c ?? {});
+    } catch {
+      this.#tools = null;
+    }
   }
 
   constructor(opts: {
@@ -309,6 +319,7 @@ export class CoreService {
     this.#memory = opts.memory;
     this.#onAction = opts.onAction;
     this.#skills = new SkillService();
+    this.#tools = null;
 
     // Optional: enable skills by default via env (comma-separated).
     // (This can be overridden later by `setAssistantConfig()`.)
@@ -390,6 +401,75 @@ export class CoreService {
     } finally {
       this.#summaryInFlight = false;
     }
+  }
+
+  async #chatWithTools(
+    ctx: {
+      state: string;
+      isNight: boolean;
+      mood: number;
+      history: { role: "user" | "assistant"; content: string }[];
+      memory?: string;
+      summary?: string;
+      skills?: string;
+      tools?: string;
+    },
+    userMsg: string,
+    allowedTools: Set<string>
+  ) {
+    // If tools are not configured/enabled, behave like a normal chat.
+    if (!this.#tools || !allowedTools.size) return this.#llm.chatReply(ctx, userMsg);
+
+    const maxRounds = 3;
+    const maxCallsPerRound = 6;
+
+    let currentMsg = userMsg;
+    let toolTranscript = "";
+
+    for (let round = 0; round < maxRounds; round++) {
+      const reply = await this.#llm.chatReply(ctx, currentMsg);
+      const parsed = parseToolCalls(reply);
+      if (!parsed.hasToolCalls) return reply;
+
+      const calls = parsed.toolCalls.slice(0, maxCallsPerRound);
+      const results: { name: string; ok: boolean; content: string }[] = [];
+
+      for (const c of calls) {
+        const name = String(c?.name ?? "").trim();
+        if (!name) continue;
+
+        if (!allowedTools.has(name)) {
+          results.push({ name, ok: false, content: `Tool not allowed for this message: ${name}` });
+          continue;
+        }
+
+        try {
+          const r = await this.#tools.run({ name, arguments: c.arguments ?? {} });
+          results.push({ name: r.name, ok: r.ok, content: r.content });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          results.push({ name, ok: false, content: `Tool failed: ${msg}` });
+        }
+      }
+
+      const block = formatToolResults(results).trim();
+      toolTranscript = toolTranscript ? `${toolTranscript}\n\n${block}` : block;
+
+      // Feed tool results back to the model. It may either answer directly or request more tools.
+      currentMsg =
+        `用户问题：\n${userMsg}\n\n` +
+        `${toolTranscript}\n\n` +
+        "请基于工具执行结果继续：\n" +
+        "- 若还需要调用工具，请按工具调用格式输出 tool_calls。\n" +
+        "- 否则请直接给出最终回答（不要再输出 tool_calls）。";
+    }
+
+    // Too many rounds; return a helpful message rather than looping forever.
+    return (
+      "我尝试调用工具以完成你的请求，但工具调用轮次达到上限，未能得到最终回答。\n\n" +
+      (toolTranscript ? `${toolTranscript}\n\n` : "") +
+      "你可以：\n- 减少一次请求里要做的事情\n- 或在工具选择里只勾选必要的 1-2 个工具/skills 再试一次"
+    );
   }
 
   #recomputeState(u: SensorUpdate): CompanionState {
@@ -678,7 +758,8 @@ export class CoreService {
           history: this.#chatHistory,
           memory: "",
           summary,
-          skills: this.#skills.renderSkillsPrompt(this.#enabledSkills)
+          skills: this.#skills.renderSkillsPrompt(this.#enabledSkills),
+          tools: ""
         };
 
         const userMsg =
@@ -917,17 +998,29 @@ export class CoreService {
         }
       }
     }
-    const summary = this.#memory.getConversationSummary().summary;
+      const summary = this.#memory.getConversationSummary().summary;
 
-    const ctx = {
-      state: this.#state,
-      isNight: this.#lastSensor?.isNight ?? false,
-      mood: this.#mood,
-      history: this.#chatHistory,
-      memory: memoryPrompt,
-      summary,
-      skills: this.#skills.renderSkillsPrompt(this.#enabledSkills)
-    };
+      const metaSkills = Array.isArray((req as any)?.meta?.skills) ? (req as any).meta.skills : null;
+      const activeSkills = metaSkills
+        ? metaSkills.map((x: any) => String(x ?? "").trim()).filter(Boolean)
+        : this.#enabledSkills;
+      const skillsPrompt = this.#skills.renderSkillsPrompt(activeSkills);
+
+      const metaTools = Array.isArray((req as any)?.meta?.tools) ? (req as any).meta.tools : null;
+      const allowlist = metaTools ? metaTools.map((x: any) => String(x ?? "").trim()).filter(Boolean) : undefined;
+      const allowedTools = this.#tools ? this.#tools.getAllowedTools({ allowlist }) : new Set<string>();
+      const toolsPrompt = allowedTools.size ? renderToolDocs(allowedTools) : "";
+
+      const ctx = {
+        state: this.#state,
+        isNight: this.#lastSensor?.isNight ?? false,
+        mood: this.#mood,
+        history: this.#chatHistory,
+        memory: memoryPrompt,
+        summary,
+        skills: skillsPrompt,
+        tools: toolsPrompt
+      };
 
     // UX: show an immediate "thinking" indicator near the avatar so users get feedback
     // even if the LLM takes time. The reply bubble will replace it automatically.
@@ -945,7 +1038,7 @@ export class CoreService {
       this.#onAction(thinking, { proactive: false });
     }
 
-    const reply = await this.#llm.chatReply(ctx, req.message);
+    const reply = await this.#chatWithTools(ctx, req.message, allowedTools);
     const replyTs = Date.now();
 
     this.#chatHistory.push({ role: "user", content: req.message });

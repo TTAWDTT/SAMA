@@ -1,6 +1,8 @@
 import type { LLMConfig, LLMProviderName } from "../protocol/types";
 import { buildBubbleSystemPrompt, buildChatSystemPrompt } from "../agent/prompts";
 import { net } from "electron";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 export interface LLMProvider {
   name: string;
@@ -16,6 +18,8 @@ export interface LLMProvider {
       summary?: string;
       /** Optional injected skill instructions (local-only). */
       skills?: string;
+      /** Optional injected tool docs/call format (local-only). */
+      tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
@@ -453,6 +457,149 @@ async function openAICompatibleChat(
   return content;
 }
 
+type ModelLimit = { context: number; output: number };
+let CACHED_APIS_JSON: any | null = null;
+
+function tryLoadApisJson(): any | null {
+  if (CACHED_APIS_JSON) return CACHED_APIS_JSON;
+  const env = String(process.env.SAMA_APIS_JSON ?? "").trim();
+  const candidates = [env, resolve(process.cwd(), "APIs.json")].filter(Boolean);
+
+  for (const p of candidates) {
+    try {
+      if (!existsSync(p)) continue;
+      const raw = readFileSync(p, "utf-8");
+      CACHED_APIS_JSON = JSON.parse(raw);
+      return CACHED_APIS_JSON;
+    } catch {}
+  }
+  return null;
+}
+
+function normalizeProviderForApis(provider: string): string {
+  const p = String(provider ?? "").trim().toLowerCase();
+  if (p === "aistudio") return "google";
+  return p;
+}
+
+function getModelLimitFromApis(provider: string, model: string): ModelLimit | null {
+  const data = tryLoadApisJson();
+  if (!data || typeof data !== "object") return null;
+  const providerKey = normalizeProviderForApis(provider);
+
+  const p = (data as any)?.[providerKey];
+  const models = p && typeof p === "object" ? (p as any).models : null;
+  const m = models && typeof models === "object" ? (models as any)[String(model ?? "")] : null;
+  const lim = m && typeof m === "object" ? (m as any).limit : null;
+  const context = Math.floor(Number(lim?.context ?? 0) || 0);
+  const output = Math.floor(Number(lim?.output ?? 0) || 0);
+  if (context > 0 && output > 0) return { context, output };
+  return null;
+}
+
+function estimateTokens(text: string): number {
+  const s = String(text ?? "");
+  if (!s) return 0;
+
+  // Rough mixed-language estimate with a small safety buffer:
+  // - CJK chars are often ~1 token.
+  // - Other chars average ~4 chars/token.
+  let cjk = 0;
+  let other = 0;
+
+  for (let i = 0; i < s.length; i++) {
+    const cp = s.codePointAt(i) ?? 0;
+    if (cp > 0xffff) i++; // surrogate pair
+
+    const isCjk =
+      (cp >= 0x4e00 && cp <= 0x9fff) || // CJK Unified Ideographs
+      (cp >= 0x3400 && cp <= 0x4dbf) || // CJK Extension A
+      (cp >= 0x3000 && cp <= 0x303f) || // CJK Symbols and Punctuation
+      (cp >= 0xff00 && cp <= 0xffef); // Halfwidth/Fullwidth Forms
+
+    if (isCjk) cjk++;
+    else other++;
+  }
+
+  const base = cjk + other / 4;
+  return Math.max(1, Math.ceil(base * 1.15));
+}
+
+function truncateToTokenBudget(text: string, maxTokens: number): string {
+  const s = String(text ?? "");
+  if (!s) return "";
+  const budget = Math.max(0, Math.floor(maxTokens) || 0);
+  if (!budget) return "";
+  if (estimateTokens(s) <= budget) return s;
+
+  // Scale by ratio, then refine via boundary-aware truncation.
+  const ratio = Math.max(0.05, Math.min(0.98, budget / Math.max(1, estimateTokens(s))));
+  const approxChars = Math.max(40, Math.floor(Array.from(s).length * ratio));
+  return smartTruncatePreferBoundary(s, approxChars);
+}
+
+function buildOpenAIMessagesWithBudget(opts: {
+  system: string;
+  history: { role: "user" | "assistant"; content: string }[];
+  user: string;
+  inputBudgetTokens?: number;
+}) {
+  const systemRaw = String(opts.system ?? "");
+  const history = Array.isArray(opts.history) ? opts.history : [];
+  const userRaw = String(opts.user ?? "");
+
+  const budget = Math.floor(Number(opts.inputBudgetTokens ?? 0) || 0);
+  if (!budget) {
+    return [
+      { role: "system", content: systemRaw },
+      ...history.slice(-20),
+      { role: "user", content: userRaw }
+    ];
+  }
+
+  const overhead = 12; // small per-request overhead buffer
+
+  let systemText = systemRaw;
+  let userText = userRaw;
+
+  // Ensure system + user fit first (priority).
+  let sysTokens = estimateTokens(systemText) + 4;
+  let userTokens = estimateTokens(userText) + 4;
+
+  if (sysTokens + userTokens + overhead > budget) {
+    userText = truncateToTokenBudget(userText, Math.max(32, budget - sysTokens - overhead));
+    userTokens = estimateTokens(userText) + 4;
+  }
+
+  if (sysTokens + userTokens + overhead > budget) {
+    systemText = truncateToTokenBudget(systemText, Math.max(64, budget - userTokens - overhead));
+    sysTokens = estimateTokens(systemText) + 4;
+  }
+
+  let remaining = Math.max(0, budget - sysTokens - userTokens - overhead);
+  // Keep some headroom for formatting and minor tokenization differences.
+  remaining = Math.max(0, remaining - 64);
+
+  const pickedHistory: { role: "user" | "assistant"; content: string }[] = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (!m) continue;
+    const role = m.role === "assistant" ? "assistant" : "user";
+    const content = String(m.content ?? "");
+    const t = estimateTokens(content) + 4;
+    if (t > remaining) continue;
+    pickedHistory.push({ role, content });
+    remaining -= t;
+  }
+  pickedHistory.reverse();
+
+  return [
+    { role: "system", content: systemText },
+    ...pickedHistory,
+    { role: "user", content: userText }
+  ];
+}
+
 type GeminiContent = { role: "user" | "model"; parts: { text: string }[] };
 
 async function geminiGenerateText(opts: {
@@ -562,6 +709,7 @@ class OpenAICompatibleProvider implements LLMProvider {
 
   async generateBubble(ctx: { state: string; isNight: boolean; mood: number }) {
     const system = buildBubbleSystemPrompt();
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 256;
     const raw = await openAICompatibleChat(
       this.#opts,
       [
@@ -576,7 +724,7 @@ class OpenAICompatibleProvider implements LLMProvider {
           )}。请给一句<=20个汉字的气泡内容。`
         }
       ],
-      60,
+      maxOutputTokens,
       12_000,
       0.7
     );
@@ -591,24 +739,30 @@ class OpenAICompatibleProvider implements LLMProvider {
       memory?: string;
       summary?: string;
       skills?: string;
+      tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
   ) {
-    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary, skills: (ctx as any)?.skills });
-    const raw = await openAICompatibleChat(
-      this.#opts,
-      [
-        {
-          role: "system",
-          content: system
-        },
-        ...(ctx.history ?? []).slice(-20),
-        { role: "user", content: userMsg }
-      ],
-      4096,
-      180_000 // Increased timeout for DeepSeek which can be slower
-    );
+    const system = buildChatSystemPrompt({
+      memory: ctx?.memory,
+      summary: ctx?.summary,
+      skills: (ctx as any)?.skills,
+      tools: (ctx as any)?.tools
+    });
+
+    const limit = getModelLimitFromApis(this.name, this.#opts.model);
+    const maxOutputTokens = limit?.output ? Math.max(16, limit.output) : 4096;
+    const inputBudgetTokens = limit?.context ? Math.max(512, limit.context - maxOutputTokens - 256) : 0;
+
+    const messages = buildOpenAIMessagesWithBudget({
+      system,
+      history: (ctx.history ?? []).slice(-200),
+      user: userMsg,
+      inputBudgetTokens: inputBudgetTokens || undefined
+    });
+
+    const raw = await openAICompatibleChat(this.#opts, messages, maxOutputTokens, 180_000);
     return sanitizeChatText(raw);
   }
 
@@ -616,6 +770,7 @@ class OpenAICompatibleProvider implements LLMProvider {
     currentSummary: string;
     newMessages: { role: "user" | "assistant"; content: string }[];
   }) {
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 360;
     const system =
       "你是“对话摘要器（短期记忆/工作记忆）”。任务：维护一份用于继续聊天的结构化摘要。\n" +
       "输出要求：严格 JSON（不要 Markdown，不要解释）。\n" +
@@ -655,7 +810,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "system", content: system },
         { role: "user", content: prompt }
       ],
-      360,
+      maxOutputTokens,
       18_000,
       0.2
     );
@@ -673,6 +828,7 @@ class OpenAICompatibleProvider implements LLMProvider {
     },
     turn: { user: string; assistant: string }
   ) {
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 700;
     const memory = String(ctx?.memory ?? "").trim();
     const system =
       "你是“长期记忆提取器”。你会从对话中提取适合长期记住的稳定信息（偏好、名字、长期目标、项目背景）。\n" +
@@ -705,7 +861,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "system", content: system },
         { role: "user", content: prompt }
       ],
-      500,
+      maxOutputTokens,
       20_000,
       0
     );
@@ -718,6 +874,7 @@ class OpenAICompatibleProvider implements LLMProvider {
     facts: { id: number; kind: string; key: string; value: string }[];
     notes: { id: number; kind: string; content: string }[];
   }) {
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 400;
     const limit = Math.max(0, Math.min(40, Math.floor(Number(opts?.limit) || 0)));
     if (!limit) return { factIds: [], noteIds: [] };
 
@@ -769,7 +926,7 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "system", content: system },
         { role: "user", content: prompt }
       ],
-      180,
+      maxOutputTokens,
       12_000,
       0.1
     );
@@ -814,6 +971,8 @@ class AIStudioProvider implements LLMProvider {
       2
     )}。请给一句<=20个汉字的气泡内容。`;
 
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#model)?.output ?? 256;
+
     const raw = this.#baseUrl
       ? await openAICompatibleChat(
           { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
@@ -821,7 +980,7 @@ class AIStudioProvider implements LLMProvider {
             { role: "system", content: system },
             { role: "user", content: prompt }
           ],
-          60,
+          maxOutputTokens,
           12_000,
           0.7
         )
@@ -830,7 +989,7 @@ class AIStudioProvider implements LLMProvider {
           model: this.#model,
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          maxOutputTokens: 80,
+          maxOutputTokens,
           timeoutMs: 12_000,
           temperature: 0.7
         });
@@ -846,38 +1005,59 @@ class AIStudioProvider implements LLMProvider {
       memory?: string;
       summary?: string;
       skills?: string;
+      tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
   ) {
-    const system = buildChatSystemPrompt({ memory: ctx?.memory, summary: ctx?.summary, skills: (ctx as any)?.skills });
+    const system = buildChatSystemPrompt({
+      memory: ctx?.memory,
+      summary: ctx?.summary,
+      skills: (ctx as any)?.skills,
+      tools: (ctx as any)?.tools
+    });
+
+    const limit = getModelLimitFromApis(this.name, this.#model);
+    const maxOutputTokens = limit?.output ? Math.max(16, limit.output) : 8192;
+    const inputBudgetTokens = limit?.context ? Math.max(512, limit.context - maxOutputTokens - 256) : 0;
 
     if (this.#baseUrl) {
+      const messages = buildOpenAIMessagesWithBudget({
+        system,
+        history: (ctx.history ?? []).slice(-200),
+        user: userMsg,
+        inputBudgetTokens: inputBudgetTokens || undefined
+      });
       const raw = await openAICompatibleChat(
         { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
-        [
-          { role: "system", content: system },
-          ...(ctx.history ?? []).slice(-20),
-          { role: "user", content: userMsg }
-        ],
-        4096,
+        messages,
+        maxOutputTokens,
         180_000 // Increased timeout for DeepSeek which can be slower
       );
       return sanitizeChatText(raw);
     }
 
-    const history = (ctx.history ?? []).slice(-20).map((m: any): GeminiContent => {
-      const role = m?.role === "assistant" ? "model" : "user";
-      const content = typeof m?.content === "string" ? m.content : "";
-      return { role, parts: [{ text: content }] };
+    const msgs = buildOpenAIMessagesWithBudget({
+      system,
+      history: (ctx.history ?? []).slice(-200),
+      user: userMsg,
+      inputBudgetTokens: inputBudgetTokens || undefined
     });
+    const systemForGemini = String(msgs[0]?.content ?? system);
+    const contents = msgs
+      .slice(1) // drop system
+      .map((m: any): GeminiContent => {
+        const role = m?.role === "assistant" ? "model" : "user";
+        const content = typeof m?.content === "string" ? m.content : "";
+        return { role, parts: [{ text: content }] };
+      });
 
     const raw = await geminiGenerateText({
       apiKey: this.#apiKey,
       model: this.#model,
-      systemInstruction: system,
-      contents: [...history, { role: "user", parts: [{ text: userMsg }] }],
-      maxOutputTokens: 8192,
+      systemInstruction: systemForGemini,
+      contents,
+      maxOutputTokens,
       timeoutMs: 180_000, // Increased timeout
       temperature: 0.7
     });
@@ -889,6 +1069,7 @@ class AIStudioProvider implements LLMProvider {
     currentSummary: string;
     newMessages: { role: "user" | "assistant"; content: string }[];
   }) {
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#model)?.output ?? 360;
     const system =
       "你是“对话摘要器（短期记忆/工作记忆）”。任务：维护一份用于继续聊天的结构化摘要。\n" +
       "输出要求：严格 JSON（不要 Markdown，不要解释）。\n" +
@@ -929,7 +1110,7 @@ class AIStudioProvider implements LLMProvider {
             { role: "system", content: system },
             { role: "user", content: prompt }
           ],
-          360,
+          maxOutputTokens,
           18_000,
           0.2
         )
@@ -938,7 +1119,7 @@ class AIStudioProvider implements LLMProvider {
           model: this.#model,
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          maxOutputTokens: 360,
+          maxOutputTokens,
           timeoutMs: 18_000,
           temperature: 0.2
         });
@@ -957,6 +1138,7 @@ class AIStudioProvider implements LLMProvider {
     },
     turn: { user: string; assistant: string }
   ) {
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#model)?.output ?? 700;
     const memory = String(ctx?.memory ?? "").trim();
     const system =
       "你是“长期记忆提取器”。你会从对话中提取适合长期记住的稳定信息（偏好、名字、长期目标、项目背景）。\n" +
@@ -994,7 +1176,7 @@ class AIStudioProvider implements LLMProvider {
 
     const run = async (mode: "primary" | "repair", badOutput?: string) => {
       const temperature = 0;
-      const maxTokens = mode === "repair" ? 500 : 700;
+      const maxTokens = maxOutputTokens;
       const timeoutMs = mode === "repair" ? 20_000 : 25_000;
       const prompt = buildPrompt(badOutput);
 
@@ -1040,6 +1222,7 @@ class AIStudioProvider implements LLMProvider {
     facts: { id: number; kind: string; key: string; value: string }[];
     notes: { id: number; kind: string; content: string }[];
   }) {
+    const maxOutputTokens = getModelLimitFromApis(this.name, this.#model)?.output ?? 400;
     const limit = Math.max(0, Math.min(40, Math.floor(Number(opts?.limit) || 0)));
     if (!limit) return { factIds: [], noteIds: [] };
 
@@ -1092,7 +1275,7 @@ class AIStudioProvider implements LLMProvider {
             { role: "system", content: system },
             { role: "user", content: prompt }
           ],
-          180,
+          maxOutputTokens,
           12_000,
           0.1
         )
@@ -1101,7 +1284,7 @@ class AIStudioProvider implements LLMProvider {
           model: this.#model,
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          maxOutputTokens: 260,
+          maxOutputTokens,
           timeoutMs: 15_000,
           temperature: 0.1
         });
@@ -1231,6 +1414,7 @@ export class LLMService {
       /** Rolling short-term summary for continuity (best-practice working memory). */
       summary?: string;
       skills?: string;
+      tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
     userMsg: string
