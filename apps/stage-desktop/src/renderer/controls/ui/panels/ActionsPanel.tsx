@@ -186,24 +186,49 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const walkCfgTimer = useRef<number | null>(null);
   const presetCarouselTimer = useRef<number | null>(null);
   const presetCarouselIdx = useRef<number>(0);
+  const pendingFrameCfg = useRef<any>({});
+  const frameCfgTimer = useRef<number | null>(null);
 
   useEffect(() => saveQuietMode(quiet), [quiet]);
   useEffect(() => savePresetCarouselEnabled(presetCarousel), [presetCarousel]);
 
-  // Save frame settings and send to pet window
+  // Throttled frame config sender for smooth slider experience
+  function queueFrameConfig(cfg: { enabled?: boolean; size?: number; radius?: number; color?: string }) {
+    pendingFrameCfg.current = { ...pendingFrameCfg.current, ...cfg };
+    if (frameCfgTimer.current !== null) return;
+    frameCfgTimer.current = window.setTimeout(() => {
+      frameCfgTimer.current = null;
+      const finalCfg = pendingFrameCfg.current;
+      pendingFrameCfg.current = {};
+      sendPetControl(api, {
+        type: "PET_CONTROL",
+        ts: Date.now(),
+        action: "SET_FRAME_CONFIG",
+        config: finalCfg
+      } as any);
+    }, 16); // ~60fps throttle for smooth updates
+  }
+
+  // Save frame settings (debounced persistence, immediate local state)
   useEffect(() => {
     saveFrameEnabled(frameEnabled);
-    sendPetControl(api, {
-      type: "PET_CONTROL",
-      ts: Date.now(),
-      action: "SET_FRAME_CONFIG",
-      config: { enabled: frameEnabled, size: frameSize, radius: frameRadius, color: frameColor }
-    } as any);
-  }, [frameEnabled, frameSize, frameRadius, frameColor, api]);
+    queueFrameConfig({ enabled: frameEnabled, size: frameSize, radius: frameRadius, color: frameColor });
+  }, [frameEnabled]);
 
-  useEffect(() => saveFrameSize(frameSize), [frameSize]);
-  useEffect(() => saveFrameRadius(frameRadius), [frameRadius]);
-  useEffect(() => saveFrameColor(frameColor), [frameColor]);
+  useEffect(() => {
+    saveFrameSize(frameSize);
+    queueFrameConfig({ size: frameSize });
+  }, [frameSize]);
+
+  useEffect(() => {
+    saveFrameRadius(frameRadius);
+    queueFrameConfig({ radius: frameRadius });
+  }, [frameRadius]);
+
+  useEffect(() => {
+    saveFrameColor(frameColor);
+    queueFrameConfig({ color: frameColor });
+  }, [frameColor]);
 
   useEffect(() => {
     if (!api || typeof api.onPetState !== "function") return;
