@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useState, useEffect } from "react";
 
 export type SidebarTab = "llm" | "actions" | "memory" | "theme" | "console";
 
@@ -11,6 +11,19 @@ export function SidebarDrawer(props: {
   children: React.ReactNode;
 }) {
   const { open, tab, devMode, onClose, onTabChange, children } = props;
+  const [animating, setAnimating] = useState(false);
+  const prevTabRef = useRef<SidebarTab>(tab);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Animate tab content on change
+  useEffect(() => {
+    if (prevTabRef.current !== tab) {
+      setAnimating(true);
+      const timer = setTimeout(() => setAnimating(false), 200);
+      prevTabRef.current = tab;
+      return () => clearTimeout(timer);
+    }
+  }, [tab]);
 
   const tabs: { id: SidebarTab; label: string; icon: string; hidden?: boolean }[] = [
     { id: "llm", label: "LLM", icon: "⚙" },
@@ -52,7 +65,7 @@ export function SidebarDrawer(props: {
             ))}
         </div>
 
-        <div className="drawerBody">{children}</div>
+        <div className={`drawerBody ${animating ? "tabAnimating" : ""}`} ref={contentRef}>{children}</div>
       </aside>
     </div>
   );
