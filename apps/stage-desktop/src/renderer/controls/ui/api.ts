@@ -64,6 +64,8 @@ export type StageDesktopApi = {
 
   // Manual actions (controls -> main)
   sendManualAction?: (m: ManualActionPayload) => void;
+  
+  openControlsWindow?: () => void;
 
   // LLM config
   getLlmConfig?: () => Promise<{

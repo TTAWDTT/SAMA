@@ -35,7 +35,8 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
   const win = new BrowserWindow({
     width: 420,
     height: 720,
-    show: false,
+    show: true,
+    center: true,
     resizable: true,
     alwaysOnTop: false,
     // Hide the default Electron menu bar (File/View/...) to keep the UI clean.
@@ -52,12 +53,15 @@ export function createControlsWindow(opts: CreateControlsWindowOpts) {
   win.setMenuBarVisibility(false);
 
   const isDev = !!(process.env.ELECTRON_RENDERER_URL || process.env.VITE_DEV_SERVER_URL);
+  const targetPath = getRendererUrl("controls/index.html");
+  console.log("[controls] loading:", targetPath, "isDev:", isDev);
+
   if (isDev) {
-    void win.loadURL(getRendererUrl("controls/index.html"));
+    void win.loadURL(targetPath);
   } else {
-    void win.loadFile(getRendererUrl("controls/index.html"));
+    void win.loadFile(targetPath);
   }
 
-  win.once("ready-to-show", () => win.show());
+  // win.once("ready-to-show", () => win.show());
   return win;
 }

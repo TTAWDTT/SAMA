@@ -447,6 +447,10 @@ async function bootstrap() {
 
   ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked, llmProvider: llm.providerName }));
 
+  ipcMain.handle("handle:controls-window-open", async () => {
+    openControls();
+  });
+
   ipcMain.handle(IPC_HANDLES.llmConfigGet, async () => {
     const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
     const skillsDir = String(effective?.skills?.dir ?? "").trim() || undefined;
@@ -688,8 +692,12 @@ async function bootstrap() {
 
   const openControls = () => {
     if (controlsWindow && !controlsWindow.isDestroyed()) {
+      if (controlsWindow.isMinimized()) controlsWindow.restore();
       controlsWindow.show();
       controlsWindow.focus();
+      try {
+        controlsWindow.moveTop();
+      } catch {}
       return;
     }
     controlsWindow = createControlsWindow({ preloadPath });

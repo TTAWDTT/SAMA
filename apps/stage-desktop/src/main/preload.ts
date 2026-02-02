@@ -261,6 +261,8 @@ const api: StageDesktopAPI = {
     return () => ipcRenderer.off(IPC_CHANNELS.petWindowState, handler);
   },
 
+  openControlsWindow: () => ipcRenderer.invoke("handle:controls-window-open", {}),
+
   openExternal: async (url) => {
     const safe = sanitizeExternalUrl(url);
     if (!safe) return false;

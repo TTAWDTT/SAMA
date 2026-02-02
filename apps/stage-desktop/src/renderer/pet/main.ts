@@ -762,10 +762,11 @@ async function boot() {
   );
   sendPetState();
 
-  if (bootRoot) {
-    const dismissed = window.localStorage.getItem("sama.pet.boot.dismissed") === "1";
-    if (dismissed) bootRoot.setAttribute("data-hidden", "1");
-  }
+  // Boot screen (empty state) is now always visible until VRM loads.
+  // if (bootRoot) {
+  //   const dismissed = window.localStorage.getItem("sama.pet.boot.dismissed") === "1";
+  //   if (dismissed) bootRoot.setAttribute("data-hidden", "1");
+  // }
   if (bootClose && bootRoot) {
     bootClose.addEventListener("click", () => {
       bootRoot.setAttribute("data-hidden", "1");
@@ -863,10 +864,20 @@ async function boot() {
     btnOpenChat.addEventListener("click", () => {
       const api: any = (window as any).stageDesktop;
       if (api && typeof api.openControlsWindow === "function") {
-        api.openControlsWindow();
-        showBanner("打开控制台...", { timeoutMs: 1000 });
+        showBanner("正在打开控制台...", { timeoutMs: 1500 });
+        try {
+          // The API might be async (it invokes IPC), so we should handle potential rejections.
+          Promise.resolve(api.openControlsWindow()).catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error("Failed to open controls:", err);
+            showBanner(`打开失败: ${msg}`, { timeoutMs: 3000 });
+          });
+        } catch (err) {
+           const msg = err instanceof Error ? err.message : String(err);
+           showBanner(`调用错误: ${msg}`, { timeoutMs: 3000 });
+        }
       } else {
-        showBanner("无法打开聊天窗口", { timeoutMs: 1500 });
+        showBanner("无法打开聊天窗口 (API missing)", { timeoutMs: 1500 });
       }
     });
   }
