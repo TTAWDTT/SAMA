@@ -180,7 +180,9 @@ function parseRememberNote(raw: string): string | null {
   // - 记住: 我叫小明
   // - 记一下：我喜欢简洁回答
   // - /remember I prefer short replies
-  const m = s.match(/^(?:\/remember|\/mem|记住|记一下|记下来)(?:\s*[:：]|\s+)(.+)$/i);
+  const m =
+    s.match(/^(?:\/remember|\/mem)(?:\s+)(.+)$/i) ??
+    s.match(/^(?:请\s*)?(?:记住|记一下|记下来)(?:\s*[:：]|\s+)?(.+)$/);
   if (!m) return null;
   const content = String(m[1] ?? "").trim();
   return content ? content : null;
@@ -829,7 +831,7 @@ export class CoreService {
       const ok = this.#memory.upsertMemoryNote({ kind: "note", content: remember, ts: req.ts });
       const reply = ok
         ? `好，我记住了：${remember}`
-        : "我现在无法写入长期记忆（本地 SQLite 不可用）。";
+        : "我现在无法写入长期记忆（本地记忆存储不可用）。";
       const replyTs = Date.now();
 
       this.#chatHistory.push({ role: "user", content: req.message });
@@ -874,7 +876,8 @@ export class CoreService {
       // Fast baseline: keyword relevance (already sorted by our scorer).
       memoryPrompt = this.#memory.formatMemoryPrompt({
         facts: candidateFacts.slice(0, factBudget),
-        notes: candidateNotes.slice(0, noteBudget)
+        notes: candidateNotes.slice(0, noteBudget),
+        mode: "model"
       });
 
       // Best-practice: optional LLM re-rank for higher precision.
@@ -906,7 +909,7 @@ export class CoreService {
               const clipped = combined.slice(0, limit);
               const facts = clipped.filter((c) => c.t === "f").map((c) => c.x);
               const notes = clipped.filter((c) => c.t === "n").map((c) => c.x);
-              memoryPrompt = this.#memory.formatMemoryPrompt({ facts, notes });
+              memoryPrompt = this.#memory.formatMemoryPrompt({ facts, notes, mode: "model" });
             }
           }
         } catch (err) {
@@ -977,68 +980,32 @@ export class CoreService {
       if (!this.#memory.enabled) return;
       if (looksSensitiveText(req.message) || looksSensitiveText(reply)) return;
 
-      const items =
-        cfg.autoMode === "llm" && this.#llm.enabled
-          ? await this.#llm.extractMemoryNotes(ctx, { user: req.message, assistant: reply })
-          : ruleBasedMemoryExtract(req.message);
+      let items: {
+        kind: "preference" | "profile" | "project" | "note";
+        content?: string;
+        key?: string;
+        value?: string;
+      }[] = [];
+
+      if (cfg.autoMode === "llm") {
+        if (!this.#llm.enabled) return;
+        items = await this.#llm.extractMemoryNotes(ctx, { user: req.message, assistant: reply });
+      } else {
+        items = ruleBasedMemoryExtract(req.message) as any;
+      }
 
       for (const it of items) {
         try {
-          const allowedFactKeys = new Set([
-            "user.name",
-            "user.language",
-            "user.response_style",
-            "project.name",
-            "project.repo",
-            "project.stack"
-          ]);
-
           let key = String((it as any)?.key ?? "").trim();
           let value = String((it as any)?.value ?? "").trim();
           let content = String((it as any)?.content ?? "").trim();
 
-          // Some extractors (rule-based or LLM) might output a "fact" as plain content.
-          // Normalize common stable patterns into keyed facts so they overwrite cleanly.
-          if (!key && !value && content) {
-            const mName = content.match(/^用户名字[:：]\s*(.+)$/);
-            if (mName?.[1]) {
-              key = "user.name";
-              value = String(mName[1]).trim();
-              content = "";
-            }
-            const mLang = content.match(/^语言[:：]\s*(.+)$/);
-            if (!key && mLang?.[1]) {
-              key = "user.language";
-              value = String(mLang[1]).trim();
-              content = "";
-            }
-            const mStyle = content.match(/^(?:回复风格|回答风格|表达风格)[:：]\s*(.+)$/);
-            if (!key && mStyle?.[1]) {
-              key = "user.response_style";
-              value = String(mStyle[1]).trim();
-              content = "";
-            }
-          }
-
           if (key && value) {
-            // Guardrail: only accept a small allowlist of keys so the DB doesn't get polluted.
-            if (allowedFactKeys.has(key)) {
-              this.#memory.upsertMemoryFact({ kind: it.kind, key, value, ts: replyTs });
-            } else {
-              this.#memory.upsertMemoryNote({ kind: it.kind, content: `${key}: ${value}`, ts: replyTs });
-            }
+            const keyClean = key.replace(/\s+/g, "").trim();
+            const keyLooksValid = keyClean.length <= 80 && /^[a-zA-Z0-9_.:-]+$/.test(keyClean);
+            if (keyLooksValid) this.#memory.upsertMemoryFact({ kind: it.kind, key: keyClean, value, ts: replyTs });
+            else this.#memory.upsertMemoryNote({ kind: it.kind, content: `${key}: ${value}`, ts: replyTs });
           } else if (content) {
-            // Simple conflict resolution for like/dislike preferences.
-            const like = content.match(/^喜欢[:：]\s*(.+)$/);
-            const dislike = content.match(/^不喜欢[:：]\s*(.+)$/);
-            if (like?.[1]) {
-              const target = like[1].trim();
-              if (target) this.#memory.deleteMemoryNoteByKindAndContent("preference", `不喜欢：${target}`);
-            } else if (dislike?.[1]) {
-              const target = dislike[1].trim();
-              if (target) this.#memory.deleteMemoryNoteByKindAndContent("preference", `喜欢：${target}`);
-            }
-
             this.#memory.upsertMemoryNote({ kind: it.kind, content, ts: replyTs });
           }
         } catch {}

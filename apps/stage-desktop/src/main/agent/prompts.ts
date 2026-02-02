@@ -43,6 +43,11 @@ export function buildChatSystemPrompt(opts?: { memory?: string; summary?: string
 
   if (memory) {
     out += `\n\n【长期记忆（仅供参考，可能不完整）】\n${memory}`;
+    out +=
+      "\n\n使用长期记忆的规则：" +
+      "\n- 只在与当前问题直接相关时才使用；不相关就忽略。" +
+      "\n- 不要逐条复述记忆条目，不要说“根据长期记忆/根据上面的记忆…”。" +
+      "\n- 把它当作背景信息，融入回答即可；不确定就先问澄清问题。";
   }
 
   if (skills) {

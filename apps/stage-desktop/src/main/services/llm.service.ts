@@ -90,6 +90,29 @@ function truncateByCodepoints(s: string, max: number) {
   return arr.slice(0, max).join("");
 }
 
+function smartTruncatePreferBoundary(raw: string, max: number) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const arr = Array.from(s);
+  if (arr.length <= max) return s;
+
+  const boundaryChars = new Set(["。", "！", "？", ".", "!", "?", "；", ";", "，", ",", "\n", "）", ")", "】", "]"]);
+  const tailLookback = Math.min(36, Math.max(12, Math.floor(max * 0.25)));
+  const start = Math.max(0, max - tailLookback);
+
+  let cutAt = -1;
+  for (let i = max - 1; i >= start; i--) {
+    const ch = arr[i] ?? "";
+    if (boundaryChars.has(ch)) {
+      cutAt = i + 1; // keep boundary char
+      break;
+    }
+  }
+
+  const out = cutAt > 0 ? arr.slice(0, cutAt).join("") : arr.slice(0, max).join("");
+  return out.trim();
+}
+
 function sanitizeOneLine(s: string) {
   return s.replace(/\s+/g, " ").replace(/(^[“”"']+|[“”"']+$)/g, "").trim();
 }
@@ -118,47 +141,32 @@ function parseMemoryExtractorJson(raw: string) {
   const text = String(raw ?? "").trim();
   if (!text) return [];
 
-  // The extractor prompt requests strict JSON, but be defensive.
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  const slice = start >= 0 && end > start ? text.slice(start, end + 1) : text;
+  // The extractor prompt requests strict JSON, but be defensive:
+  // - strip markdown fences
+  // - accept JSON object wrappers like {"items":[...]} / {"memories":[...]}
+  // - tolerate a missing trailing ']' by attempting to close the array
+  const withoutFences = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  const start = withoutFences.indexOf("[");
+  const end = withoutFences.lastIndexOf("]");
+  const slice = start >= 0 && end > start ? withoutFences.slice(start, end + 1) : withoutFences;
 
   try {
     const parsed: any = JSON.parse(slice);
-    if (!Array.isArray(parsed)) return [];
-
-    const out: {
-      kind: "preference" | "profile" | "project" | "note";
-      content?: string;
-      key?: string;
-      value?: string;
-    }[] = [];
-
-    for (const item of parsed.slice(0, 8)) {
-      const kindRaw = String(item?.kind ?? "note").toLowerCase();
-      const kind: "preference" | "profile" | "project" | "note" =
-        kindRaw === "preference" || kindRaw === "profile" || kindRaw === "project" ? (kindRaw as any) : "note";
-
-      const key = String(item?.key ?? "").trim();
-      const value = String(item?.value ?? "").trim();
-      const content = String(item?.content ?? "").trim();
-
-      // Prefer keyed facts when provided (overwritable durable memory).
-      if (key && value) {
-        const clippedKey = truncateByCodepoints(key, 48);
-        const clippedValue = truncateByCodepoints(value, 160);
-        out.push({ kind, key: clippedKey, value: clippedValue });
-        continue;
-      }
-
-      if (!content) continue;
-
-      // Keep each memory short and human-readable.
-      const clipped = truncateByCodepoints(content, 120);
-      out.push({ kind, content: clipped });
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object") {
+      const wrapped = (parsed as any).items ?? (parsed as any).memories ?? (parsed as any).memory;
+      if (Array.isArray(wrapped)) return wrapped;
     }
-    return out.slice(0, 4);
+    return [];
   } catch {
+    // Minimal repair: if we found an array start but no matching closing bracket, attempt to close it.
+    if (start >= 0 && end < start) {
+      const attempt = withoutFences.slice(start).trimEnd() + "]";
+      try {
+        const parsed2: any = JSON.parse(attempt);
+        if (Array.isArray(parsed2)) return parsed2;
+      } catch {}
+    }
     return [];
   }
 }
@@ -387,7 +395,8 @@ async function openAICompatibleChat(
   opts: OpenAICompatibleOpts,
   messages: any[],
   maxTokens: number,
-  timeoutMs: number
+  timeoutMs: number,
+  temperature?: number
 ) {
   const url = `${opts.baseUrl.replace(/\/$/, "")}/chat/completions`;
   const headers: Record<string, string> = {
@@ -399,6 +408,8 @@ async function openAICompatibleChat(
   console.log(`[llm-api] ${opts.name} request to ${url}, model=${opts.model}, hasKey=${hasApiKey}, timeout=${timeoutMs}ms`);
 
   const startTime = Date.now();
+  const temp =
+    typeof temperature === "number" && Number.isFinite(temperature) ? Math.max(0, Math.min(2, temperature)) : 0.7;
   let res: Response;
   try {
     res = await fetchWithRetry(
@@ -411,7 +422,7 @@ async function openAICompatibleChat(
         body: JSON.stringify({
           model: opts.model,
           messages,
-          temperature: 0.7,
+          temperature: temp,
           max_tokens: maxTokens
         })
       },
@@ -451,10 +462,16 @@ async function geminiGenerateText(opts: {
   contents: GeminiContent[];
   maxOutputTokens: number;
   timeoutMs: number;
+  temperature?: number;
 }) {
   const url =
     `https://generativelanguage.googleapis.com/v1beta/models/` +
     `${encodeURIComponent(opts.model)}:generateContent?key=${encodeURIComponent(opts.apiKey)}`;
+
+  const temperature =
+    typeof opts.temperature === "number" && Number.isFinite(opts.temperature)
+      ? Math.max(0, Math.min(2, opts.temperature))
+      : 0.7;
 
   const res = await fetchWithTimeout(
     url,
@@ -465,7 +482,7 @@ async function geminiGenerateText(opts: {
         systemInstruction: { parts: [{ text: opts.systemInstruction }] },
         contents: opts.contents,
         generationConfig: {
-          temperature: 0.7,
+          temperature,
           maxOutputTokens: opts.maxOutputTokens
         }
       })
@@ -560,7 +577,8 @@ class OpenAICompatibleProvider implements LLMProvider {
         }
       ],
       60,
-      12_000
+      12_000,
+      0.7
     );
     return truncateByCodepoints(sanitizeOneLine(raw), 20);
   }
@@ -638,7 +656,8 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "user", content: prompt }
       ],
       360,
-      18_000
+      18_000,
+      0.2
     );
     return sanitizeChatText(raw);
   }
@@ -657,16 +676,20 @@ class OpenAICompatibleProvider implements LLMProvider {
     const memory = String(ctx?.memory ?? "").trim();
     const system =
       "你是“长期记忆提取器”。你会从对话中提取适合长期记住的稳定信息（偏好、名字、长期目标、项目背景）。\n" +
+      "目标：提取对未来仍然有用且稳定的信息，写入长期记忆。\n" +
       "规则：\n" +
       "- 只提取用户明确表达、且未来仍可能成立的信息。\n" +
+      "- 如果用户在本轮明确给出名字或希望的称呼（我叫X / 请叫我Y / 以后叫我Y / 你可以叫我Y），必须提取。\n" +
+      "- 优先保留用户原话或贴近原话的表达，确保语义完整，不要截断成半句话。\n" +
       "- 不要提取一次性任务、临时计划、短期状态。\n" +
       "- 不要提取敏感信息（密码/API key/地址/身份证等）。\n" +
       "- 如不确定，输出空数组 []。\n" +
-      "输出格式：严格 JSON 数组，最多 4 条。每个元素二选一：\n" +
+      "输出格式：严格 JSON 数组（不要 Markdown/代码块/解释），最多 4 条。每个元素二选一：\n" +
       "1) 可覆盖事实（推荐）：{\"kind\":\"profile|preference|project|note\",\"key\":\"...\",\"value\":\"...\"}\n" +
       "2) 普通笔记：{\"kind\":\"profile|preference|project|note\",\"content\":\"...\"}\n" +
       "可用 key 示例（尽量用这些，避免无限发明新 key）：\n" +
       "- user.name / user.language / user.response_style\n" +
+      "- user.call_me\n" +
       "- project.name / project.repo / project.stack\n" +
       "- app.preference (如“不跑 build”)";
 
@@ -682,8 +705,9 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "system", content: system },
         { role: "user", content: prompt }
       ],
-      220,
-      12_000
+      500,
+      20_000,
+      0
     );
     return parseMemoryExtractorJson(raw);
   }
@@ -746,7 +770,8 @@ class OpenAICompatibleProvider implements LLMProvider {
         { role: "user", content: prompt }
       ],
       180,
-      12_000
+      12_000,
+      0.1
     );
 
     const parsed = parseRerankResult(raw);
@@ -797,7 +822,8 @@ class AIStudioProvider implements LLMProvider {
             { role: "user", content: prompt }
           ],
           60,
-          12_000
+          12_000,
+          0.7
         )
       : await geminiGenerateText({
           apiKey: this.#apiKey,
@@ -805,7 +831,8 @@ class AIStudioProvider implements LLMProvider {
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           maxOutputTokens: 80,
-          timeoutMs: 12_000
+          timeoutMs: 12_000,
+          temperature: 0.7
         });
 
     return truncateByCodepoints(sanitizeOneLine(raw), 20);
@@ -851,7 +878,8 @@ class AIStudioProvider implements LLMProvider {
       systemInstruction: system,
       contents: [...history, { role: "user", parts: [{ text: userMsg }] }],
       maxOutputTokens: 8192,
-      timeoutMs: 180_000 // Increased timeout
+      timeoutMs: 180_000, // Increased timeout
+      temperature: 0.7
     });
 
     return sanitizeChatText(raw);
@@ -902,7 +930,8 @@ class AIStudioProvider implements LLMProvider {
             { role: "user", content: prompt }
           ],
           360,
-          18_000
+          18_000,
+          0.2
         )
       : await geminiGenerateText({
           apiKey: this.#apiKey,
@@ -910,7 +939,8 @@ class AIStudioProvider implements LLMProvider {
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           maxOutputTokens: 360,
-          timeoutMs: 18_000
+          timeoutMs: 18_000,
+          temperature: 0.2
         });
 
     return sanitizeChatText(raw);
@@ -930,45 +960,78 @@ class AIStudioProvider implements LLMProvider {
     const memory = String(ctx?.memory ?? "").trim();
     const system =
       "你是“长期记忆提取器”。你会从对话中提取适合长期记住的稳定信息（偏好、名字、长期目标、项目背景）。\n" +
+      "目标：提取对未来仍然有用且稳定的信息，写入长期记忆。\n" +
       "规则：\n" +
       "- 只提取用户明确表达、且未来仍可能成立的信息。\n" +
+      "- 如果用户在本轮明确给出名字或希望的称呼（我叫X / 请叫我Y / 以后叫我Y / 你可以叫我Y），必须提取。\n" +
+      "- 优先保留用户原话或贴近原话的表达，确保语义完整，不要截断成半句话。\n" +
       "- 不要提取一次性任务、临时计划、短期状态。\n" +
       "- 不要提取敏感信息（密码/API key/地址/身份证等）。\n" +
       "- 如不确定，输出空数组 []。\n" +
-      "输出格式：严格 JSON 数组，最多 4 条。每个元素二选一：\n" +
+      "输出格式：严格 JSON 数组（不要 Markdown/代码块/解释），最多 4 条。每个元素二选一：\n" +
       "1) 可覆盖事实（推荐）：{\"kind\":\"profile|preference|project|note\",\"key\":\"...\",\"value\":\"...\"}\n" +
       "2) 普通笔记：{\"kind\":\"profile|preference|project|note\",\"content\":\"...\"}\n" +
       "可用 key 示例（尽量用这些，避免无限发明新 key）：\n" +
-      "- user.name / user.language / user.response_style\n" +
+      "- user.name / user.call_me / user.language / user.response_style\n" +
       "- project.name / project.repo / project.stack\n" +
       "- app.preference (如“不跑 build”)";
 
-    const prompt =
-      (memory ? `现有长期记忆（可能不完整）：\n${memory}\n\n` : "") +
-      `用户：${String(turn?.user ?? "").trim()}\n` +
-      `助手：${String(turn?.assistant ?? "").trim()}\n\n` +
-      "请输出 JSON：";
+    const buildPrompt = (badOutput?: string) => {
+      const bad = String(badOutput ?? "").trim();
+      return (
+        (memory ? `现有长期记忆（可能不完整）：\n${memory}\n\n` : "") +
+        `用户：${String(turn?.user ?? "").trim()}\n` +
+        `助手：${String(turn?.assistant ?? "").trim()}\n\n` +
+        (bad
+          ? `你上次输出不符合要求（不是严格 JSON 数组 / 或被截断）。请修复为严格 JSON 数组，仅输出 JSON：\n${bad.slice(
+              0,
+              1600
+            )}\n\n`
+          : "") +
+        "请输出 JSON："
+      );
+    };
 
-    const raw = this.#baseUrl
-      ? await openAICompatibleChat(
-          { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
-          [
-            { role: "system", content: system },
-            { role: "user", content: prompt }
-          ],
-          220,
-          12_000
-        )
-      : await geminiGenerateText({
-          apiKey: this.#apiKey,
-          model: this.#model,
-          systemInstruction: system,
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          maxOutputTokens: 220,
-          timeoutMs: 12_000
-        });
+    const run = async (mode: "primary" | "repair", badOutput?: string) => {
+      const temperature = 0;
+      const maxTokens = mode === "repair" ? 500 : 700;
+      const timeoutMs = mode === "repair" ? 20_000 : 25_000;
+      const prompt = buildPrompt(badOutput);
 
-    return parseMemoryExtractorJson(raw);
+      return this.#baseUrl
+        ? await openAICompatibleChat(
+            { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
+            [
+              { role: "system", content: system },
+              { role: "user", content: prompt }
+            ],
+            maxTokens,
+            timeoutMs,
+            temperature
+          )
+        : await geminiGenerateText({
+            apiKey: this.#apiKey,
+            model: this.#model,
+            systemInstruction: system,
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            maxOutputTokens: maxTokens,
+            timeoutMs,
+            temperature
+          });
+    };
+
+    const raw1 = await run("primary");
+    const items1 = parseMemoryExtractorJson(raw1);
+    if (items1.length) return items1;
+
+    // Retry once in strict "repair" mode when the model output is non-empty but unparsable.
+    const nonEmpty = String(raw1 ?? "").trim();
+    if (nonEmpty && !/^\s*\[\s*\]\s*$/.test(nonEmpty)) {
+      const raw2 = await run("repair", nonEmpty);
+      return parseMemoryExtractorJson(raw2);
+    }
+
+    return items1;
   }
 
   async rerankMemory(opts: {
@@ -1030,15 +1093,17 @@ class AIStudioProvider implements LLMProvider {
             { role: "user", content: prompt }
           ],
           180,
-          12_000
+          12_000,
+          0.1
         )
       : await geminiGenerateText({
           apiKey: this.#apiKey,
           model: this.#model,
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          maxOutputTokens: 180,
-          timeoutMs: 12_000
+          maxOutputTokens: 260,
+          timeoutMs: 15_000,
+          temperature: 0.1
         });
 
     const parsed = parseRerankResult(raw);
@@ -1336,12 +1401,16 @@ export class LLMService {
         const content = String((it as any)?.content ?? "").trim();
 
         if (key && value) {
-          out.push({ kind, key: truncateByCodepoints(key, 48), value: truncateByCodepoints(value, 160) });
+          out.push({
+            kind,
+            key: smartTruncatePreferBoundary(key, 64),
+            value: smartTruncatePreferBoundary(value, 600)
+          });
           continue;
         }
 
         if (!content) continue;
-        out.push({ kind, content: truncateByCodepoints(content, 120) });
+        out.push({ kind, content: smartTruncatePreferBoundary(content, 600) });
       }
       return out.slice(0, 4);
     } catch (err) {
