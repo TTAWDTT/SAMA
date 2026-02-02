@@ -702,8 +702,8 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     const distW = halfW / (hTan * (1 - MARGIN));
     const distH = (visibleHeight / 2) / (vTan * (1 - MARGIN));
 
-    // Use the SMALLER distance so SAMA fills at least one dimension completely
-    const radius = Math.max(0.5, Math.min(distH, distW));
+    // Use the LARGER distance so SAMA fills both dimensions completely (contain)
+    const radius = Math.max(0.5, Math.max(distH, distW));
 
     // Position camera target at center of visible range
     const targetY = visibleHeight / 2;
