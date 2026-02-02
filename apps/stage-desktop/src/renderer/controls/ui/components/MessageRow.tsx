@@ -1,7 +1,7 @@
 import type { ChatLogEntry } from "@sama/shared";
 import React, { useMemo, useState } from "react";
 import type { StageDesktopApi } from "../api";
-import { formatTime } from "../lib/utils";
+import { formatTime, writeClipboard } from "../lib/utils";
 import { stripMarkdown } from "../lib/stripMarkdown";
 import { Markdown } from "./Markdown";
 import samaAvatar from "../assets/sama-avatar.png";
@@ -17,24 +17,6 @@ export type UiMessage = ChatLogEntry & {
   retryText?: string;
   images?: MessageImage[];
 };
-
-async function writeClipboard(api: StageDesktopApi | null, text: string) {
-  const t = String(text ?? "");
-  if (!t) return false;
-  if (api && typeof api.clipboardWrite === "function") {
-    try {
-      return Boolean(api.clipboardWrite(t));
-    } catch {
-      // fall through
-    }
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 // Copy icon SVG
 function CopyIcon() {

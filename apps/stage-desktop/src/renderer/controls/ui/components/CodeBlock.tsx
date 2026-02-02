@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import type { StageDesktopApi } from "../api";
+import { writeClipboard } from "../lib/utils";
 
 function extractText(children: React.ReactNode): string {
   if (typeof children === "string") return children;
@@ -15,24 +16,6 @@ function normalizeLanguage(className: string | undefined) {
   const m = raw.match(/language-([a-z0-9_-]+)/i);
   if (!m?.[1]) return "";
   return m[1].toLowerCase();
-}
-
-async function writeClipboard(api: StageDesktopApi | null, text: string) {
-  const t = String(text ?? "");
-  if (!t) return false;
-  if (api && typeof api.clipboardWrite === "function") {
-    try {
-      return Boolean(api.clipboardWrite(t));
-    } catch {
-      // fall through
-    }
-  }
-  try {
-    await navigator.clipboard.writeText(t);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 // Simple syntax highlighter for common tokens

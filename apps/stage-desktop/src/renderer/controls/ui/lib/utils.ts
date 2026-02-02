@@ -27,3 +27,47 @@ export function safeString(v: unknown, fallback = "") {
   return s || fallback;
 }
 
+export async function writeClipboard(api: any, text: string) {
+  const t = String(text ?? "");
+  if (!t) return false;
+
+  // Priority 1: Electron API (via preload)
+  if (api && typeof api.clipboardWrite === "function") {
+    try {
+      const ok = api.clipboardWrite(t);
+      if (ok) return true;
+    } catch {
+      // fall through
+    }
+  }
+
+  // Priority 2: Web API (navigator.clipboard)
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(t);
+      return true;
+    } catch {
+      // fall through
+    }
+  }
+
+  // Priority 3: Legacy execCommand (fallback)
+  try {
+    const textArea = document.createElement("textarea");
+    textArea.value = t;
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    textArea.style.top = "0";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textArea);
+    if (ok) return true;
+  } catch {
+    // fall through
+  }
+
+  return false;
+}
+
