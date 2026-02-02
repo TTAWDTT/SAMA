@@ -607,11 +607,6 @@ export function App() {
     void sendMessage(text);
   }, [sendMessage]);
 
-  const handleExportChat = useCallback(() => {
-    setSelectionMode(true);
-    showToast("请勾选要导出的消息", { timeoutMs: 2000 });
-  }, [showToast]);
-
   const connection = useMemo(() => {
     const p = String(provider || "unknown");
     const connected = p !== "off" && p !== "preload missing" && p !== "fallback";
