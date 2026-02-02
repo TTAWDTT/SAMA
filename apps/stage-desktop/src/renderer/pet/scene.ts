@@ -166,22 +166,20 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     modelTransform.offsetY = 0;
     modelTransform.offsetZ = 0;
 
-    // Call fitCameraToModel to align model position based on preset
-    // After this call, the alignment point (feet/hips/neck) is at Y=0
+    // Reset orbit to defaults
+    orbitPitch = cfg.pitch;
+    orbitYaw = 0;
+
+    // Align model position based on current preset (feet/hips/neck at Y=0)
     fitCameraToModel();
 
-    // Override viewBaseDistance with preset's fixed value
+    // Apply fixed framing values for consistent look across all presets
     viewBaseDistance = cfg.distance;
 
-    // Calculate correct viewTarget.y so that Y=0 (alignment point) is at screen bottom
-    // Visible vertical range = 2 * distance * tan(FOV/2)
-    // For alignment point at bottom, viewTarget.y = visible_range / 2
+    // Calculate viewTarget.y so alignment point (Y=0) appears at screen bottom
     const vFovRad = THREE.MathUtils.degToRad(camera.fov);
     const halfVisibleHeight = cfg.distance * Math.tan(vFovRad / 2);
     viewTarget.y = halfVisibleHeight;
-
-    orbitPitch = cfg.pitch;
-    orbitYaw = 0;
 
     applyView();
   };

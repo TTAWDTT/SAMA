@@ -189,11 +189,20 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       frameCfgTimer.current = null;
       const finalCfg = pendingFrameCfg.current;
       pendingFrameCfg.current = {};
+
+      // Sanitize config to avoid IPC serialization errors (undefined/NaN values)
+      const sanitizedCfg: Record<string, boolean | number | string> = {};
+      if (typeof finalCfg.enabled === "boolean") sanitizedCfg.enabled = finalCfg.enabled;
+      if (typeof finalCfg.size === "number" && Number.isFinite(finalCfg.size)) sanitizedCfg.size = finalCfg.size;
+      if (typeof finalCfg.radius === "number" && Number.isFinite(finalCfg.radius)) sanitizedCfg.radius = finalCfg.radius;
+      if (typeof finalCfg.color === "string" && finalCfg.color) sanitizedCfg.color = finalCfg.color;
+      if (typeof finalCfg.previewing === "boolean") sanitizedCfg.previewing = finalCfg.previewing;
+
       sendPetControl(api, {
         type: "PET_CONTROL",
         ts: Date.now(),
         action: "SET_FRAME_CONFIG",
-        config: finalCfg
+        config: sanitizedCfg
       } as any);
     }, 16);
   }

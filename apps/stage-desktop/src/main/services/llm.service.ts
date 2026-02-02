@@ -1065,10 +1065,16 @@ export class LLMService {
   }
 
   #createProvider(): LLMProvider | null {
-    const selected =
-      normalizeProviderName(process.env.LLM_PROVIDER) ?? normalizeProviderName(this.#config?.provider) ?? "auto";
+    const configProvider = normalizeProviderName(this.#config?.provider);
+    const envProvider = normalizeProviderName(process.env.LLM_PROVIDER);
 
-    console.log(`[llm] createProvider: selected=${selected}, config.provider=${this.#config?.provider ?? "(none)"}`);
+    // Precedence: Config (if specific) > Env > Config (if auto) > Auto
+    const selected =
+      configProvider && configProvider !== "auto" ? configProvider : envProvider ?? configProvider ?? "auto";
+
+    console.log(
+      `[llm] createProvider: selected=${selected} (config=${configProvider}, env=${envProvider})`
+    );
 
     if (selected === "off") return null;
 
@@ -1096,7 +1102,7 @@ export class LLMService {
     const aistudioApiKey =
       nonEmptyString(process.env.AISTUDIO_API_KEY) || nonEmptyString(this.#config?.aistudio?.apiKey);
     const aistudioModel =
-      nonEmptyString(process.env.AISTUDIO_MODEL) || nonEmptyString(this.#config?.aistudio?.model) || "gemini-1.5-flash";
+      nonEmptyString(process.env.AISTUDIO_MODEL) || nonEmptyString(this.#config?.aistudio?.model) || "gemini-2.0-flash";
     const aistudioBaseUrl =
       nonEmptyString(process.env.AISTUDIO_BASE_URL) || nonEmptyString(this.#config?.aistudio?.baseUrl);
 
