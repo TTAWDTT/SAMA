@@ -481,6 +481,12 @@ async function bootstrap() {
   console.log(`[llm] provider=${llm.providerName}`);
 
   let core: CoreService | null = null;
+  // `ipcMain.handle("handle:controls-window-open")` can be invoked very early (pet renderer button),
+  // even before `openControls` is fully initialized. Avoid TDZ by using a re-assignable function.
+  let queuedOpenControls = false;
+  let openControls: () => void = () => {
+    queuedOpenControls = true;
+  };
 
   // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
   // but we keep this resolver defensive to avoid "preload API missing" in case of outDir mismatch.
@@ -816,7 +822,7 @@ async function bootstrap() {
     });
   };
 
-  const openControls = () => {
+  openControls = () => {
     if (controlsWindow && !controlsWindow.isDestroyed()) {
       if (controlsWindow.isMinimized()) controlsWindow.restore();
       controlsWindow.show();
@@ -846,6 +852,11 @@ async function bootstrap() {
       controlsWindow = null;
     });
   };
+
+  if (queuedOpenControls) {
+    queuedOpenControls = false;
+    openControls();
+  }
 
   const setClickThrough = (enabled: boolean) => {
     clickThroughEnabled = enabled;

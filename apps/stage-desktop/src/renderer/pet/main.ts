@@ -40,6 +40,8 @@ const hoverFrame = hoverFrameEl instanceof HTMLDivElement ? hoverFrameEl : null;
 // Quick action buttons
 const btnCameraPresetEl = document.getElementById("btnCameraPreset");
 const btnCameraPreset = btnCameraPresetEl instanceof HTMLButtonElement ? btnCameraPresetEl : null;
+const btnDragMoveEl = document.getElementById("btnDragMove");
+const btnDragMove = btnDragMoveEl instanceof HTMLButtonElement ? btnDragMoveEl : null;
 const btnMotionEl = document.getElementById("btnMotion");
 const btnMotion = btnMotionEl instanceof HTMLButtonElement ? btnMotionEl : null;
 const btnOpenChatEl = document.getElementById("btnOpenChat");
@@ -994,6 +996,68 @@ async function boot() {
       btnCameraPreset.textContent = icons[preset] ?? "👤";
       showBanner(`视角：${labels[preset] ?? preset}`, { timeoutMs: 1200 });
     });
+  }
+
+  if (btnDragMove) {
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    const setActive = (active: boolean) => {
+      if (!btnDragMove) return;
+      if (active) btnDragMove.dataset.active = "1";
+      else delete btnDragMove.dataset.active;
+    };
+
+    const endDrag = (e?: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      setActive(false);
+      scene.setDragging(false);
+      try {
+        if (e) btnDragMove.releasePointerCapture(e.pointerId);
+      } catch {}
+    };
+
+    btnDragMove.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      const api: any = (window as any).stageDesktop;
+      if (!api || typeof api.sendDragDelta !== "function") {
+        showBanner("窗口拖拽需要 preload IPC（也可以直接在画布上拖动）", { timeoutMs: 2200 });
+        return;
+      }
+      dragging = true;
+      lastX = e.screenX;
+      lastY = e.screenY;
+      setActive(true);
+      scene.setDragging(true);
+      try {
+        btnDragMove.setPointerCapture(e.pointerId);
+      } catch {}
+      e.preventDefault();
+    });
+
+    btnDragMove.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.screenX - lastX;
+      const dy = e.screenY - lastY;
+      lastX = e.screenX;
+      lastY = e.screenY;
+      if (!dx && !dy) return;
+
+      scene.notifyDragDelta(dx, dy);
+      hudState.lastDrag = { dx: Math.round(dx), dy: Math.round(dy), at: Date.now() };
+      renderHud();
+
+      const api: any = (window as any).stageDesktop;
+      try {
+        api?.sendDragDelta?.({ dx, dy });
+      } catch {}
+    });
+
+    btnDragMove.addEventListener("pointerup", (e) => endDrag(e));
+    btnDragMove.addEventListener("pointercancel", (e) => endDrag(e));
+    btnDragMove.addEventListener("contextmenu", (e) => e.preventDefault());
   }
 
   if (btnMotion) {
