@@ -178,7 +178,7 @@ type PersistedPetUiStateV1 = {
   motion: { defaultPresetId: MotionPresetId; cycleIdx: number };
 };
 
-const DEFAULT_PET_FRAME = { enabled: false, size: 3, radius: 12, color: "#d97757" } as const;
+const DEFAULT_PET_FRAME = { enabled: true, size: 3, radius: 12, color: "#d97757" } as const;
 const DEFAULT_PET_MOTION = { defaultPresetId: DEFAULT_MOTION_PRESET_ID, cycleIdx: 0 } as const;
 
 function sanitizeMotionPresetId(raw: unknown): MotionPresetId {
@@ -710,7 +710,13 @@ async function bootstrap() {
 
     const [winW, winH] = petWindow.getSize();
     const bNow = petWindow.getBounds();
-    const display = screen.getDisplayMatching(bNow);
+    const display = (() => {
+      try {
+        return screen.getDisplayMatching(bNow);
+      } catch {
+        return screen.getPrimaryDisplay();
+      }
+    })();
     const wa = display.workArea;
     const margin = 10;
 

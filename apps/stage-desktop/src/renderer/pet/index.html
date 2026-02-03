@@ -645,9 +645,11 @@
         border-color: #d97757;
         border-radius: 16px;
         box-sizing: border-box;
+        z-index: 55; /* above boot overlay, below quick actions */
       }
       #hoverFrame.enabled {
-        /* Only show on hover when enabled */
+        /* Keep visible when enabled (UX: clear interactive boundary). */
+        opacity: 0.9;
       }
       body:hover #hoverFrame.enabled {
         opacity: 1;
@@ -718,7 +720,7 @@
     </div>
     <div id="dragHandle" style="display: none;" title="Drag to move (requires click-through OFF)">拖动窗口</div>
     <!-- Hover frame overlay -->
-    <div id="hoverFrame"></div>
+    <div id="hoverFrame" class="enabled"></div>
     <!-- Quick action buttons -->
     <div id="quickActions">
       <button id="btnCameraPreset" class="quickBtn" type="button" title="切换视角：全身/半身/特写">👤</button>

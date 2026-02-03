@@ -40,9 +40,11 @@ function savePresetCarouselEnabled(v: boolean) {
 
 function loadFrameEnabled() {
   try {
-    return localStorage.getItem(LS_FRAME_ENABLED) === "1";
+    const v = localStorage.getItem(LS_FRAME_ENABLED);
+    if (v === null) return true;
+    return v === "1";
   } catch {
-    return false;
+    return true;
   }
 }
 
