@@ -261,6 +261,7 @@ export class CoreService {
   #enabledSkills: string[] = [];
   #tools: ToolService | null = null;
   #onAction: (cmd: ActionCommand, meta: { proactive: boolean }) => void;
+  #onProactiveChat: ((m: { ts: number; content: string }) => void) | null = null;
 
   #state: CompanionState = "IDLE";
   #lastSensor: SensorUpdate | null = null;
@@ -314,10 +315,12 @@ export class CoreService {
     llm: LLMService;
     memory: MemoryService;
     onAction: (cmd: ActionCommand, meta: { proactive: boolean }) => void;
+    onProactiveChat?: (m: { ts: number; content: string }) => void;
   }) {
     this.#llm = opts.llm;
     this.#memory = opts.memory;
     this.#onAction = opts.onAction;
+    this.#onProactiveChat = typeof opts.onProactiveChat === "function" ? opts.onProactiveChat : null;
     this.#skills = new SkillService();
     this.#tools = null;
 
@@ -351,6 +354,22 @@ export class CoreService {
 
   clearChatHistory() {
     this.#chatHistory = [];
+  }
+
+  #emitProactiveChat(text: string, ts: number) {
+    const content = String(text ?? "").trim();
+    if (!content) return;
+
+    // Persist and also keep it in the rolling chat history so the next user reply has context.
+    this.#chatHistory.push({ role: "assistant", content });
+    this.#chatHistory = this.#chatHistory.slice(-40);
+    try {
+      this.#memory.logChatMessage({ ts: ts || Date.now(), role: "assistant", content });
+    } catch {}
+
+    try {
+      this.#onProactiveChat?.({ ts: ts || Date.now(), content });
+    } catch {}
   }
 
   async #maybeUpdateConversationSummary() {
@@ -554,6 +573,8 @@ export class CoreService {
     this.#memory.incrementProactive(todayKey(now));
     this.#memory.logAction(candidate);
     this.#onAction(candidate, { proactive: true });
+
+    if (candidate.bubble) this.#emitProactiveChat(candidate.bubble, now);
   }
 
   async #decideProactive(u: SensorUpdate): Promise<ActionCommand | null> {

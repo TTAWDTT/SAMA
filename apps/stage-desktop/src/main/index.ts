@@ -843,6 +843,32 @@ async function bootstrap() {
     });
   };
 
+  const appendChatLogEntry = (entry: ChatLogEntry, sender?: WebContents | null) => {
+    chatLog.push(entry);
+    if (chatLog.length > 260) chatLog = chatLog.slice(-220);
+
+    const msg: ChatLogMessage = { type: "CHAT_LOG_APPEND", ts: Date.now(), entry };
+
+    // Always notify the sender window first (covers cases where Controls is closed or re-created).
+    if (sender) {
+      try {
+        sender.send(IPC_CHANNELS.chatLog, msg);
+      } catch {}
+    }
+
+    // Also notify other windows if they exist.
+    if (controlsWindow && !controlsWindow.isDestroyed() && controlsWindow.webContents.id !== sender?.id) {
+      try {
+        controlsWindow.webContents.send(IPC_CHANNELS.chatLog, msg);
+      } catch {}
+    }
+    if (chatWindow && !chatWindow.isDestroyed() && chatWindow.webContents.id !== sender?.id) {
+      try {
+        chatWindow.webContents.send(IPC_CHANNELS.chatLog, msg);
+      } catch {}
+    }
+  };
+
   ipcMain.handle("handle:controls-window-open", async () => {
     try {
       openControls();
@@ -1010,13 +1036,45 @@ async function bootstrap() {
       // emit IGNORED_ACTION back into the core.
       if (meta.proactive && (cmd.action === "APPROACH" || cmd.action === "INVITE_CHAT")) {
         disarmPendingIgnore();
-        armPendingIgnore(cmd.action, cmd.ts, cmd.durationMs || 3000);
+        const base = cmd.action === "INVITE_CHAT" ? 60_000 : 20_000;
+        const ignoreMs = Math.max(base, Math.floor(Number(cmd.durationMs) || 0));
+        armPendingIgnore(cmd.action, cmd.ts, ignoreMs);
       } else if (cmd.action === "RETREAT") {
         disarmPendingIgnore();
       }
 
       if (cmd.action === "APPROACH") moveTo(computeApproachTarget(), cmd.durationMs || 1500);
       if (cmd.action === "RETREAT") moveTo(homePosition, cmd.durationMs || 1500);
+    },
+    onProactiveChat: ({ ts, content }) => {
+      const text = String(content ?? "").trim();
+      if (!text) return;
+
+      const entry: ChatLogEntry = {
+        id: `p_${ts}_${Math.random().toString(16).slice(2)}`,
+        ts: Number(ts) || Date.now(),
+        role: "assistant",
+        content: text
+      };
+      appendChatLogEntry(entry, null);
+
+      // Optional: auto TTS (speak the first paragraph only).
+      try {
+        const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+        const autoPlay = Boolean((effective as any)?.tts?.autoPlay ?? false);
+        if (autoPlay && !petWindow.isDestroyed()) {
+          const ttsText = pickFirstParagraphForTts(text);
+          if (ttsText) {
+            petWindow.webContents.send(IPC_CHANNELS.petControl, {
+              type: "PET_CONTROL",
+              ts: Date.now(),
+              action: "SPEAK_TEXT",
+              text: ttsText,
+              options: ttsOptionsFromCfg((effective as any)?.tts)
+            } as any);
+          }
+        }
+      } catch {}
     }
   });
   core.setAssistantConfig(mergeLlmConfig(baseLlmConfig, persistedLlmConfig));
@@ -1646,22 +1704,8 @@ async function bootstrap() {
     const parsed = ChatRequestSchema.safeParse(payload);
     if (!parsed.success) return { type: "CHAT_RESPONSE", ts: Date.now(), message: "消息格式不对…" };
 
-    const appendChat = (entry: ChatLogEntry) => {
-      chatLog.push(entry);
-      if (chatLog.length > 260) chatLog = chatLog.slice(-220);
-
-      const msg: ChatLogMessage = { type: "CHAT_LOG_APPEND", ts: Date.now(), entry };
-
-      // Always notify the sender window first (covers cases where controlsWindow is closed or re-created).
-      try {
-        evt.sender.send(IPC_CHANNELS.chatLog, msg);
-      } catch {}
-
-      // Also notify the main chat UI if it's a different window.
-      if (controlsWindow && !controlsWindow.isDestroyed() && controlsWindow.webContents.id !== evt.sender.id) {
-        controlsWindow.webContents.send(IPC_CHANNELS.chatLog, msg);
-      }
-    };
+    // A user message is a response to any pending proactive invite.
+    disarmPendingIgnore();
 
     // Broadcast user message immediately so the main chat UI feels responsive (even before LLM returns).
     const userEntry: ChatLogEntry = {
@@ -1671,7 +1715,7 @@ async function bootstrap() {
       content: parsed.data.message,
       images: parsed.data.images
     };
-    appendChat(userEntry);
+    appendChatLogEntry(userEntry, evt.sender);
 
     const resp = await core.handleChat(parsed.data);
     const assistantEntry: ChatLogEntry = {
@@ -1680,7 +1724,7 @@ async function bootstrap() {
       role: "assistant",
       content: resp.message
     };
-    appendChat(assistantEntry);
+    appendChatLogEntry(assistantEntry, evt.sender);
 
     // Optional: auto TTS (speak the first paragraph only).
     try {
