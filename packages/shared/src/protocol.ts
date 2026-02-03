@@ -148,6 +148,14 @@ export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "SET_PET_WINDOW_SIZE"; size: Partial<PetWindowSize> }
   | { type: "PET_CONTROL"; ts: number; action: "REFIT_CAMERA" }
   | { type: "PET_CONTROL"; ts: number; action: "SPEAK" }
+  | {
+      type: "PET_CONTROL";
+      ts: number;
+      action: "SPEAK_TEXT";
+      text: string;
+      options?: { voice?: string; rate?: number; pitch?: number; volume?: number };
+    }
+  | { type: "PET_CONTROL"; ts: number; action: "SPEAK_STOP" }
   | { type: "PET_CONTROL"; ts: number; action: "SET_IDLE_CONFIG"; config: Partial<PetIdleConfig> }
   | { type: "PET_CONTROL"; ts: number; action: "SET_WALK_CONFIG"; config: Partial<PetWalkConfig> }
   | { type: "PET_CONTROL"; ts: number; action: "SET_VRMA_CONFIG"; config: Partial<PetVrmAnimationConfig> }

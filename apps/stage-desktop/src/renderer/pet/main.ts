@@ -321,6 +321,138 @@ async function boot() {
   setHud("render: running");
   scene.start();
 
+  // ====== TTS (SpeechSynthesis) ======
+  const hasSpeechSynthesis = typeof window !== "undefined" && typeof (window as any).speechSynthesis !== "undefined";
+  let ttsMouthTimer: number | null = null;
+
+  const stopTtsMouth = () => {
+    if (ttsMouthTimer !== null) window.clearInterval(ttsMouthTimer);
+    ttsMouthTimer = null;
+  };
+
+  const startTtsMouth = () => {
+    scene.speak(1200);
+    stopTtsMouth();
+    // Keep mouth moving while the utterance is active.
+    ttsMouthTimer = window.setInterval(() => scene.speak(1200), 900);
+  };
+
+  const stopTts = () => {
+    stopTtsMouth();
+    if (!hasSpeechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel();
+    } catch {}
+  };
+
+  const getVoicesReady = async (timeoutMs: number) => {
+    if (!hasSpeechSynthesis) return [] as SpeechSynthesisVoice[];
+
+    const synth = window.speechSynthesis;
+    try {
+      const v0 = synth.getVoices();
+      if (Array.isArray(v0) && v0.length) return v0;
+    } catch {}
+
+    return await new Promise<SpeechSynthesisVoice[]>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try {
+          synth.onvoiceschanged = null;
+        } catch {}
+        try {
+          const v = synth.getVoices();
+          resolve(Array.isArray(v) ? v : []);
+        } catch {
+          resolve([]);
+        }
+      };
+
+      const t = window.setTimeout(finish, Math.max(100, timeoutMs));
+      try {
+        synth.onvoiceschanged = () => {
+          window.clearTimeout(t);
+          finish();
+        };
+      } catch {
+        window.clearTimeout(t);
+        finish();
+      }
+    });
+  };
+
+  const pickBestVoice = (voices: SpeechSynthesisVoice[], preferredName?: string) => {
+    const pref = String(preferredName ?? "").trim();
+    if (pref) {
+      const exact = voices.find((v) => v && (v.name === pref || (v as any).voiceURI === pref));
+      if (exact) return exact;
+      const lower = pref.toLowerCase();
+      const fuzzy = voices.find((v) => v && String(v.name ?? "").toLowerCase().includes(lower));
+      if (fuzzy) return fuzzy;
+    }
+
+    const femaleHints = ["xiaoxiao", "huihui", "xiaoyi", "yaoyao", "meimei", "yating", "jiajia", "xiaohan"];
+
+    const score = (v: SpeechSynthesisVoice) => {
+      const name = String(v?.name ?? "").toLowerCase();
+      const lang = String(v?.lang ?? "").toLowerCase();
+      let s = 0;
+      if (lang.startsWith("zh")) s += 120;
+      if (lang.includes("zh-cn") || lang.includes("cmn")) s += 20;
+      if (name.includes("natural") || name.includes("online")) s += 18;
+      if (femaleHints.some((h) => name.includes(h))) s += 26;
+      if (name.includes("female") || name.includes("girl")) s += 10;
+      if (name.includes("male") || name.includes("man")) s -= 18;
+      if (v.default) s += 2;
+      return s;
+    };
+
+    const sorted = [...voices].sort((a, b) => score(b) - score(a));
+    return sorted[0] ?? null;
+  };
+
+  const speakText = async (text: string, options?: { voice?: string; rate?: number; pitch?: number; volume?: number }) => {
+    const s = String(text ?? "").trim();
+    if (!s) return;
+
+    // Always interrupt the previous utterance.
+    stopTts();
+
+    if (!hasSpeechSynthesis || typeof SpeechSynthesisUtterance === "undefined") {
+      // Fallback: mouth only.
+      scene.speak(Math.max(900, Math.min(3200, Math.floor(s.length * 70))));
+      return;
+    }
+
+    const voices = await getVoicesReady(1200);
+    const voice = pickBestVoice(voices, options?.voice);
+
+    const u = new SpeechSynthesisUtterance(s);
+    u.lang = voice?.lang || "zh-CN";
+    if (voice) u.voice = voice;
+    u.rate = clamp(Number(options?.rate ?? 1.08) || 1.08, 0.7, 1.35);
+    u.pitch = clamp(Number(options?.pitch ?? 1.12) || 1.12, 0.8, 1.5);
+    u.volume = clamp(Number(options?.volume ?? 1) || 1, 0, 1);
+
+    u.onstart = () => startTtsMouth();
+    const onDone = () => stopTtsMouth();
+    u.onend = onDone;
+    u.onerror = onDone;
+
+    try {
+      window.speechSynthesis.speak(u);
+      // Some platforms don't reliably fire onstart; kick mouth quickly.
+      window.setTimeout(() => {
+        if (ttsMouthTimer === null) startTtsMouth();
+      }, 80);
+    } catch {
+      // Fallback: mouth only.
+      scene.speak(Math.max(900, Math.min(3200, Math.floor(s.length * 70))));
+    }
+  };
+
   // Read app flags (e.g., VRM locked). Do not block rendering if anything goes wrong.
   const appInfo = await (async () => {
     try {
@@ -459,6 +591,16 @@ async function boot() {
 
       if (msg.action === "SPEAK") {
         scene.speak(900);
+        return;
+      }
+
+      if (msg.action === "SPEAK_STOP") {
+        stopTts();
+        return;
+      }
+
+      if (msg.action === "SPEAK_TEXT") {
+        await speakText((msg as any).text, (msg as any).options);
         return;
       }
 

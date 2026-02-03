@@ -49,6 +49,16 @@ function RetryIcon() {
   );
 }
 
+function SpeakIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </svg>
+  );
+}
+
 export function MessageRow(props: {
   api: StageDesktopApi | null;
   message: UiMessage;
@@ -84,6 +94,16 @@ export function MessageRow(props: {
     } else {
       onToast?.("复制失败", { timeoutMs: 2400, type: "error" });
     }
+  };
+
+  const speak = () => {
+    if (!api?.sendPetControl) {
+      onToast?.("preload API 缺失：无法朗读", { timeoutMs: 2400, type: "error" });
+      return;
+    }
+    const text = String(message.content ?? "").trim();
+    if (!text) return;
+    api.sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "SPEAK_TEXT", text } as any);
   };
 
   return (
@@ -154,7 +174,10 @@ export function MessageRow(props: {
           <button
             className="chatActionBtn"
             type="button"
-            onClick={() => void copyText("text")}
+            onClick={(e) => {
+              e.stopPropagation();
+              void copyText("text");
+            }}
             aria-label="复制"
             title="复制文本"
           >
@@ -165,7 +188,10 @@ export function MessageRow(props: {
             <button
               className="chatActionBtn"
               type="button"
-              onClick={() => void copyText("md")}
+              onClick={(e) => {
+                e.stopPropagation();
+                void copyText("md");
+              }}
               aria-label="复制Markdown"
               title="复制为Markdown"
             >
@@ -173,11 +199,29 @@ export function MessageRow(props: {
             </button>
           )}
 
+          {isAssistant && !isError && (
+            <button
+              className="chatActionBtn"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                speak();
+              }}
+              aria-label="朗读"
+              title="朗读（第一段）"
+            >
+              <SpeakIcon />
+            </button>
+          )}
+
           {isError && message.retryText && onRetry && (
             <button
               className="chatActionBtn retry"
               type="button"
-              onClick={() => onRetry(message.retryText!)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetry(message.retryText!);
+              }}
               aria-label="重试"
               title="重试"
             >

@@ -8,6 +8,33 @@ type Persona = { replyStyle: ReplyStyle; proactivity: number; tone: Tone };
 
 const LS_PERSONA = "sama.ui.persona.v1";
 
+function isZhVoice(v: SpeechSynthesisVoice) {
+  const lang = String(v?.lang ?? "").toLowerCase();
+  return lang.startsWith("zh") || lang.includes("cmn");
+}
+
+function pickRecommendedVoice(voices: SpeechSynthesisVoice[]) {
+  const list = Array.isArray(voices) ? voices : [];
+  if (!list.length) return null;
+
+  const femaleHints = ["xiaoxiao", "huihui", "xiaoyi", "yaoyao", "meimei", "yating", "jiajia", "xiaohan"];
+  const score = (v: SpeechSynthesisVoice) => {
+    const name = String(v?.name ?? "").toLowerCase();
+    const lang = String(v?.lang ?? "").toLowerCase();
+    let s = 0;
+    if (lang.startsWith("zh")) s += 120;
+    if (lang.includes("zh-cn") || lang.includes("cmn")) s += 20;
+    if (name.includes("natural") || name.includes("online")) s += 18;
+    if (femaleHints.some((h) => name.includes(h))) s += 26;
+    if (name.includes("female") || name.includes("girl")) s += 10;
+    if (name.includes("male") || name.includes("man")) s -= 18;
+    if (v.default) s += 2;
+    return s;
+  };
+
+  return [...list].sort((a, b) => score(b) - score(a))[0] ?? null;
+}
+
 function loadPersona(): Persona {
   try {
     const raw = localStorage.getItem(LS_PERSONA);
@@ -47,11 +74,41 @@ export function LlmPanel(props: {
     deepseek: { apiKey: "", model: "", baseUrl: "" },
     aistudio: { apiKey: "", model: "", baseUrl: "" },
     webSearch: { enabled: false, tavilyApiKey: "", maxResults: 6 },
+    tts: { autoPlay: false, voice: "", rate: 1.08, pitch: 1.12, volume: 1 },
     skills: { dir: "", enabled: [] }
   });
   const [persona, setPersona] = useState<Persona>(loadPersona);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   const provider = safeString(cfg.provider, "auto");
+  const recommendedVoice = useMemo(() => pickRecommendedVoice(voices), [voices]);
+  const zhVoices = useMemo(() => voices.filter(isZhVoice), [voices]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") return;
+    const synth = window.speechSynthesis;
+
+    const refresh = () => {
+      try {
+        const v = synth.getVoices();
+        setVoices(Array.isArray(v) ? v : []);
+      } catch {
+        setVoices([]);
+      }
+    };
+
+    refresh();
+    const prev = (synth as any).onvoiceschanged;
+    try {
+      (synth as any).onvoiceschanged = () => refresh();
+    } catch {}
+
+    return () => {
+      try {
+        (synth as any).onvoiceschanged = prev ?? null;
+      } catch {}
+    };
+  }, []);
 
   const help = useMemo(() => {
     if (provider === "off") return "已禁用：不会调用 LLM。";
@@ -107,6 +164,13 @@ export function LlmPanel(props: {
           enabled: Boolean((stored as any).webSearch?.enabled ?? false),
           tavilyApiKey: safeString((stored as any).webSearch?.tavilyApiKey),
           maxResults: clamp(Number((stored as any).webSearch?.maxResults ?? 6), 1, 10)
+        },
+        tts: {
+          autoPlay: Boolean((stored as any).tts?.autoPlay ?? false),
+          voice: safeString((stored as any).tts?.voice),
+          rate: clamp(Number((stored as any).tts?.rate ?? 1.08), 0.7, 1.35),
+          pitch: clamp(Number((stored as any).tts?.pitch ?? 1.12), 0.8, 1.5),
+          volume: clamp(Number((stored as any).tts?.volume ?? 1), 0, 1)
         },
         skills: {
           dir: safeString((stored as any).skills?.dir),
@@ -353,6 +417,142 @@ export function LlmPanel(props: {
               未发现任何 skill（需要每个子目录下有 `SKILL.md`）。
             </div>
           )}
+        </div>
+
+        <div className="divider" />
+
+        <div className="field">
+          <div className="label">Voice（朗读）</div>
+          <label className="switchRow" style={{ marginTop: 8 }}>
+            <input
+              type="checkbox"
+              checked={Boolean((cfg as any).tts?.autoPlay)}
+              onChange={(e) => {
+                const v = Boolean(e.target.checked);
+                setCfg((c) => ({ ...c, tts: { ...(c as any).tts, autoPlay: v } }));
+              }}
+              disabled={loading}
+            />
+            <span className="switchLabel">自动朗读 SAMA 的回复（只读第一段）</span>
+          </label>
+
+          <div className="help">每条消息也可以点“朗读”按钮手动播放。</div>
+
+          <div className="divider" />
+
+          <div className="field">
+            <div className="label">Voice</div>
+            <select
+              className="select"
+              value={safeString((cfg as any).tts?.voice)}
+              onChange={(e) => setCfg((c) => ({ ...c, tts: { ...(c as any).tts, voice: e.target.value } }))}
+              disabled={loading}
+            >
+              <option value="">
+                自动（推荐：{recommendedVoice?.name ? `${recommendedVoice.name} / ${recommendedVoice.lang}` : "系统默认"}）
+              </option>
+              {zhVoices.map((v) => (
+                <option key={`${v.name}|${v.lang}`} value={v.name}>
+                  {v.name} / {v.lang}
+                </option>
+              ))}
+              {voices.length > zhVoices.length ? (
+                <optgroup label="Other">
+                  {voices
+                    .filter((v) => !isZhVoice(v))
+                    .map((v) => (
+                      <option key={`${v.name}|${v.lang}`} value={v.name}>
+                        {v.name} / {v.lang}
+                      </option>
+                    ))}
+                </optgroup>
+              ) : null}
+            </select>
+            <div className="help">可爱少女感：建议选中文女声（如 Xiaoxiao / Huihui）。</div>
+          </div>
+
+          <div className="field">
+            <div className="label">Rate</div>
+            <input
+              className="range"
+              type="range"
+              min={0.7}
+              max={1.35}
+              step={0.01}
+              value={Number((cfg as any).tts?.rate ?? 1.08)}
+              onChange={(e) => setCfg((c) => ({ ...c, tts: { ...(c as any).tts, rate: clamp(Number(e.target.value), 0.7, 1.35) } }))}
+              disabled={loading}
+            />
+            <div className="help">{Number((cfg as any).tts?.rate ?? 1.08).toFixed(2)}</div>
+          </div>
+
+          <div className="field">
+            <div className="label">Pitch</div>
+            <input
+              className="range"
+              type="range"
+              min={0.8}
+              max={1.5}
+              step={0.01}
+              value={Number((cfg as any).tts?.pitch ?? 1.12)}
+              onChange={(e) => setCfg((c) => ({ ...c, tts: { ...(c as any).tts, pitch: clamp(Number(e.target.value), 0.8, 1.5) } }))}
+              disabled={loading}
+            />
+            <div className="help">{Number((cfg as any).tts?.pitch ?? 1.12).toFixed(2)}</div>
+          </div>
+
+          <div className="field">
+            <div className="label">Volume</div>
+            <input
+              className="range"
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={Number((cfg as any).tts?.volume ?? 1)}
+              onChange={(e) => setCfg((c) => ({ ...c, tts: { ...(c as any).tts, volume: clamp(Number(e.target.value), 0, 1) } }))}
+              disabled={loading}
+            />
+            <div className="help">{Number((cfg as any).tts?.volume ?? 1).toFixed(2)}</div>
+          </div>
+
+          <div className="btnRow">
+            <button
+              className="btn btnSm"
+              type="button"
+              onClick={() => {
+                if (!api?.sendPetControl) {
+                  onToast("preload API 缺失：无法朗读", { timeoutMs: 2400 });
+                  return;
+                }
+                api.sendPetControl({
+                  type: "PET_CONTROL",
+                  ts: Date.now(),
+                  action: "SPEAK_TEXT",
+                  text: "你好呀，我是 SAMA～",
+                  options: {
+                    voice: safeString((cfg as any).tts?.voice),
+                    rate: Number((cfg as any).tts?.rate ?? 1.08),
+                    pitch: Number((cfg as any).tts?.pitch ?? 1.12),
+                    volume: Number((cfg as any).tts?.volume ?? 1)
+                  }
+                } as any);
+              }}
+              disabled={loading}
+            >
+              试听
+            </button>
+            <button
+              className="btn btnSm"
+              type="button"
+              onClick={() => {
+                api?.sendPetControl?.({ type: "PET_CONTROL", ts: Date.now(), action: "SPEAK_STOP" } as any);
+              }}
+              disabled={loading}
+            >
+              停止
+            </button>
+          </div>
         </div>
 
         <div className="divider" />

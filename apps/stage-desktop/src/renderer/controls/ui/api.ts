@@ -18,6 +18,7 @@ export type LlmConfig = {
   deepseek?: { apiKey?: string; model?: string; baseUrl?: string };
   aistudio?: { apiKey?: string; model?: string; baseUrl?: string };
   webSearch?: { enabled?: boolean; tavilyApiKey?: string; maxResults?: number };
+  tts?: { autoPlay?: boolean; voice?: string; rate?: number; pitch?: number; volume?: number };
   skills?: { dir?: string; enabled?: string[] };
   tools?: { enabled?: string[]; fsRoots?: string[]; maxReadBytes?: number };
 };

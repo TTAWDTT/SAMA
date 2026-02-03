@@ -28,6 +28,19 @@ export type WebSearchConfig = {
   maxResults?: number;
 };
 
+export type TtsConfig = {
+  /** When true, automatically speak SAMA's assistant replies. */
+  autoPlay?: boolean;
+  /** Voice name (SpeechSynthesisVoice.name). Empty/undefined means "auto". */
+  voice?: string;
+  /** Speech rate (0.1 ~ 10, but we clamp to a safe range). */
+  rate?: number;
+  /** Speech pitch (0 ~ 2, but we clamp to a safe range). */
+  pitch?: number;
+  /** Volume (0 ~ 1). */
+  volume?: number;
+};
+
 export type SkillsConfig = {
   /** Skills directory (default: ~/.claude/skills). */
   dir?: string;
@@ -50,6 +63,7 @@ export type LLMConfig = {
   deepseek?: DeepSeekConfig;
   aistudio?: AIStudioConfig;
   webSearch?: WebSearchConfig;
+  tts?: TtsConfig;
   skills?: SkillsConfig;
   tools?: ToolsConfig;
 };

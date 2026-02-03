@@ -219,6 +219,27 @@ function sanitizeLlmConfig(raw: unknown): LLMConfig {
     cfg.webSearch = out;
   }
 
+  // TTS config (SpeechSynthesis in renderer; persisted so pet-only mode can still speak)
+  if (isPlainObject((raw as any).tts)) {
+    const b: any = (raw as any).tts;
+    const out: any = {};
+    if (typeof b.autoPlay === "boolean") out.autoPlay = b.autoPlay;
+    if (typeof b.voice === "string") out.voice = b.voice; // allow empty string => auto
+    if (b.rate !== undefined) {
+      const n = Number(b.rate);
+      if (Number.isFinite(n)) out.rate = Math.max(0.7, Math.min(1.35, n));
+    }
+    if (b.pitch !== undefined) {
+      const n = Number(b.pitch);
+      if (Number.isFinite(n)) out.pitch = Math.max(0.8, Math.min(1.5, n));
+    }
+    if (b.volume !== undefined) {
+      const n = Number(b.volume);
+      if (Number.isFinite(n)) out.volume = Math.max(0, Math.min(1, n));
+    }
+    cfg.tts = out;
+  }
+
   // Skills config (~/.claude/skills)
   if (isPlainObject((raw as any).skills)) {
     const b: any = (raw as any).skills;
@@ -260,9 +281,57 @@ function mergeLlmConfig(base: LLMConfig | null | undefined, override: LLMConfig 
     deepseek: { ...(base?.deepseek ?? {}), ...(override?.deepseek ?? {}) },
     aistudio: { ...(base?.aistudio ?? {}), ...(override?.aistudio ?? {}) },
     webSearch: { ...(base?.webSearch ?? {}), ...(override?.webSearch ?? {}) },
+    tts: { ...(base?.tts ?? {}), ...(override?.tts ?? {}) },
     skills: { ...(base?.skills ?? {}), ...(override?.skills ?? {}) },
     tools: { ...(base?.tools ?? {}), ...(override?.tools ?? {}) }
   };
+}
+
+function stripMarkdownForTts(md: string) {
+  const s = String(md ?? "");
+
+  // Drop tool_calls blocks entirely.
+  let out = s.replace(/```tool_calls[\s\S]*?```/g, "");
+
+  // Drop fenced code blocks entirely (TTS should not read code).
+  out = out.replace(/```[\s\S]*?```/g, "");
+
+  // Links: [text](url) -> text
+  out = out.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+
+  // Inline code: `x` -> x
+  out = out.replace(/`([^`]+)`/g, "$1");
+
+  // Headings / quotes / list markers
+  out = out.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  out = out.replace(/^\s{0,3}>\s?/gm, "");
+  out = out.replace(/^\s{0,3}([-*]|\d+\.)\s+/gm, "");
+
+  // Emphasis markers
+  out = out.replace(/\*\*([^*]+)\*\*/g, "$1");
+  out = out.replace(/\*([^*]+)\*/g, "$1");
+  out = out.replace(/__([^_]+)__/g, "$1");
+  out = out.replace(/_([^_]+)_/g, "$1");
+
+  return out.replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function pickFirstParagraphForTts(md: string) {
+  const cleaned = stripMarkdownForTts(md);
+  if (!cleaned) return "";
+  const first = cleaned.split(/\n{2,}/)[0]?.trim() ?? "";
+  // Keep it short so it feels like a cute "reply" rather than a long audiobook.
+  const compact = first.replace(/\s+/g, " ").trim();
+  return compact.length > 240 ? compact.slice(0, 240).trim() : compact;
+}
+
+function ttsOptionsFromCfg(cfg: any) {
+  const t = cfg && typeof cfg === "object" ? cfg : {};
+  const voice = typeof t.voice === "string" ? t.voice : "";
+  const rate = typeof t.rate === "number" && Number.isFinite(t.rate) ? t.rate : 1.08;
+  const pitch = typeof t.pitch === "number" && Number.isFinite(t.pitch) ? t.pitch : 1.12;
+  const volume = typeof t.volume === "number" && Number.isFinite(t.volume) ? t.volume : 1;
+  return { voice, rate, pitch, volume };
 }
 
 function readPersistedLlmConfig(statePath: string): LLMConfig | null {
@@ -1049,6 +1118,23 @@ async function bootstrap() {
       return;
     }
 
+    // TTS speak: normalize text + apply current config (so the Controls window doesn't need to fetch settings).
+    if (payload && payload.type === "PET_CONTROL" && payload.action === "SPEAK_TEXT") {
+      try {
+        const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+        const cfgTts: any = (effective as any)?.tts ?? {};
+        const rawText = String((payload as any).text ?? "");
+        const text = pickFirstParagraphForTts(rawText);
+        if (!text) return;
+        const options = { ...ttsOptionsFromCfg(cfgTts), ...(((payload as any).options ?? {}) as any) };
+        petWindow.webContents.send(IPC_CHANNELS.petControl, { ...(payload as any), text, options });
+      } catch {
+        // Fall back to passing through.
+        petWindow.webContents.send(IPC_CHANNELS.petControl, payload);
+      }
+      return;
+    }
+
     petWindow.webContents.send(IPC_CHANNELS.petControl, payload);
   });
 
@@ -1291,6 +1377,24 @@ async function bootstrap() {
       content: resp.message
     };
     appendChat(assistantEntry);
+
+    // Optional: auto TTS (speak the first paragraph only).
+    try {
+      const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
+      const autoPlay = Boolean((effective as any)?.tts?.autoPlay ?? false);
+      if (autoPlay && !petWindow.isDestroyed()) {
+        const text = pickFirstParagraphForTts(resp.message);
+        if (text) {
+          petWindow.webContents.send(IPC_CHANNELS.petControl, {
+            type: "PET_CONTROL",
+            ts: Date.now(),
+            action: "SPEAK_TEXT",
+            text,
+            options: ttsOptionsFromCfg((effective as any)?.tts)
+          } as any);
+        }
+      }
+    } catch {}
     return resp;
   });
 
