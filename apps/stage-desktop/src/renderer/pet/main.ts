@@ -318,6 +318,23 @@ async function boot() {
 
   // Register pet-control listeners ASAP so we don't miss early IPC messages
   // (e.g. persisted frame config / initial motion preset sent on window load).
+  const renderHoverFrame = () => {
+    if (!hoverFrame) return;
+
+    // Baseline styles (JS fallback). Even if CSS fails to load/parse, the frame should still work.
+    hoverFrame.style.position = "fixed";
+    hoverFrame.style.inset = "4px";
+    hoverFrame.style.pointerEvents = "none";
+    hoverFrame.style.boxSizing = "border-box";
+    hoverFrame.style.borderStyle = "solid";
+    hoverFrame.style.zIndex = "55";
+    if (!hoverFrame.style.transition) hoverFrame.style.transition = "opacity 180ms ease";
+
+    const enabled = hoverFrame.classList.contains("enabled");
+    const previewing = hoverFrame.classList.contains("previewing");
+    hoverFrame.style.opacity = enabled ? (previewing ? "1" : "0.9") : "0";
+  };
+
   const applyFrameConfig = (cfg: any) => {
     const raw = cfg && typeof cfg === "object" ? cfg : {};
     if (!hoverFrame) return;
@@ -330,25 +347,36 @@ async function boot() {
       hoverFrame.classList.remove("previewing");
     }
 
-    // Apply style settings if frame is enabled
-    if (hoverFrame.classList.contains("enabled")) {
-      if (typeof raw.size === "number" && Number.isFinite(raw.size)) {
-        hoverFrame.style.borderWidth = `${raw.size}px`;
-      }
-      if (typeof raw.radius === "number" && Number.isFinite(raw.radius)) {
-        hoverFrame.style.borderRadius = `${raw.radius}px`;
-      }
-      if (typeof raw.color === "string") {
-        hoverFrame.style.borderColor = raw.color;
-      }
-      // Show frame while adjusting settings (previewing mode)
-      if (raw.previewing === true) {
-        hoverFrame.classList.add("previewing");
-      } else if (raw.previewing === false) {
-        hoverFrame.classList.remove("previewing");
-      }
+    if (typeof raw.size === "number" && Number.isFinite(raw.size)) {
+      hoverFrame.style.borderWidth = `${raw.size}px`;
+    } else if (!hoverFrame.style.borderWidth) {
+      hoverFrame.style.borderWidth = "3px";
     }
+
+    if (typeof raw.radius === "number" && Number.isFinite(raw.radius)) {
+      hoverFrame.style.borderRadius = `${raw.radius}px`;
+    } else if (!hoverFrame.style.borderRadius) {
+      hoverFrame.style.borderRadius = "16px";
+    }
+
+    if (typeof raw.color === "string") {
+      hoverFrame.style.borderColor = raw.color;
+    } else if (!hoverFrame.style.borderColor) {
+      hoverFrame.style.borderColor = "#d97757";
+    }
+
+    // Show frame while adjusting settings (previewing mode)
+    if (raw.previewing === true) {
+      hoverFrame.classList.add("previewing");
+    } else if (raw.previewing === false) {
+      hoverFrame.classList.remove("previewing");
+    }
+
+    renderHoverFrame();
   };
+
+  // Ensure the frame is styled on boot (even before any IPC arrives).
+  renderHoverFrame();
 
   const pendingPetControls: PetControlMessage[] = [];
   let petControlDrain: Promise<void> = Promise.resolve();
