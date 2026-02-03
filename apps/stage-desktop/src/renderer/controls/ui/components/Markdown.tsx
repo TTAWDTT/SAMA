@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { StageDesktopApi } from "../api";
@@ -39,40 +39,45 @@ async function openExternal(api: StageDesktopApi | null, href: string) {
   }
 }
 
-export function Markdown(props: { api: StageDesktopApi | null; content: string; onToast?: (m: string, o?: any) => void }) {
+export const Markdown = React.memo(function Markdown(props: { api: StageDesktopApi | null; content: string; onToast?: (m: string, o?: any) => void }) {
   const { api, content, onToast } = props;
+
+  const components = useMemo(
+    () => ({
+      a: ({ href, children }: any) => (
+        <a
+          href={href}
+          onClick={(e) => {
+            e.preventDefault();
+            void (async () => {
+              const ok = await openExternal(api, String(href ?? ""));
+              if (!ok) onToast?.("无法打开链接（已阻止不安全 URL）", { timeoutMs: 2400 });
+            })();
+          }}
+        >
+          {children}
+        </a>
+      ),
+      // react-markdown v10 doesn't type `inline`, but it is present at runtime.
+      code: (p: any) => {
+        const { inline, className, children, ...rest } = p ?? {};
+        if (inline) return <code {...rest}>{children}</code>;
+        return (
+          <CodeBlock api={api} className={className} onToast={onToast}>
+            {children}
+          </CodeBlock>
+        );
+      }
+    }),
+    [api, onToast]
+  );
 
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            onClick={(e) => {
-              e.preventDefault();
-              void (async () => {
-                const ok = await openExternal(api, String(href ?? ""));
-                if (!ok) onToast?.("无法打开链接（已阻止不安全 URL）", { timeoutMs: 2400 });
-              })();
-            }}
-          >
-            {children}
-          </a>
-        ),
-        // react-markdown v10 doesn't type `inline`, but it is present at runtime.
-        code: (p: any) => {
-          const { inline, className, children, ...rest } = p ?? {};
-          if (inline) return <code {...rest}>{children}</code>;
-          return (
-            <CodeBlock api={api} className={className} onToast={onToast}>
-              {children}
-            </CodeBlock>
-          );
-        }
-      }}
+      components={components}
     >
       {content}
     </ReactMarkdown>
   );
-}
+});

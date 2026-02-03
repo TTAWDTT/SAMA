@@ -99,7 +99,7 @@ function computeVisibleBounds(root: THREE.Object3D) {
 
 export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8Array): Promise<PetScene> {
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
   renderer.setClearColor(0x000000, 0);
 
   const scene = new THREE.Scene();
@@ -806,7 +806,28 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
   await load(vrmBytes);
 
   const clock = new THREE.Clock();
+  let started = false;
   let running = false;
+  let rafId: number | null = null;
+  let accDt = 0;
+
+  const startLoop = () => {
+    if (running) return;
+    running = true;
+    accDt = 0;
+    try {
+      // Reset delta so we don't get a giant dt after resuming.
+      clock.getDelta();
+    } catch {}
+    rafId = requestAnimationFrame(tick);
+  };
+
+  const stopLoop = () => {
+    running = false;
+    accDt = 0;
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    rafId = null;
+  };
 
   const computeMovementState = (now: number) => {
     const actionMoving = now < actionMoveUntil;
@@ -824,15 +845,26 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
 
   function tick() {
     if (!running) return;
-    requestAnimationFrame(tick);
-    const dt = clock.getDelta();
+    rafId = requestAnimationFrame(tick);
+
+    const dt0 = clock.getDelta();
+    accDt += dt0;
+
+    const nowMs = safeNowMs();
+    const movement = computeMovementState(nowMs);
+    const busy = movement.actionMoving || dragging || nowMs < talkingUntil || nowMs - lastPointerMoveAt < 650;
+    const targetFps = busy ? 60 : 30;
+    const frameDt = 1 / targetFps;
+    if (accDt < frameDt) return;
+
+    const dt = accDt;
+    accDt = 0;
     const t = clock.elapsedTime;
 
     if (vrm) {
-      const now = safeNowMs();
+      const now = nowMs;
 
       // Movement detection: window moving (APPROACH/RETREAT) or user dragging -> switch to WALK.
-      const movement = computeMovementState(now);
       locomotion = movement.moving ? "WALK" : "IDLE";
 
       const dragIntensity = movement.dragMoving ? Math.min(1, lastDragMag / 22) : 0;
@@ -862,7 +894,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
         }
       } else {
         // Overlay procedural idle only if user enables it (see idle.overlayOnAnimation).
-        idle?.apply(dt, t, { hasAnimation: true });
+      idle?.apply(dt, t, { hasAnimation: true });
       }
 
       // Clamp hips Y while dragging or during a short transition window.
@@ -942,11 +974,21 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     renderer.render(scene, camera);
   }
 
+  // Pause rendering when the window is hidden/minimized (Electron toggles document visibility for hidden windows).
+  const onVisibility = () => {
+    if (!started) return;
+    if (typeof document === "undefined") return;
+    if (document.visibilityState === "hidden") stopLoop();
+    else startLoop();
+  };
+  try {
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibility);
+  } catch {}
+
   return {
     start: () => {
-      if (running) return;
-      running = true;
-      tick();
+      started = true;
+      onVisibility();
     },
     setExpression: (expr) => {
       expression = expr;

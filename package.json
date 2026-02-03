@@ -11,6 +11,7 @@
     "dist": "pnpm --filter @sama/stage-desktop dist",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
+    "lint:dead": "pnpm -s dlx knip --config knip.json",
     "format": "prettier -w ."
   },
   "devDependencies": {

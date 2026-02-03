@@ -14,6 +14,7 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
   const [level, setLevel] = useState<"all" | AppLogItem["level"]>("all");
   const [query, setQuery] = useState("");
   const [tail, setTail] = useState(true);
+  const [limit, setLimit] = useState(350);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -36,6 +37,11 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
     if (stickRef.current) scrollToBottom(el);
   }, [logs, tail]);
 
+  // Reset paging when filters change.
+  useEffect(() => {
+    setLimit(350);
+  }, [level, query]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return logs.filter((x) => {
@@ -45,6 +51,14 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
       return s.includes(q);
     });
   }, [logs, level, query]);
+
+  const visible = useMemo(() => {
+    const lim = Math.max(50, Math.floor(Number(limit) || 0));
+    if (filtered.length <= lim) return filtered;
+    return filtered.slice(filtered.length - lim);
+  }, [filtered, limit]);
+
+  const hiddenCount = filtered.length - visible.length;
 
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
@@ -99,24 +113,38 @@ export function ConsolePanel(props: { logs: AppLogItem[]; onClear: () => void })
         {filtered.length === 0 ? (
           <div className="emptyLog">暂无日志。</div>
         ) : (
-          filtered.map((l, idx) => (
-            <div
-              key={`${l.ts}_${idx}`}
-              className={`logRow ${l.level} ${idx % 2 === 0 ? "even" : "odd"} ${copyFeedback === l.ts.toString() ? "copied" : ""}`}
-              onClick={() => void copyLog(l)}
-              title="点击复制"
-            >
-              <div className="logMeta">
-                <span className="logTime">{formatTime(l.ts)}</span>
-                <span className={`logLevel ${l.level}`}>{l.level}</span>
-                {l.scope ? <span className="logScope">{l.scope}</span> : null}
+          <>
+            {hiddenCount > 0 ? (
+              <div className="emptyLog">
+                已隐藏更早的 {hiddenCount} 条。
+                <button
+                  className="btn btnSm"
+                  type="button"
+                  onClick={() => setLimit((v) => Math.min(filtered.length, Math.max(50, (Number(v) || 0) + 350)))}
+                  style={{ marginLeft: 10 }}
+                >
+                  加载更多
+                </button>
               </div>
-              <div className="logMsg">{l.message}</div>
-            </div>
-          ))
+            ) : null}
+            {visible.map((l, idx) => (
+              <div
+                key={`${l.ts}_${idx}`}
+                className={`logRow ${l.level} ${idx % 2 === 0 ? "even" : "odd"} ${copyFeedback === l.ts.toString() ? "copied" : ""}`}
+                onClick={() => void copyLog(l)}
+                title="点击复制"
+              >
+                <div className="logMeta">
+                  <span className="logTime">{formatTime(l.ts)}</span>
+                  <span className={`logLevel ${l.level}`}>{l.level}</span>
+                  {l.scope ? <span className="logScope">{l.scope}</span> : null}
+                </div>
+                <div className="logMsg">{l.message}</div>
+              </div>
+            ))}
+          </>
         )}
       </div>
     </div>
   );
 }
-

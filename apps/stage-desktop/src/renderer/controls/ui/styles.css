@@ -495,6 +495,20 @@ html, body {
   background: var(--chat-bg);
 }
 
+.timeline[data-large-list="1"] .chatMessage,
+.timeline[data-large-list="1"] .dateSeparator {
+  content-visibility: auto;
+  contain: layout style paint;
+}
+
+.timeline[data-large-list="1"] .chatMessage {
+  contain-intrinsic-size: 1px 120px;
+}
+
+.timeline[data-large-list="1"] .dateSeparator {
+  contain-intrinsic-size: 1px 48px;
+}
+
 .messageList {
   max-width: 100%;
   padding: 16px;

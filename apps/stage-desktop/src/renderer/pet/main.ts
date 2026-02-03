@@ -650,12 +650,25 @@ async function boot() {
   // While a caption bubble is visible, keep sending the anchor so the caption window can follow the character head.
   let anchorTimer: number | null = null;
   let anchorUntilTs = 0;
+  let lastPostedAnchor: { nx: number; ny: number } | null = null;
+  let lastPostedAnchorAt = 0;
   const postCaptionAnchor = () => {
     const a = scene.getBubbleAnchor?.();
     if (!a) return;
     if (inlineBubbleVisible) setInlineBubbleAnchor(a);
+
+    const now = Date.now();
+    const prev = lastPostedAnchor;
+    if (prev) {
+      const dx = Math.abs(a.nx - prev.nx);
+      const dy = Math.abs(a.ny - prev.ny);
+      // Avoid spamming when the anchor is stable; still refresh periodically.
+      if (dx < 0.003 && dy < 0.003 && now - lastPostedAnchorAt < 700) return;
+    }
+    lastPostedAnchor = { nx: a.nx, ny: a.ny };
+    lastPostedAnchorAt = now;
     try {
-      bc?.postMessage({ type: "CAPTION_ANCHOR", ts: Date.now(), nx: a.nx, ny: a.ny });
+      bc?.postMessage({ type: "CAPTION_ANCHOR", ts: now, nx: a.nx, ny: a.ny });
     } catch {}
   };
   const startCaptionAnchorTracking = (durationMs: number) => {
@@ -674,10 +687,12 @@ async function boot() {
         return;
       }
       postCaptionAnchor();
-    }, 80);
+    }, 120);
   };
 
-  const sendPetState = () => {
+  let lastPetStateSig = "";
+  let lastPetStateSentAt = 0;
+  const emitPetState = (opts?: { force?: boolean }) => {
     const payload: PetStateMessage = {
       type: "PET_STATE",
       ts: Date.now(),
@@ -685,6 +700,15 @@ async function boot() {
       motion: scene.getMotionState(),
       slots: scene.getVrmAnimationSlotsStatus()
     };
+
+    const sig =
+      `${payload.vrmLoaded ? 1 : 0}|${payload.motion.locomotion}|${payload.motion.animation}|` +
+      `${payload.slots.hasLastLoaded ? 1 : 0}${payload.slots.hasIdle ? 1 : 0}${payload.slots.hasWalk ? 1 : 0}${payload.slots.hasAction ? 1 : 0}`;
+    const now = Date.now();
+    if (!opts?.force && sig === lastPetStateSig && now - lastPetStateSentAt < 2500) return;
+    lastPetStateSig = sig;
+    lastPetStateSentAt = now;
+
     try {
       (window as any).stageDesktop?.sendPetState?.(payload);
     } catch {}
@@ -692,9 +716,10 @@ async function boot() {
       bc?.postMessage(payload);
     } catch {}
   };
+  const sendPetState = () => emitPetState({ force: true });
 
   // Keep the Controls window updated (even if it opens later).
-  const petStateTimer = window.setInterval(sendPetState, 250);
+  const petStateTimer = window.setInterval(() => emitPetState({ force: false }), 650);
   window.addEventListener("beforeunload", () => {
     window.clearInterval(petStateTimer);
     if (persistTimer !== null) window.clearTimeout(persistTimer);

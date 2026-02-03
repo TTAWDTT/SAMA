@@ -78,6 +78,10 @@ export function App() {
   const [devMode, setDevMode] = useState(loadDevMode);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tab, setTab] = useState<SidebarTab>(loadTab);
+  const tabRef = useRef<SidebarTab>(tab);
+  useEffect(() => {
+    tabRef.current = tab;
+  }, [tab]);
 
   const [entries, setEntries] = useState<ChatLogEntry[]>([]);
   const [isThinking, setIsThinking] = useState(false);
@@ -90,6 +94,7 @@ export function App() {
 
   const [provider, setProvider] = useState<string>("unknown");
 
+  const logsRef = useRef<AppLogItem[]>([]);
   const [logs, setLogs] = useState<AppLogItem[]>([]);
 
   // Selection Mode
@@ -125,6 +130,11 @@ export function App() {
     const t = window.setTimeout(() => setSplashRemoved(true), 460);
     return () => window.clearTimeout(t);
   }, [splashHidden, splashRemoved]);
+
+  const clearLogs = useCallback(() => {
+    logsRef.current = [];
+    setLogs([]);
+  }, []);
 
   const handleExportChat = useCallback(() => {
     setSelectionMode(true);
@@ -526,23 +536,22 @@ export function App() {
     if (!devMode) return;
     if (!api || typeof api.onAppLog !== "function") return;
 
-    const logBuffer = { current: [] as AppLogItem[] };
+    const logBuffer: AppLogItem[] = [];
     let flushTimer: number | null = null;
 
     const flushLogs = () => {
-      if (logBuffer.current.length === 0) {
-        flushTimer = null;
-        return;
+      flushTimer = null;
+      if (logBuffer.length === 0) return;
+
+      // Keep a durable in-memory buffer without forcing a UI re-render.
+      logsRef.current.push(...logBuffer.splice(0));
+      if (logsRef.current.length > 900) logsRef.current = logsRef.current.slice(-650);
+
+      // Only re-render the UI when the Console tab is actually open.
+      if (tabRef.current === "console") {
+        const snapshot = logsRef.current.slice();
+        startTransition(() => setLogs(snapshot));
       }
-      const newItems = [...logBuffer.current];
-      logBuffer.current = [];
-      
-      startTransition(() => {
-        setLogs((prev) => {
-          const next = [...prev, ...newItems];
-          return next.length > 800 ? next.slice(-650) : next;
-        });
-      });
       flushTimer = null;
     };
 
@@ -555,12 +564,10 @@ export function App() {
         message: String(m.message ?? ""),
         scope: m.scope ? String(m.scope) : undefined
       };
-      
-      logBuffer.current.push(item);
-      
-      if (!flushTimer) {
-        flushTimer = window.setTimeout(flushLogs, 160);
-      }
+
+      logBuffer.push(item);
+      if (flushTimer !== null) return;
+      flushTimer = window.setTimeout(flushLogs, 220);
     });
 
     return () => {
@@ -570,6 +577,13 @@ export function App() {
       } catch {}
     };
   }, [api, devMode]);
+
+  // When opening the Console tab, render the latest buffered logs once.
+  useEffect(() => {
+    if (!devMode) return;
+    if (tab !== "console") return;
+    startTransition(() => setLogs(logsRef.current.slice()));
+  }, [tab, devMode]);
 
   const uiMessages: UiMessage[] = useMemo(() => {
     const base = entries as UiMessage[];
@@ -650,7 +664,7 @@ export function App() {
         theme={theme}
         devMode={devMode}
         onToggleDevMode={() => setDevMode((v) => !v)}
-        onClearUiLogs={() => setLogs([])}
+        onClearUiLogs={clearLogs}
         onToggleSearch={() => setSearchOpen((v) => !v)}
         onExportChat={handleExportChat}
       />
@@ -739,7 +753,7 @@ export function App() {
             onToast={showToast}
           />
         ) : (
-          <ConsolePanel logs={logs} onClear={() => setLogs([])} />
+          <ConsolePanel logs={logs} onClear={clearLogs} />
         )}
       </SidebarDrawer>
 

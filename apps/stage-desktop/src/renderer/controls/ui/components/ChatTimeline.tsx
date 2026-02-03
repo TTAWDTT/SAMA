@@ -28,6 +28,7 @@ export const ChatTimeline = React.memo(forwardRef<
   const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery, selectionMode, selectedIds, onToggleSelect } = props;
   const showLlmHint = String(llmProvider ?? "") === "fallback";
   const [viewingImage, setViewingImage] = useState<string | null>(null);
+  const largeList = messages.length >= 120;
 
   // Group messages by date for date separators and consecutive sender grouping
   // isGroupStart: true if this message starts a new group (different sender or time gap > 2 min)
@@ -63,7 +64,14 @@ export const ChatTimeline = React.memo(forwardRef<
 
   return (
     <div className="timelineWrap">
-      <div ref={ref} className="timeline" role="log" aria-live="polite" aria-busy={isThinking}>
+      <div
+        ref={ref}
+        className="timeline"
+        role="log"
+        aria-live="polite"
+        aria-busy={isThinking}
+        data-large-list={largeList ? "1" : "0"}
+      >
         {showLlmHint ? (
           <div className="hintBanner" role="note">
             <div className="hintTitle">未配置 LLM</div>
