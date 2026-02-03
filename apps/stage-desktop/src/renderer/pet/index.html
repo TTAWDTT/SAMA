@@ -6,19 +6,33 @@
     <title>Pet</title>
     <style>
       :root {
-        color-scheme: light;
+        color-scheme: light dark;
         --bg: rgba(255, 255, 255, 0.86);
         --bg-strong: rgba(255, 255, 255, 0.94);
         --border: rgba(15, 23, 42, 0.12);
         --border-soft: rgba(15, 23, 42, 0.08);
-        --text: rgba(15, 23, 42, 0.92);
-        --muted: rgba(15, 23, 42, 0.64);
-        --muted2: rgba(15, 23, 42, 0.5);
-        --accent: rgba(37, 99, 235, 0.95);
-        --accent-soft: rgba(37, 99, 235, 0.12);
+        --text: #0f172a;
+        --muted: #64748b;
+        --muted2: #94a3b8;
+        --accent: #0ea5e9;
+        --accent-soft: rgba(14, 165, 233, 0.12);
         --shadow: 0 14px 44px rgba(15, 23, 42, 0.14);
-        --radius: 14px;
+        --radius: 18px;
+        --radius-sm: 12px;
+        --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       }
+
+      [data-theme="dark"] {
+        --bg: rgba(30, 30, 32, 0.85);
+        --bg-strong: rgba(45, 45, 48, 0.94);
+        --border: rgba(255, 255, 255, 0.12);
+        --border-soft: rgba(255, 255, 255, 0.06);
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --muted2: #64748b;
+        --shadow: 0 14px 44px rgba(0, 0, 0, 0.4);
+      }
+
       html,
       body {
         width: 100%;
@@ -26,6 +40,7 @@
         margin: 0;
         overflow: hidden;
         background: transparent;
+        font-family: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
       }
       #canvas {
         width: 100%;
@@ -106,36 +121,38 @@
         left: 0;
         top: 0;
         max-width: min(360px, calc(100vw - 40px));
-        padding: 10px 12px;
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(15, 23, 42, 0.14);
-        color: rgba(15, 23, 42, 0.92);
-        font: 14px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
-          -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
-        letter-spacing: 0.15px;
+        padding: 12px 16px;
+        border-radius: 20px;
+        background: var(--bg-strong);
+        border: 1px solid var(--accent-soft);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.5;
+        letter-spacing: 0.01em;
         white-space: pre-wrap;
         word-break: break-word;
-        box-shadow: 0 14px 44px rgba(15, 23, 42, 0.18);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
         pointer-events: none;
         user-select: none;
         opacity: 0;
-        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, -100%) translateY(10px)
-          scale(0.985);
-        transition: opacity 160ms ease, transform 160ms ease;
+        transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, -100%) translateY(15px) scale(0.95);
+        transition: opacity 250ms ease, transform 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+        z-index: 100;
       }
+      
       #inlineBubble::after {
         content: "";
         position: absolute;
         left: 50%;
-        width: 12px;
-        height: 12px;
-        background: rgba(255, 255, 255, 0.92);
-        border-right: 1px solid rgba(15, 23, 42, 0.14);
-        border-bottom: 1px solid rgba(15, 23, 42, 0.14);
+        width: 10px;
+        height: 10px;
+        background: var(--bg-strong);
+        border-right: 1px solid var(--accent-soft);
+        border-bottom: 1px solid var(--accent-soft);
         transform: translateX(-50%) rotate(45deg);
-        bottom: -7px;
-        opacity: 0.95;
+        bottom: -6px;
       }
       #inlineBubble[data-placement="bottom"]::after {
         top: -7px;
@@ -395,7 +412,7 @@
         padding: 12px 12px 10px 12px;
         position: sticky;
         top: 0;
-        background: rgba(255, 255, 255, 0.92);
+        background: var(--bg-strong);
         border-bottom: 1px solid var(--border-soft);
       }
       .panelTitle {
@@ -405,7 +422,7 @@
       .panelToggle {
         appearance: none;
         border: 1px solid var(--border);
-        background: rgba(15, 23, 42, 0.04);
+        background: var(--border-soft);
         color: var(--text);
         border-radius: 10px;
         padding: 6px 9px;
@@ -432,16 +449,16 @@
         gap: 6px;
         padding: 6px 10px;
         border-radius: 999px;
-        background: rgba(15, 23, 42, 0.04);
-        border: 1px solid rgba(15, 23, 42, 0.1);
-        color: rgba(15, 23, 42, 0.78);
+        background: var(--border-soft);
+        border: 1px solid var(--border);
+        color: var(--muted);
         font-size: 12px;
         font-variant-numeric: tabular-nums;
       }
       .chipStrong {
-        background: rgba(15, 23, 42, 0.06);
-        border-color: rgba(15, 23, 42, 0.14);
-        color: rgba(15, 23, 42, 0.88);
+        background: var(--border);
+        border-color: var(--border);
+        color: var(--text);
       }
 
       .dockGrid {
@@ -455,7 +472,7 @@
       .dockBtn {
         appearance: none;
         border: 1px solid var(--border);
-        background: rgba(15, 23, 42, 0.04);
+        background: var(--border-soft);
         color: var(--text);
         border-radius: 12px;
         padding: 10px 10px;
@@ -482,31 +499,23 @@
         background: rgba(37, 99, 235, 0.08);
       }
 
-      .segmented {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-        padding: 6px;
-        border-radius: 14px;
-        background: rgba(15, 23, 42, 0.03);
-        border: 1px solid rgba(15, 23, 42, 0.1);
-      }
       .segBtn {
         appearance: none;
-        border: 1px solid rgba(15, 23, 42, 0.12);
-        background: rgba(15, 23, 42, 0.03);
-        color: rgba(15, 23, 42, 0.86);
+        border: 1px solid var(--border);
+        background: var(--border-soft);
+        color: var(--muted);
         border-radius: 10px;
         padding: 8px 8px;
         font: inherit;
         cursor: pointer;
       }
       .segBtn[data-active="1"] {
-        background: rgba(37, 99, 235, 0.1);
-        border-color: rgba(37, 99, 235, 0.22);
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--accent);
       }
       .segBtn:hover {
-        background: rgba(15, 23, 42, 0.05);
+        background: var(--border);
       }
       .segBtn:disabled {
         opacity: 0.55;
@@ -514,9 +523,9 @@
       }
 
       .details {
-        border-radius: 14px;
-        background: rgba(15, 23, 42, 0.03);
-        border: 1px solid rgba(15, 23, 42, 0.1);
+        border-radius: var(--radius);
+        background: var(--border-soft);
+        border: 1px solid var(--border);
         overflow: hidden;
       }
       .details > summary {
@@ -525,7 +534,7 @@
         user-select: none;
         padding: 10px 10px;
         font-weight: 800;
-        color: rgba(15, 23, 42, 0.88);
+        color: var(--text);
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -544,16 +553,16 @@
         padding: 8px 10px 10px 10px;
         display: grid;
         gap: 10px;
-        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        border-top: 1px solid var(--border-soft);
       }
 
       .panelSection {
-        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        border-top: 1px solid var(--border-soft);
         padding-top: 8px;
       }
       .panelSectionTitle {
         font-weight: 700;
-        color: rgba(15, 23, 42, 0.84);
+        color: var(--text);
         margin-bottom: 6px;
       }
       .panelRow {
@@ -563,11 +572,11 @@
         align-items: center;
       }
       .panelRowLabel {
-        color: rgba(15, 23, 42, 0.78);
+        color: var(--muted);
       }
       .panelRowValue {
         text-align: right;
-        color: rgba(15, 23, 42, 0.62);
+        color: var(--muted2);
         font-variant-numeric: tabular-nums;
       }
       .panelRow input[type="range"] {
@@ -580,16 +589,16 @@
       }
       .panelBtn {
         appearance: none;
-        border: 1px solid rgba(15, 23, 42, 0.12);
-        background: rgba(15, 23, 42, 0.04);
-        color: rgba(15, 23, 42, 0.9);
+        border: 1px solid var(--border);
+        background: var(--border-soft);
+        color: var(--text);
         border-radius: 10px;
         padding: 7px 10px;
         font: inherit;
         cursor: pointer;
       }
       .panelBtn:hover {
-        background: rgba(15, 23, 42, 0.06);
+        background: var(--border);
       }
       .panelBtn:disabled {
         opacity: 0.55;
@@ -598,6 +607,9 @@
       .panelCheck {
         display: flex;
         align-items: center;
+        gap: 8px;
+        color: var(--muted);
+      }
         gap: 8px;
         color: rgba(15, 23, 42, 0.78);
       }
