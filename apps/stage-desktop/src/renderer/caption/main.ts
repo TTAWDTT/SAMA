@@ -20,7 +20,7 @@ if (hasApi) {
     caption.onCommand(cmd);
   });
 
-  // Keep bubble placement inside the *visible* part of the window (peek mode can be partially off-screen).
+  // Keep bubble placement inside the *visible* part of the window (it can be partially off-screen).
   if (typeof api.onPetWindowState === "function") {
     api.onPetWindowState((s: any) => {
       const bounds = s?.bounds;
@@ -51,16 +51,6 @@ if (hasApi) {
         caption.setViewport({ x: vx, y: vy, width: w, height: h });
       } else {
         caption.setViewport(null);
-      }
-
-      const mode = s?.displayMode?.mode;
-      const edge = s?.displayMode?.edge;
-      if (mode === "peek") {
-        // "peek" is a head-only mode; keep bubbles on the side of the head (not above it).
-        // The controller already prefers side placement by default.
-        caption.setPreferredPlacement(edge === "left" ? "right" : edge === "right" ? "left" : null);
-      } else {
-        caption.setPreferredPlacement(null);
       }
     });
   }

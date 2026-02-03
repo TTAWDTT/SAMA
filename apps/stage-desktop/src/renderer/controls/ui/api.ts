@@ -26,7 +26,7 @@ export type LlmConfig = {
 export type ManualActionPayload = {
   type: "MANUAL_ACTION";
   ts: number;
-  action: "IDLE" | "APPROACH" | "RETREAT" | "INVITE_CHAT";
+  action: "IDLE" | "INVITE_CHAT";
   expression?: "NEUTRAL" | "HAPPY" | "SAD" | "SHY" | "TIRED";
 };
 

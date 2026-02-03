@@ -838,7 +838,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     // vertical translation that looks like the avatar is floating while the user drags.
     // We therefore treat drag-moving as "not moving" for animation selection.
     //
-    // NOTE: Approach/retreat is still treated as movement and can trigger WALK.
+    // NOTE: Dragging does not trigger WALK by design.
     const movingForAnim = actionMoving;
     return { moving: movingForAnim, actionMoving, dragMoving };
   };
@@ -864,7 +864,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     if (vrm) {
       const now = nowMs;
 
-      // Movement detection: window moving (APPROACH/RETREAT) or user dragging -> switch to WALK.
+      // Movement detection: reserved for future window movement behaviors.
       locomotion = movement.moving ? "WALK" : "IDLE";
 
       const dragIntensity = movement.dragMoving ? Math.min(1, lastDragMag / 22) : 0;
@@ -1131,12 +1131,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
       hasWalk: !!vrmAnimationWalk,
       hasAction: !!vrmAnimationAction
     }),
-    notifyAction: (cmd) => {
-      if (cmd.action === "APPROACH" || cmd.action === "RETREAT") {
-        const ms = Math.max(100, Number(cmd.durationMs ?? 1500));
-        actionMoveUntil = safeNowMs() + ms;
-      }
-    },
+    notifyAction: (_cmd) => {},
     setDragging: (v) => {
       const next = Boolean(v);
       if (next === dragging) return;

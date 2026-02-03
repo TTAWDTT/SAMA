@@ -14,7 +14,7 @@ export const SensorUpdateSchema = z.object({
 export const ActionCommandSchema = z.object({
   type: z.literal("ACTION_COMMAND"),
   ts: z.number(),
-  action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"]),
+  action: z.enum(["IDLE", "INVITE_CHAT"]),
   expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED", "ANGRY", "SURPRISED", "THINKING", "CONFUSED", "EXCITED"]),
   bubbleKind: z.enum(["text", "thinking"]).optional(),
   bubble: z.string().nullable().optional(),
@@ -41,7 +41,7 @@ export const UserInteractionSchema = z.discriminatedUnion("event", [
     type: z.literal("USER_INTERACTION"),
     ts: z.number(),
     event: z.literal("IGNORED_ACTION"),
-    action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"])
+    action: z.enum(["IDLE", "INVITE_CHAT"])
   })
 ]);
 
@@ -83,6 +83,6 @@ export const ChatResponseSchema = z.object({
 export const ManualActionSchema = z.object({
   type: z.literal("MANUAL_ACTION"),
   ts: z.number(),
-  action: z.enum(["IDLE", "APPROACH", "RETREAT", "INVITE_CHAT"]),
+  action: z.enum(["IDLE", "INVITE_CHAT"]),
   expression: z.enum(["NEUTRAL", "HAPPY", "SAD", "SHY", "TIRED", "ANGRY", "SURPRISED", "THINKING", "CONFUSED", "EXCITED"]).optional()
 });

@@ -1,5 +1,5 @@
 import { MOTION_PRESET_CYCLE, MOTION_PRESETS, type MotionPresetId } from "@sama/shared";
-import type { ActionCommand, MotionPreset, PetDisplayModeConfig, PetStateMessage, PetWindowStateMessage } from "@sama/shared";
+import type { ActionCommand, MotionPreset, PetStateMessage } from "@sama/shared";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { StageDesktopApi } from "../api";
 import { pickFileViaFileInput } from "../lib/filePicker";
@@ -157,8 +157,6 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const [frameRadius, setFrameRadius] = useState(loadFrameRadius);
   const [frameColor, setFrameColor] = useState(loadFrameColor);
 
-  const [displayMode, setDisplayMode] = useState<PetDisplayModeConfig>({ mode: "normal" });
-
   const [slots, setSlots] = useState<SlotsState>({
     hasIdle: false,
     hasWalk: false,
@@ -248,15 +246,6 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
         hasAction: Boolean(next.hasAction),
         hasLastLoaded: Boolean(next.hasLastLoaded)
       });
-    });
-  }, [api]);
-
-  useEffect(() => {
-    if (!api || typeof api.onPetWindowState !== "function") return;
-    return api.onPetWindowState((s: PetWindowStateMessage) => {
-      if (s?.displayMode) {
-        setDisplayMode(s.displayMode);
-      }
     });
   }, [api]);
 
@@ -368,18 +357,6 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     };
   }, [api, presetCarousel]);
 
-  function toggleDisplayMode() {
-    const nextMode = displayMode.mode === "normal" ? "peek" : "normal";
-    setDisplayMode((prev) => ({ ...prev, mode: nextMode, ...(nextMode === "peek" ? { edge: "bottom" } : {}) }));
-    sendPetControl(api, {
-      type: "PET_CONTROL",
-      ts: Date.now(),
-      action: "SET_DISPLAY_MODE",
-      config: nextMode === "peek" ? { mode: "peek", edge: "bottom" } : { mode: "normal" }
-    } as any);
-    onToast(nextMode === "peek" ? "探出小脑袋模式" : "普通模式", { timeoutMs: 1600 });
-  }
-
   useEffect(() => {
     void refreshLibrary();
   }, []);
@@ -415,24 +392,6 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
 
       {/* 快捷操作区 */}
       <div className="card">
-        <div className="btnRow">
-          <button className="btn btnPrimary" type="button" onClick={() => doAction(buildCmd({ action: "APPROACH", durationMs: 1500 }))}>
-            靠近
-          </button>
-          <button className="btn" type="button" onClick={() => doAction(buildCmd({ action: "RETREAT", durationMs: 1500 }))}>
-            离远
-          </button>
-          <button
-            className={`btn ${displayMode.mode === "peek" ? "btnPrimary" : ""}`}
-            type="button"
-            onClick={toggleDisplayMode}
-          >
-            {displayMode.mode === "peek" ? "普通" : "探头"}
-          </button>
-        </div>
-
-        <div className="divider" />
-
         {/* 表情与动作 - 折叠展开按钮 */}
         <div className="expandBtnRow">
           <button

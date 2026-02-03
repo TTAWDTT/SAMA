@@ -30,11 +30,6 @@ type ProactiveSignal =
   | { kind: "CONTEXT_SOCIAL_FATIGUE"; ts: number; app: string }
   | { kind: "RANDOM_TIP"; ts: number };
 
-function pickApproachExpression(state: CompanionState, isNight: boolean): ActionCommand["expression"] {
-  if (state === "SOCIAL_CHECK_LOOP") return isNight ? "TIRED" : "SHY";
-  return isNight ? "TIRED" : "NEUTRAL";
-}
-
 function normalizeBubbleText(s: string) {
   return String(s ?? "")
     .replace(/\r\n/g, "\n")
@@ -606,12 +601,7 @@ export class CoreService {
       const cmd: ActionCommand = {
         type: "ACTION_COMMAND",
         ts,
-        action:
-          kind === "CONTEXT_FOCUS"
-            ? "RETREAT"
-            : kind === "CONTEXT_SOCIAL_FATIGUE"
-              ? "APPROACH"
-              : "IDLE",
+        action: "IDLE",
         expression:
           kind === "HEALTH_LATE_NIGHT"
             ? "TIRED"
@@ -901,40 +891,8 @@ export class CoreService {
   }
 
   async #decideProactive(u: SensorUpdate): Promise<ActionCommand | null> {
-    if (this.#ignoreStreak >= 2) {
-      return {
-        type: "ACTION_COMMAND",
-        ts: u.ts,
-        action: "RETREAT",
-        expression: "SAD",
-        bubble: null,
-        durationMs: 1500
-      };
-    }
-
-    if (this.#state === "FOCUS") {
-      return {
-        type: "ACTION_COMMAND",
-        ts: u.ts,
-        action: "RETREAT",
-        expression: "NEUTRAL",
-        bubble: null,
-        durationMs: 1500
-      };
-    }
-
-    if (this.#state === "FRAGMENTED") {
-      // low frequency: only occasionally (energy gating)
-      if (this.#energy < 0.25) return null;
-      return {
-        type: "ACTION_COMMAND",
-        ts: u.ts,
-        action: "APPROACH",
-        expression: pickApproachExpression(this.#state, u.isNight),
-        bubble: null,
-        durationMs: 1500
-      };
-    }
+    // If the user keeps ignoring proactive invites, stay quiet.
+    if (this.#ignoreStreak >= 2) return null;
 
     if (this.#state === "SOCIAL_CHECK_LOOP") {
       this.#inFlight = true;
@@ -947,8 +905,8 @@ export class CoreService {
         return {
           type: "ACTION_COMMAND",
           ts: u.ts,
-          action: "APPROACH",
-          expression: pickApproachExpression(this.#state, u.isNight),
+          action: "IDLE",
+          expression: u.isNight ? "TIRED" : "SHY",
           bubble,
           durationMs: 3000
         };
@@ -1010,23 +968,23 @@ export class CoreService {
     }
 
     if (i.event === "IGNORED_ACTION") {
-      if (i.action === "APPROACH" || i.action === "INVITE_CHAT") {
+      if (i.action === "INVITE_CHAT") {
         this.#ignoreStreak += 1;
         this.#security = clamp01(this.#security - 0.08);
         this.#mood = clamp01(this.#mood - 0.05);
         this.#memory.incrementIgnore(todayKey(i.ts));
 
         if (this.#ignoreStreak >= 2) {
-          const retreat: ActionCommand = {
+          const sad: ActionCommand = {
             type: "ACTION_COMMAND",
             ts: i.ts,
-            action: "RETREAT",
+            action: "IDLE",
             expression: "SAD",
             bubble: null,
-            durationMs: 1500
+            durationMs: 2000
           };
-          this.#memory.logAction(retreat);
-          this.#onAction(retreat, { proactive: false });
+          this.#memory.logAction(sad);
+          this.#onAction(sad, { proactive: false });
         }
       }
     }

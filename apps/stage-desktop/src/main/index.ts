@@ -14,7 +14,6 @@ import type {
   ManualActionMessage,
   PetControlMessage,
   PetControlResult,
-  PetDisplayModeConfig,
   PetFrameConfig,
   PetStateMessage,
   PetStatusMessage,
@@ -38,10 +37,6 @@ import { ShortcutsService } from "./services/shortcuts.service";
 import { TrayService } from "./services/tray.service";
 import { SkillService } from "./services/skill.service";
 import { ToolService } from "./services/tool.service";
-
-function easeInOutQuad(t: number) {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-}
 
 function resolvePreloadPath() {
   const tried: string[] = [];
@@ -442,31 +437,6 @@ function computeDefaultHome(petSize: { w: number; h: number }) {
   };
 }
 
-type Point = { x: number; y: number };
-
-function animateMove(
-  getCurrent: () => Point,
-  setPos: (p: Point) => void,
-  target: Point,
-  durationMs: number,
-  cancelSignal: { canceled: boolean }
-) {
-  const start = getCurrent();
-  const startTs = Date.now();
-
-  const tick = () => {
-    if (cancelSignal.canceled) return;
-    const t = Math.min(1, (Date.now() - startTs) / Math.max(1, durationMs));
-    const k = easeInOutQuad(t);
-    const x = Math.round(start.x + (target.x - start.x) * k);
-    const y = Math.round(start.y + (target.y - start.y) * k);
-    setPos({ x, y });
-    if (t < 1) setTimeout(tick, 16);
-  };
-
-  tick();
-}
-
 let vrmPath: string | null = process.env.VRM_PATH ?? null;
 let vrmLocked = false;
 
@@ -712,94 +682,6 @@ async function bootstrap() {
   const home = computeDefaultHome({ w: initialBounds.width, h: initialBounds.height });
   petWindow.setPosition(home.x, home.y);
   syncCaptionBoundsToPet();
-  // "homePosition" is the position RETREAT returns to. We keep separate homes per display mode
-  // so switching modes doesn't lose the user's placement.
-  let homePosition: Point = { ...home };
-  let normalHomePosition: Point = { ...home };
-  let peekHomePosition: Point = { ...home };
-
-  // Display mode state (normal vs peek)
-  // Note: "peek" is intended to be a "只露出脑袋" mode (dock to bottom edge).
-  let displayModeConfig: PetDisplayModeConfig = { mode: "normal", edge: "bottom", tiltDeg: 15 };
-  let lastDisplayMode: PetDisplayModeConfig["mode"] = displayModeConfig.mode;
-
-  const applyDisplayMode = () => {
-    if (petWindow.isDestroyed()) return;
-
-    try {
-      const [winW, winH] = petWindow.getSize();
-      const bNow = petWindow.getBounds();
-      const display = (() => {
-        try {
-          return screen.getDisplayMatching(bNow);
-        } catch {
-          return screen.getPrimaryDisplay();
-        }
-      })();
-      const wa = display.workArea;
-      const margin = 10;
-
-      const clampX = (x: number) => clamp(x, wa.x + margin, wa.x + wa.width - winW - margin);
-      const clampY = (y: number) => clamp(y, wa.y + margin, wa.y + wa.height - winH - margin);
-
-      // When entering peek mode, initialize the peek baseline from the current window position
-      // so the user keeps their vertical/horizontal placement.
-      if (displayModeConfig.mode !== lastDisplayMode) {
-        if (displayModeConfig.mode === "peek") {
-          const [cx, cy] = petWindow.getPosition();
-          peekHomePosition = { x: cx, y: cy };
-        }
-        lastDisplayMode = displayModeConfig.mode;
-      }
-
-      if (displayModeConfig.mode === "peek") {
-        // "探出小脑袋" mode: hug the bottom edge and only keep a small portion visible.
-        // We intentionally keep this as a simple, predictable behavior (no left/right peek),
-        // because the UX expectation is "stick to desktop bottom and show only head".
-        // Keep the visible area small so only the head is shown.
-        // Note: this is intentionally conservative because different VRMs/camera scales vary a lot.
-        // We'll later expose this as a user-tunable setting if needed.
-        const visibleH = clamp(Math.round(winH * 0.18), 80, 140);
-
-        const x = clampX(peekHomePosition.x);
-        const y = wa.y + wa.height - visibleH;
-
-        petWindow.setPosition(Math.round(x), Math.round(y));
-        syncCaptionBoundsToPet();
-        const [nx, ny] = petWindow.getPosition();
-        peekHomePosition = { x: nx, y: ny };
-        homePosition = { x: nx, y: ny };
-
-        // Peek-from-bottom doesn't need yaw. (If we add pitch/roll later, we can use it here.)
-        petWindow.webContents.send(IPC_CHANNELS.petControl, {
-          type: "PET_CONTROL",
-          ts: Date.now(),
-          action: "SET_MODEL_TRANSFORM",
-          transform: { yawDeg: 0 }
-        });
-      } else {
-        // Normal mode - restore last normal position and reset rotation.
-        const x = clampX(normalHomePosition.x);
-        const y = clampY(normalHomePosition.y);
-        petWindow.setPosition(Math.round(x), Math.round(y));
-        syncCaptionBoundsToPet();
-        const [nx, ny] = petWindow.getPosition();
-        normalHomePosition = { x: nx, y: ny };
-        homePosition = { ...normalHomePosition };
-
-        petWindow.webContents.send(IPC_CHANNELS.petControl, {
-          type: "PET_CONTROL",
-          ts: Date.now(),
-          action: "SET_MODEL_TRANSFORM",
-          transform: { yawDeg: 0 }
-        });
-      }
-
-      emitPetWindowState();
-    } catch (err) {
-      console.warn("[pet] applyDisplayMode failed:", err);
-    }
-  };
 
   let clickThroughEnabled = false;
   let chatWindow: import("electron").BrowserWindow | null = null;
@@ -943,42 +825,8 @@ async function bootstrap() {
     chatLog = memory.getRecentChatLogEntries(260);
   } catch {}
 
-  let moveCancel = { canceled: false };
-  const moveTo = (p: Point, durationMs: number) => {
-    moveCancel.canceled = true;
-    moveCancel = { canceled: false };
-    animateMove(
-      () => {
-        const [x, y] = petWindow.getPosition();
-        return { x, y };
-      },
-      (pos) => {
-        petWindow.setPosition(pos.x, pos.y);
-        try {
-          if (!captionWindow.isDestroyed()) captionWindow.setPosition(pos.x, pos.y);
-        } catch {}
-      },
-      p,
-      durationMs,
-      moveCancel
-    );
-  };
-
-  const computeApproachTarget = (): Point => {
-    const display = screen.getPrimaryDisplay();
-    const wa = display.workArea;
-    const center = { x: wa.x + wa.width / 2, y: wa.y + wa.height / 2 };
-    const dirX = center.x - homePosition.x;
-    const dirY = center.y - homePosition.y;
-    const len = Math.max(1, Math.hypot(dirX, dirY));
-    return {
-      x: Math.round(homePosition.x + (dirX / len) * 120),
-      y: Math.round(homePosition.y + (dirY / len) * 120)
-    };
-  };
-
   let pendingIgnoreTimer: NodeJS.Timeout | null = null;
-  let pendingIgnore: { action: "APPROACH" | "INVITE_CHAT"; cmdTs: number } | null = null;
+  let pendingIgnore: { action: "INVITE_CHAT"; cmdTs: number } | null = null;
 
   function disarmPendingIgnore() {
     if (pendingIgnoreTimer) clearTimeout(pendingIgnoreTimer);
@@ -986,7 +834,7 @@ async function bootstrap() {
     pendingIgnore = null;
   }
 
-  function armPendingIgnore(action: "APPROACH" | "INVITE_CHAT", cmdTs: number, durationMs: number) {
+  function armPendingIgnore(action: "INVITE_CHAT", cmdTs: number, durationMs: number) {
     pendingIgnore = { action, cmdTs };
     pendingIgnoreTimer = setTimeout(() => {
       const p = pendingIgnore;
@@ -1070,19 +918,13 @@ async function bootstrap() {
         console.log(`[core] action=${cmd.action} expr=${cmd.expression} bubble=${cmd.bubble ?? ""}`);
       }
 
-      // Ignore detection: if a proactive APPROACH/INVITE_CHAT gets no response within duration,
+      // Ignore detection: if a proactive INVITE_CHAT gets no response within duration,
       // emit IGNORED_ACTION back into the core.
-      if (meta.proactive && (cmd.action === "APPROACH" || cmd.action === "INVITE_CHAT")) {
+      if (meta.proactive && cmd.action === "INVITE_CHAT") {
         disarmPendingIgnore();
-        const base = cmd.action === "INVITE_CHAT" ? 60_000 : 20_000;
-        const ignoreMs = Math.max(base, Math.floor(Number(cmd.durationMs) || 0));
-        armPendingIgnore(cmd.action, cmd.ts, ignoreMs);
-      } else if (cmd.action === "RETREAT") {
-        disarmPendingIgnore();
+        const ignoreMs = Math.max(60_000, Math.floor(Number(cmd.durationMs) || 0));
+        armPendingIgnore("INVITE_CHAT", cmd.ts, ignoreMs);
       }
-
-      if (cmd.action === "APPROACH") moveTo(computeApproachTarget(), cmd.durationMs || 1500);
-      if (cmd.action === "RETREAT") moveTo(homePosition, cmd.durationMs || 1500);
     },
     onProactiveChat: ({ ts, content }) => {
       const text = String(content ?? "").trim();
@@ -1178,7 +1020,6 @@ async function bootstrap() {
       type: "PET_WINDOW_STATE",
       ts: Date.now(),
       size: { width: b.width, height: b.height },
-      displayMode: displayModeConfig,
       bounds: { x: b.x, y: b.y, width: b.width, height: b.height },
       workArea: { x: wa.x, y: wa.y, width: wa.width, height: wa.height }
     };
@@ -1502,27 +1343,6 @@ async function bootstrap() {
       return;
     }
 
-    // Handle display mode change
-    if (payload && payload.type === "PET_CONTROL" && payload.action === "SET_DISPLAY_MODE") {
-      try {
-        const cfg: any = (payload as any).config ?? {};
-        if (cfg.mode === "normal" || cfg.mode === "peek") displayModeConfig.mode = cfg.mode;
-
-        // Current UX: "peek" = bottom-edge head peek. Force bottom edge to avoid confusing behavior.
-        if (displayModeConfig.mode === "peek") {
-          displayModeConfig.edge = "bottom";
-        } else if (cfg.edge) {
-          displayModeConfig.edge = cfg.edge;
-        }
-
-        if (typeof cfg.tiltDeg === "number") displayModeConfig.tiltDeg = cfg.tiltDeg;
-        applyDisplayMode();
-      } catch (err) {
-        console.warn("[pet-window] SET_DISPLAY_MODE failed:", err);
-      }
-      return;
-    }
-
     // TTS speak: normalize text + apply current config (so the Controls window doesn't need to fetch settings).
     if (payload && payload.type === "PET_CONTROL" && payload.action === "SPEAK_TEXT") {
       try {
@@ -1596,15 +1416,12 @@ async function bootstrap() {
       action: parsed.data.action,
       expression: parsed.data.expression ?? "NEUTRAL",
       bubble: null,
-      durationMs: parsed.data.action === "APPROACH" || parsed.data.action === "RETREAT" ? 1500 : 1200
+      durationMs: 1200
     };
 
     // Mirror the core dispatch behavior so the pet moves and the caption can react.
     petWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
     captionWindow.webContents.send(IPC_CHANNELS.actionCommand, cmd);
-
-    if (cmd.action === "APPROACH") moveTo(computeApproachTarget(), cmd.durationMs || 1500);
-    if (cmd.action === "RETREAT") moveTo(homePosition, cmd.durationMs || 1500);
   });
 
   ipcMain.on(IPC_CHANNELS.userInteraction, (_evt, payload: UserInteraction) => {
@@ -1625,13 +1442,6 @@ async function bootstrap() {
       const [x, y] = petWindow.getPosition();
       const nextX = Math.round(x + dx);
       const nextY = Math.round(y + dy);
-
-      // In peek mode, keep the pet docked to the bottom edge; dragging only moves along X.
-      if (displayModeConfig.mode === "peek") {
-        peekHomePosition = { ...peekHomePosition, x: nextX };
-        applyDisplayMode();
-        return;
-      }
 
       // Clamp to the current display workArea to avoid errors when dragging to/beyond the screen boundary.
       try {
@@ -1654,9 +1464,6 @@ async function bootstrap() {
         console.warn("[pet] dragDelta setPosition failed:", err);
         return;
       }
-      const [nx, ny] = petWindow.getPosition();
-      normalHomePosition = { x: nx, y: ny };
-      homePosition = { x: nx, y: ny };
       emitPetWindowState();
     } catch (err) {
       console.warn("[pet] dragDelta failed:", err);
