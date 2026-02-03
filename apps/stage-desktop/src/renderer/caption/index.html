@@ -13,6 +13,15 @@
         background: transparent;
         overflow: hidden;
       }
+      :root {
+        --bubble-bg: rgba(255, 255, 255, 0.86);
+        --bubble-bg2: rgba(255, 245, 250, 0.82);
+        --bubble-border: rgba(15, 23, 42, 0.12);
+        --bubble-highlight: rgba(255, 255, 255, 0.75);
+        --bubble-text: rgba(15, 23, 42, 0.9);
+        --bubble-shadow: 0 22px 72px rgba(15, 23, 42, 0.22), 0 10px 26px rgba(15, 23, 42, 0.12);
+        --accent: rgba(236, 72, 153, 0.28);
+      }
       #wrap {
         width: 100%;
         height: 100%;
@@ -25,20 +34,31 @@
         top: 0;
         max-width: min(360px, calc(100vw - 40px));
         padding: 10px 12px;
-        border-radius: 16px;
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(15, 23, 42, 0.14);
-        color: rgba(15, 23, 42, 0.92);
-        font: 14px/1.4 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
+        border-radius: 18px;
+        background: linear-gradient(180deg, var(--bubble-bg), var(--bubble-bg2));
+        border: 1px solid var(--bubble-border);
+        color: var(--bubble-text);
+        font: 14px/1.45 "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", ui-sans-serif, system-ui,
           -apple-system, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
         letter-spacing: 0.15px;
         white-space: pre-wrap;
         word-break: break-word;
-        box-shadow: 0 14px 44px rgba(15, 23, 42, 0.18);
+        box-shadow: var(--bubble-shadow);
+        backdrop-filter: blur(14px) saturate(1.15);
+        -webkit-backdrop-filter: blur(14px) saturate(1.15);
         opacity: 0;
         transform: translate3d(var(--bx, 50%), var(--by, 22%), 0) translate(-50%, -100%) translateY(10px)
           scale(0.985);
-        transition: opacity 160ms ease, transform 160ms ease;
+        transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.9, 0.2, 1);
+      }
+      #bubble::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 18px;
+        border: 1px solid var(--bubble-highlight);
+        opacity: 0.6;
+        pointer-events: none;
       }
       #bubble::after {
         content: "";
@@ -46,9 +66,9 @@
         left: 50%;
         width: 12px;
         height: 12px;
-        background: rgba(255, 255, 255, 0.92);
-        border-right: 1px solid rgba(15, 23, 42, 0.14);
-        border-bottom: 1px solid rgba(15, 23, 42, 0.14);
+        background: linear-gradient(180deg, var(--bubble-bg), var(--bubble-bg2));
+        border-right: 1px solid var(--bubble-border);
+        border-bottom: 1px solid var(--bubble-border);
         transform: translateX(-50%) rotate(45deg);
         bottom: -7px;
         opacity: 0.95;
@@ -101,15 +121,17 @@
         top: 0;
         padding: 8px 10px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.92);
-        border: 1px solid rgba(15, 23, 42, 0.14);
-        box-shadow: 0 14px 44px rgba(15, 23, 42, 0.18);
+        background: linear-gradient(180deg, var(--bubble-bg), var(--bubble-bg2));
+        border: 1px solid var(--bubble-border);
+        box-shadow: var(--bubble-shadow);
+        backdrop-filter: blur(14px) saturate(1.15);
+        -webkit-backdrop-filter: blur(14px) saturate(1.15);
         display: inline-flex;
         align-items: center;
         gap: 6px;
         opacity: 0;
         transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-50%, -100%) translateY(10px) scale(0.985);
-        transition: opacity 160ms ease, transform 160ms ease;
+        transition: opacity 170ms ease, transform 190ms cubic-bezier(0.2, 0.9, 0.2, 1);
       }
       #thinking[data-placement="bottom"] {
         transform: translate3d(var(--tx, 50%), var(--ty, 22%), 0) translate(-50%, 0) translateY(-10px) scale(0.985);
@@ -140,7 +162,7 @@
         width: 6px;
         height: 6px;
         border-radius: 999px;
-        background: rgba(37, 99, 235, 0.55);
+        background: linear-gradient(180deg, rgba(99, 102, 241, 0.65), rgba(236, 72, 153, 0.65));
         opacity: 0.5;
         transform: translateY(0px);
         animation: dotBounce 900ms ease-in-out infinite;
