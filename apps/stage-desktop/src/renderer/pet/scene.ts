@@ -737,7 +737,7 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     if (headNode && typeof headNode.getWorldPosition === "function") {
       headNode.getWorldPosition(tmpBubbleWorld);
       // Nudge slightly upward so the bubble sits above the head, not on the forehead.
-      tmpBubbleWorld.y += 0.08;
+      tmpBubbleWorld.y += 0.14;
     } else {
       tmpBubbleWorld.copy(viewTarget);
       tmpBubbleWorld.y += 0.2;
