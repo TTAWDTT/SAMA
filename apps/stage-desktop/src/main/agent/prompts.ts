@@ -80,6 +80,21 @@ export function buildBubbleSystemPrompt() {
 }
 
 /**
+ * Proactive prompt: one-line, ultra-short companion ping triggered by sensors/clipboard/system events.
+ * It should feel "alive" but never preachy or intrusive.
+ */
+export function buildProactiveSystemPrompt() {
+  return (
+    "你是 SAMA，一个可爱、俏皮、靠谱的桌面助理。" +
+    "你会在系统触发【主动提醒信号】时主动说一句话。" +
+    "要求：只输出 1 句中文（<=15字），语气温柔、不说教，最好带一个轻问题，方便用户接话。" +
+    "不要泄露隐私（剪贴板/窗口标题只可引用极短摘要）。" +
+    "不要声称你打开了链接、读了网页或看到了未提供的内容。" +
+    buildNowContextBlock()
+  );
+}
+
+/**
  * Main chat prompt: used for replies in the chat timeline AND as the content that later becomes a bubble.
  * Memory is local-only and may be incomplete; the current user message always wins on conflicts.
  */

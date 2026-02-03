@@ -1,5 +1,5 @@
 import type { LLMConfig, LLMProviderName } from "../protocol/types";
-import { buildBubbleSystemPrompt, buildChatSystemPrompt } from "../agent/prompts";
+import { buildBubbleSystemPrompt, buildChatSystemPrompt, buildProactiveSystemPrompt } from "../agent/prompts";
 import { net } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -19,6 +19,7 @@ export type ChatUserInput =
 export interface LLMProvider {
   name: string;
   generateBubble(ctx: { state: string; isNight: boolean; mood: number }): Promise<string>;
+  generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number): Promise<string>;
   chatReply(
     ctx: {
       state: string;
@@ -812,6 +813,28 @@ class OpenAICompatibleProvider implements LLMProvider {
     return truncateByCodepoints(sanitizeOneLine(raw), 20);
   }
 
+  async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number) {
+    const system = buildProactiveSystemPrompt();
+    const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
+    const maxOutputTokens = Math.min(256, getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 256);
+
+    const raw = await openAICompatibleChat(
+      this.#opts,
+      [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: String(prompt ?? "")
+        }
+      ],
+      Math.max(32, Math.min(256, maxOutputTokens)),
+      12_000,
+      0.8
+    );
+
+    return truncateByCodepoints(sanitizeOneLine(raw), max);
+  }
+
   async chatReply(
     ctx: {
       state: string;
@@ -1079,6 +1102,35 @@ class AIStudioProvider implements LLMProvider {
         });
 
     return truncateByCodepoints(sanitizeOneLine(raw), 20);
+  }
+
+  async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number) {
+    const system = buildProactiveSystemPrompt();
+    const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
+    const maxOutputTokens = Math.min(256, getModelLimitFromApis(this.name, this.#model)?.output ?? 256);
+
+    const raw = this.#baseUrl
+      ? await openAICompatibleChat(
+          { name: this.name, baseUrl: this.#baseUrl, apiKey: this.#apiKey, model: this.#model },
+          [
+            { role: "system", content: system },
+            { role: "user", content: String(prompt ?? "") }
+          ],
+          Math.max(32, Math.min(256, maxOutputTokens)),
+          12_000,
+          0.8
+        )
+      : await geminiGenerateText({
+          apiKey: this.#apiKey,
+          model: this.#model,
+          systemInstruction: system,
+          contents: [{ role: "user", parts: [{ text: String(prompt ?? "") }] }],
+          maxOutputTokens: Math.max(32, Math.min(256, maxOutputTokens)),
+          timeoutMs: 12_000,
+          temperature: 0.8
+        });
+
+    return truncateByCodepoints(sanitizeOneLine(raw), max);
   }
 
   async chatReply(
@@ -1508,6 +1560,20 @@ export class LLMService {
       return bubble;
     } catch (err) {
       console.warn("[llm] bubble fallback:", err);
+      return fallback();
+    }
+  }
+
+  async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number = 15) {
+    const fallback = () => "";
+    if (!this.#provider) return fallback();
+    try {
+      const raw = await this.#provider.generateProactive(ctx, prompt, maxChars);
+      const one = sanitizeOneLine(String(raw ?? ""));
+      if (!one) return fallback();
+      return truncateByCodepoints(one, Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15))));
+    } catch (err) {
+      console.warn("[llm] proactive fallback:", err);
       return fallback();
     }
   }

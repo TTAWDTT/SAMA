@@ -19,6 +19,17 @@ function todayKey(ts: number) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+type ProactiveSignal =
+  | { kind: "CLIPBOARD_TIME"; ts: number; excerpt: string }
+  | { kind: "CLIPBOARD_LINK"; ts: number; url: string; site?: string }
+  | { kind: "HEALTH_LONG_SESSION"; ts: number; minutes: number }
+  | { kind: "HEALTH_LATE_NIGHT"; ts: number; localTime: string }
+  | { kind: "SYSTEM_BATTERY"; ts: number; percent: number; charging: boolean; threshold: 50 | 20 }
+  | { kind: "CONTEXT_FOCUS"; ts: number; app: string }
+  | { kind: "CONTEXT_ENTERTAINMENT"; ts: number; app: string }
+  | { kind: "CONTEXT_SOCIAL_FATIGUE"; ts: number; app: string }
+  | { kind: "RANDOM_TIP"; ts: number };
+
 function pickApproachExpression(state: CompanionState, isNight: boolean): ActionCommand["expression"] {
   if (state === "SOCIAL_CHECK_LOOP") return isNight ? "TIRED" : "SHY";
   return isNight ? "TIRED" : "NEUTRAL";
@@ -70,6 +81,86 @@ function bubbleDurationForText(text: string) {
   const n = Array.from(text).length;
   // 3.2s base + per-char time, clamped to a reasonable range.
   return Math.max(3200, Math.min(12_000, 3200 + n * 55));
+}
+
+function formatLocalHm(ts: number) {
+  try {
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  } catch {
+    return "";
+  }
+}
+
+function isLateNight(ts: number) {
+  try {
+    const d = new Date(ts);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    return h > 23 || (h === 23 && m >= 30) || h < 6;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeAppName(raw: string) {
+  const s = String(raw ?? "").trim();
+  return s || "Unknown.exe";
+}
+
+function classifyContext(appRaw: string, titleRaw?: string): "focus" | "entertainment" | "social" | "other" {
+  const app = normalizeAppName(appRaw).toLowerCase();
+  const title = String(titleRaw ?? "").toLowerCase();
+
+  const focusApps = new Set([
+    "code.exe",
+    "cursor.exe",
+    "vscode.exe",
+    "devenv.exe",
+    "idea64.exe",
+    "pycharm64.exe",
+    "webstorm64.exe",
+    "clion64.exe",
+    "goland64.exe",
+    "rustrover64.exe",
+    "notion.exe",
+    "obsidian.exe",
+    "typora.exe",
+    "notepad.exe",
+    "notepad++.exe",
+    "winword.exe",
+    "excel.exe",
+    "powerpnt.exe",
+    "outlook.exe",
+    "thunderbird.exe"
+  ]);
+
+  const entertainmentApps = new Set([
+    "spotify.exe",
+    "qqmusic.exe",
+    "cloudmusic.exe",
+    "neteasemusic.exe",
+    "potplayermini64.exe",
+    "potplayermini.exe",
+    "vlc.exe",
+    "mpv.exe"
+  ]);
+
+  if (focusApps.has(app)) return "focus";
+  if (entertainmentApps.has(app)) return "entertainment";
+
+  // Browser heuristics via title keywords (best-effort, avoid leaking the full title to the LLM).
+  const isBrowser = app === "chrome.exe" || app === "msedge.exe" || app === "firefox.exe" || app === "brave.exe";
+  if (isBrowser) {
+    if (title.includes("bilibili") || title.includes("哔哩") || title.includes("b站") || title.includes("youtube")) return "entertainment";
+    if (title.includes("微博") || title.includes("weibo") || title.includes("小红书") || title.includes("xhs") || title.includes("twitter") || title.includes("x.com")) return "social";
+    if (title.includes("notion") || title.includes("docs") || title.includes("gmail") || title.includes("outlook")) return "focus";
+  }
+
+  // Fallback: treat configured social apps elsewhere as "social" via SensorUpdate.socialHits3m/state.
+  return "other";
 }
 
 /**
@@ -267,6 +358,8 @@ export class CoreService {
   #lastSensor: SensorUpdate | null = null;
   #activeAppSinceTs = 0;
   #activeAppName = "";
+  #activeContextSinceTs = 0;
+  #activeContext: "focus" | "entertainment" | "social" | "other" = "other";
 
   #affection = 0.4;
   #security = 0.5;
@@ -277,6 +370,18 @@ export class CoreService {
   #ignoreStreak = 0;
   #lastProactiveTs = 0;
   #inFlight = false;
+  #proactiveLastByKind = new Map<ProactiveSignal["kind"], number>();
+  #proactiveOncePerDay = new Set<string>();
+
+  // Session tracking (for "long session" reminders)
+  #sessionStartTs: number | null = null;
+  #sessionReminded = false;
+
+  // Late-night reminder tracking
+  #lateNightLastTs = 0;
+
+  // Random tip: roll once per day (per app session)
+  #randomTipRolledDay = "";
 
   #chatHistory: { role: "user" | "assistant"; content: string }[] = [];
   #summaryInFlight = false;
@@ -370,6 +475,162 @@ export class CoreService {
     try {
       this.#onProactiveChat?.({ ts: ts || Date.now(), content });
     } catch {}
+  }
+
+  #canFire(kind: ProactiveSignal["kind"], ts: number, opts: { cdMs: number; oncePerDay?: boolean }) {
+    const cdMs = Math.max(0, Math.floor(Number(opts.cdMs) || 0));
+    const last = this.#proactiveLastByKind.get(kind) ?? 0;
+    if (cdMs > 0 && last && ts - last < cdMs) return false;
+
+    if (opts.oncePerDay) {
+      const key = `${todayKey(ts)}|${kind}`;
+      if (this.#proactiveOncePerDay.has(key)) return false;
+    }
+
+    return true;
+  }
+
+  #markFired(kind: ProactiveSignal["kind"], ts: number, opts: { oncePerDay?: boolean }) {
+    this.#proactiveLastByKind.set(kind, ts);
+    if (opts.oncePerDay) this.#proactiveOncePerDay.add(`${todayKey(ts)}|${kind}`);
+  }
+
+  async #renderProactiveText(signal: ProactiveSignal) {
+    const now = Math.max(1, Math.floor(Number(signal.ts) || Date.now()));
+
+    const base =
+      "【主动提醒信号】\n" +
+      `- 时间：${formatLocalHm(now) || "(unknown)"}\n`;
+
+    const detail = (() => {
+      if (signal.kind === "CLIPBOARD_TIME") return `- 类型：剪贴板（时间/日程）\n- 内容：${String(signal.excerpt ?? "").trim()}`;
+      if (signal.kind === "CLIPBOARD_LINK")
+        return `- 类型：剪贴板（链接）\n- 链接：${String(signal.url ?? "").trim()}\n- 平台：${String(signal.site ?? "unknown")}`;
+      if (signal.kind === "HEALTH_LONG_SESSION") return `- 类型：健康（久坐/护眼）\n- 连续操作：${Math.max(1, Math.floor(signal.minutes || 0))} 分钟`;
+      if (signal.kind === "HEALTH_LATE_NIGHT") return `- 类型：健康（深夜作息）\n- 现在：${signal.localTime || formatLocalHm(now)}`;
+      if (signal.kind === "SYSTEM_BATTERY")
+        return `- 类型：系统（电量提醒）\n- 电量：${Math.max(0, Math.min(100, Math.floor(signal.percent || 0)))}%\n- 充电：${
+          signal.charging ? "是" : "否"
+        }\n- 阈值：${signal.threshold}%`;
+      if (signal.kind === "CONTEXT_FOCUS") return `- 类型：上下文（专注）\n- 应用：${signal.app}`;
+      if (signal.kind === "CONTEXT_ENTERTAINMENT") return `- 类型：上下文（娱乐）\n- 应用：${signal.app}`;
+      if (signal.kind === "CONTEXT_SOCIAL_FATIGUE") return `- 类型：上下文（社交疲劳）\n- 应用：${signal.app}`;
+      return "- 类型：随机灵感";
+    })();
+
+    const prompt =
+      base +
+      detail +
+      "\n\n" +
+      "请用一句中文（≤15字）温柔俏皮地说出来，最好带一个轻问题；不要说教；不要泄露隐私；不要声称你打开了链接或看到了具体内容。\n" +
+      "只输出这一句。";
+
+    // Prefer LLM for style; fallback to a small rule set.
+    if (this.#llm.enabled) {
+      const text = await this.#llm.generateProactive(
+        { state: this.#state, isNight: this.isNight || isLateNight(now), mood: this.#mood },
+        prompt,
+        15
+      );
+      if (String(text ?? "").trim()) return String(text).trim();
+    }
+
+    // Fallback (offline)
+    if (signal.kind === "CLIPBOARD_TIME") return "要我帮你记个提醒吗？";
+    if (signal.kind === "CLIPBOARD_LINK") return "要我帮你先收着吗？";
+    if (signal.kind === "HEALTH_LONG_SESSION") return "起来喝口水，好嘛？";
+    if (signal.kind === "HEALTH_LATE_NIGHT") return "这么晚啦，要歇会吗？";
+    if (signal.kind === "SYSTEM_BATTERY") return signal.threshold === 20 ? "电量有点危险啦…" : "电量到50了，要插电吗？";
+    if (signal.kind === "CONTEXT_FOCUS") return "我先不吵你，加油！";
+    if (signal.kind === "CONTEXT_ENTERTAINMENT") return "在看啥呀，安利我？";
+    if (signal.kind === "CONTEXT_SOCIAL_FATIGUE") return "要不要缓一缓呀？";
+    return "我在这儿陪你哦。";
+  }
+
+  async #fireProactive(signal: ProactiveSignal, cmd: ActionCommand, mark: { oncePerDay?: boolean } = {}) {
+    const ts = Math.max(1, Math.floor(Number(signal.ts) || Date.now()));
+
+    // Global cooldown marker (for low-priority chatter). Health reminders bypass `#canProactive` but still
+    // should prevent rapid-fire multi-trigger spam.
+    this.#lastProactiveTs = ts;
+    try {
+      this.#memory.incrementProactive(todayKey(ts));
+    } catch {}
+
+    try {
+      this.#memory.logAction(cmd);
+    } catch {}
+
+    this.#onAction(cmd, { proactive: true });
+    if (cmd.bubble) this.#emitProactiveChat(cmd.bubble, ts);
+
+    // Mark as fired.
+    this.#markFired(signal.kind, ts, mark);
+  }
+
+  async handleProactiveSignal(signal: ProactiveSignal): Promise<boolean> {
+    const ts = Math.max(1, Math.floor(Number(signal?.ts) || Date.now()));
+    const kind = signal?.kind;
+    if (!kind) return false;
+
+    if (this.#inFlight) return false;
+
+    // Hard safety: avoid back-to-back spam when many signals arrive at once.
+    if (this.#lastProactiveTs && ts - this.#lastProactiveTs < 1200) return false;
+
+    // Decide gating per kind.
+    const gate = (() => {
+      if (kind === "HEALTH_LONG_SESSION") return { cdMs: 2 * 60 * 60_000, oncePerDay: false };
+      if (kind === "HEALTH_LATE_NIGHT") return { cdMs: 2 * 60 * 60_000, oncePerDay: false };
+      if (kind === "SYSTEM_BATTERY") return { cdMs: kind === "SYSTEM_BATTERY" && (signal as any).threshold === 20 ? 20 * 60_000 : 45 * 60_000, oncePerDay: false };
+      if (kind === "CLIPBOARD_TIME") return { cdMs: 2 * 60_000, oncePerDay: false };
+      if (kind === "CLIPBOARD_LINK") return { cdMs: 2 * 60_000, oncePerDay: false };
+      if (kind === "CONTEXT_FOCUS") return { cdMs: 15 * 60_000, oncePerDay: false };
+      if (kind === "CONTEXT_ENTERTAINMENT") return { cdMs: 20 * 60_000, oncePerDay: false };
+      if (kind === "CONTEXT_SOCIAL_FATIGUE") return { cdMs: 12 * 60_000, oncePerDay: false };
+      return { cdMs: 4 * 60 * 60_000, oncePerDay: true };
+    })();
+
+    // Health reminders are high-priority: don't block on the standard proactive throttle.
+    const isHealth = kind === "HEALTH_LONG_SESSION" || kind === "HEALTH_LATE_NIGHT" || kind === "SYSTEM_BATTERY";
+    if (!isHealth) {
+      if (!this.#canProactive(ts)) return false;
+    }
+
+    if (!this.#canFire(kind, ts, gate)) return false;
+
+    const prevInFlight = this.#inFlight;
+    this.#inFlight = true;
+    try {
+      const bubble = await this.#renderProactiveText(signal);
+      const cmd: ActionCommand = {
+        type: "ACTION_COMMAND",
+        ts,
+        action:
+          kind === "CONTEXT_FOCUS"
+            ? "RETREAT"
+            : kind === "CONTEXT_SOCIAL_FATIGUE"
+              ? "APPROACH"
+              : "IDLE",
+        expression:
+          kind === "HEALTH_LATE_NIGHT"
+            ? "TIRED"
+            : kind === "SYSTEM_BATTERY"
+              ? "THINKING"
+              : kind === "CONTEXT_ENTERTAINMENT"
+                ? "EXCITED"
+                : kind === "CONTEXT_FOCUS"
+                  ? "NEUTRAL"
+                  : "SHY",
+        bubble,
+        durationMs: bubbleDurationForText(bubble)
+      };
+
+      await this.#fireProactive(signal, cmd, { oncePerDay: gate.oncePerDay });
+      return true;
+    } finally {
+      this.#inFlight = prevInFlight;
+    }
   }
 
   async #maybeUpdateConversationSummary() {
@@ -561,8 +822,70 @@ export class CoreService {
       );
     }
 
-    // Proactive decision (throttled)
     const now = u.ts;
+
+    // Context tracking (best-effort, mostly via app name; avoid leaking titles).
+    const nextCtx = classifyContext(u.activeApp, u.activeTitle);
+    if (nextCtx !== this.#activeContext) {
+      this.#activeContext = nextCtx;
+      this.#activeContextSinceTs = now;
+    }
+
+    // Session tracking: reset after a "real break", start when user becomes active.
+    const idleSec = Math.max(0, Math.floor(Number(u.idleSec) || 0));
+    if (idleSec >= 300) {
+      this.#sessionStartTs = null;
+      this.#sessionReminded = false;
+    } else if (this.#sessionStartTs === null && idleSec < 30) {
+      this.#sessionStartTs = now;
+      this.#sessionReminded = false;
+    }
+
+    // 1) Health: long session (> 60min) + user still active.
+    if (this.#sessionStartTs !== null && !this.#sessionReminded && idleSec < 60) {
+      const sessionMs = Math.max(0, now - this.#sessionStartTs);
+      if (sessionMs >= 60 * 60_000) {
+        const minutes = Math.max(60, Math.floor(sessionMs / 60_000));
+        const ok = await this.handleProactiveSignal({ kind: "HEALTH_LONG_SESSION", ts: now, minutes });
+        if (ok) this.#sessionReminded = true;
+      }
+    }
+
+    // 2) Health: late night (>23:30 or <06:00) + user still active (frequent ops).
+    if (isLateNight(now) && idleSec < 60 && Math.max(0, Math.floor(Number(u.switchRate2m) || 0)) >= 2) {
+      await this.handleProactiveSignal({ kind: "HEALTH_LATE_NIGHT", ts: now, localTime: formatLocalHm(now) });
+    }
+
+    // 3) Process observation / context cues (low frequency, best-effort).
+    if (this.#activeContext === "focus" && this.#state === "FOCUS" && idleSec < 60) {
+      const inCtxMs = Math.max(0, now - this.#activeContextSinceTs);
+      if (inCtxMs >= 3 * 60_000) {
+        await this.handleProactiveSignal({ kind: "CONTEXT_FOCUS", ts: now, app: normalizeAppName(u.activeApp) });
+      }
+    }
+
+    if (this.#activeContext === "entertainment" && idleSec < 120) {
+      const inCtxMs = Math.max(0, now - this.#activeContextSinceTs);
+      if (inCtxMs >= 45_000) {
+        await this.handleProactiveSignal({ kind: "CONTEXT_ENTERTAINMENT", ts: now, app: normalizeAppName(u.activeApp) });
+      }
+    }
+
+    if (this.#state === "SOCIAL_CHECK_LOOP" && idleSec < 90) {
+      // Only hint when the "social loop" pattern is detected, so it's less likely to be a false positive.
+      await this.handleProactiveSignal({ kind: "CONTEXT_SOCIAL_FATIGUE", ts: now, app: normalizeAppName(u.activeApp) });
+    }
+
+    // 4) Random tiny chance per day (very low priority).
+    const day = todayKey(now);
+    if (this.#randomTipRolledDay !== day && this.#state === "IDLE" && idleSec < 60) {
+      this.#randomTipRolledDay = day;
+      if (Math.random() < 0.01) {
+        await this.handleProactiveSignal({ kind: "RANDOM_TIP", ts: now });
+      }
+    }
+
+    // Proactive decision (throttled): movement/bubble behaviors.
     if (!this.#canProactive(now)) return;
     if (this.#inFlight) return;
 

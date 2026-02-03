@@ -32,6 +32,8 @@ import { CoreService } from "./services/core.service";
 import { LLMService } from "./services/llm.service";
 import { MemoryService } from "./services/memory.service";
 import { SensingService } from "./services/sensing.service";
+import { ClipboardMonitorService } from "./services/clipboard-monitor.service";
+import { BatteryMonitorService } from "./services/battery-monitor.service";
 import { ShortcutsService } from "./services/shortcuts.service";
 import { TrayService } from "./services/tray.service";
 import { SkillService } from "./services/skill.service";
@@ -1079,6 +1081,17 @@ async function bootstrap() {
   });
   core.setAssistantConfig(mergeLlmConfig(baseLlmConfig, persistedLlmConfig));
 
+  const clipboardMonitor = new ClipboardMonitorService({
+    enabled: true,
+    onSignal: (sig) => void core?.handleProactiveSignal(sig as any)
+  });
+  clipboardMonitor.start();
+
+  const batteryMonitor = new BatteryMonitorService({
+    onSignal: (sig) => void core?.handleProactiveSignal(sig as any)
+  });
+  batteryMonitor.start();
+
   const sensing = new SensingService({
     configPath,
     onUpdate: (u) => void core.handleSensorUpdate(u)
@@ -1758,6 +1771,8 @@ async function bootstrap() {
     shortcuts.dispose();
     tray.dispose();
     sensing.dispose();
+    clipboardMonitor.dispose();
+    batteryMonitor.dispose();
   });
 
   setClickThrough(false);
