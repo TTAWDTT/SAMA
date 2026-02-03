@@ -22,6 +22,13 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, "src/renderer"),
     base: "./",
+    resolve: {
+      // Use workspace source for renderer builds so Vite doesn't load the CJS `dist/` entry.
+      // (CJS files served as ESM cause "does not provide an export named ..." and a blank screen.)
+      alias: {
+        "@sama/shared": resolve(__dirname, "../../packages/shared/src/index.ts")
+      }
+    },
     plugins: [react()],
     build: {
       rollupOptions: {
