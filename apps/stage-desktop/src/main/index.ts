@@ -708,73 +708,77 @@ async function bootstrap() {
   const applyDisplayMode = () => {
     if (petWindow.isDestroyed()) return;
 
-    const [winW, winH] = petWindow.getSize();
-    const bNow = petWindow.getBounds();
-    const display = (() => {
-      try {
-        return screen.getDisplayMatching(bNow);
-      } catch {
-        return screen.getPrimaryDisplay();
+    try {
+      const [winW, winH] = petWindow.getSize();
+      const bNow = petWindow.getBounds();
+      const display = (() => {
+        try {
+          return screen.getDisplayMatching(bNow);
+        } catch {
+          return screen.getPrimaryDisplay();
+        }
+      })();
+      const wa = display.workArea;
+      const margin = 10;
+
+      const clampX = (x: number) => clamp(x, wa.x + margin, wa.x + wa.width - winW - margin);
+      const clampY = (y: number) => clamp(y, wa.y + margin, wa.y + wa.height - winH - margin);
+
+      // When entering peek mode, initialize the peek baseline from the current window position
+      // so the user keeps their vertical/horizontal placement.
+      if (displayModeConfig.mode !== lastDisplayMode) {
+        if (displayModeConfig.mode === "peek") {
+          const [cx, cy] = petWindow.getPosition();
+          peekHomePosition = { x: cx, y: cy };
+        }
+        lastDisplayMode = displayModeConfig.mode;
       }
-    })();
-    const wa = display.workArea;
-    const margin = 10;
 
-    const clampX = (x: number) => clamp(x, wa.x + margin, wa.x + wa.width - winW - margin);
-    const clampY = (y: number) => clamp(y, wa.y + margin, wa.y + wa.height - winH - margin);
-
-    // When entering peek mode, initialize the peek baseline from the current window position
-    // so the user keeps their vertical/horizontal placement.
-    if (displayModeConfig.mode !== lastDisplayMode) {
       if (displayModeConfig.mode === "peek") {
-        const [cx, cy] = petWindow.getPosition();
-        peekHomePosition = { x: cx, y: cy };
+        // "探出小脑袋" mode: hug the bottom edge and only keep a small portion visible.
+        // We intentionally keep this as a simple, predictable behavior (no left/right peek),
+        // because the UX expectation is "stick to desktop bottom and show only head".
+        // Keep the visible area small so only the head is shown.
+        // Note: this is intentionally conservative because different VRMs/camera scales vary a lot.
+        // We'll later expose this as a user-tunable setting if needed.
+        const visibleH = clamp(Math.round(winH * 0.18), 80, 140);
+
+        const x = clampX(peekHomePosition.x);
+        const y = wa.y + wa.height - visibleH;
+
+        petWindow.setPosition(Math.round(x), Math.round(y));
+        const [nx, ny] = petWindow.getPosition();
+        peekHomePosition = { x: nx, y: ny };
+        homePosition = { x: nx, y: ny };
+
+        // Peek-from-bottom doesn't need yaw. (If we add pitch/roll later, we can use it here.)
+        petWindow.webContents.send(IPC_CHANNELS.petControl, {
+          type: "PET_CONTROL",
+          ts: Date.now(),
+          action: "SET_MODEL_TRANSFORM",
+          transform: { yawDeg: 0 }
+        });
+      } else {
+        // Normal mode - restore last normal position and reset rotation.
+        const x = clampX(normalHomePosition.x);
+        const y = clampY(normalHomePosition.y);
+        petWindow.setPosition(Math.round(x), Math.round(y));
+        const [nx, ny] = petWindow.getPosition();
+        normalHomePosition = { x: nx, y: ny };
+        homePosition = { ...normalHomePosition };
+
+        petWindow.webContents.send(IPC_CHANNELS.petControl, {
+          type: "PET_CONTROL",
+          ts: Date.now(),
+          action: "SET_MODEL_TRANSFORM",
+          transform: { yawDeg: 0 }
+        });
       }
-      lastDisplayMode = displayModeConfig.mode;
+
+      emitPetWindowState();
+    } catch (err) {
+      console.warn("[pet] applyDisplayMode failed:", err);
     }
-
-    if (displayModeConfig.mode === "peek") {
-      // "探出小脑袋" mode: hug the bottom edge and only keep a small portion visible.
-      // We intentionally keep this as a simple, predictable behavior (no left/right peek),
-      // because the UX expectation is "stick to desktop bottom and show only head".
-      // Keep the visible area small so only the head is shown.
-      // Note: this is intentionally conservative because different VRMs/camera scales vary a lot.
-      // We'll later expose this as a user-tunable setting if needed.
-      const visibleH = clamp(Math.round(winH * 0.18), 80, 140);
-
-      const x = clampX(peekHomePosition.x);
-      const y = wa.y + wa.height - visibleH;
-
-      petWindow.setPosition(Math.round(x), Math.round(y));
-      const [nx, ny] = petWindow.getPosition();
-      peekHomePosition = { x: nx, y: ny };
-      homePosition = { x: nx, y: ny };
-
-      // Peek-from-bottom doesn't need yaw. (If we add pitch/roll later, we can use it here.)
-      petWindow.webContents.send(IPC_CHANNELS.petControl, {
-        type: "PET_CONTROL",
-        ts: Date.now(),
-        action: "SET_MODEL_TRANSFORM",
-        transform: { yawDeg: 0 }
-      });
-    } else {
-      // Normal mode - restore last normal position and reset rotation.
-      const x = clampX(normalHomePosition.x);
-      const y = clampY(normalHomePosition.y);
-      petWindow.setPosition(Math.round(x), Math.round(y));
-      const [nx, ny] = petWindow.getPosition();
-      normalHomePosition = { x: nx, y: ny };
-      homePosition = { ...normalHomePosition };
-
-      petWindow.webContents.send(IPC_CHANNELS.petControl, {
-        type: "PET_CONTROL",
-        ts: Date.now(),
-        action: "SET_MODEL_TRANSFORM",
-        transform: { yawDeg: 0 }
-      });
-    }
-
-    emitPetWindowState();
   };
 
   let clickThroughEnabled = false;
@@ -1593,45 +1597,49 @@ async function bootstrap() {
   });
 
   ipcMain.on(IPC_CHANNELS.dragDelta, (_evt, delta: DragDelta) => {
-    const dx = Number((delta as any)?.dx ?? 0);
-    const dy = Number((delta as any)?.dy ?? 0);
-    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
-
-    const [x, y] = petWindow.getPosition();
-    const nextX = Math.round(x + dx);
-    const nextY = Math.round(y + dy);
-
-    // In peek mode, keep the pet docked to the bottom edge; dragging only moves along X.
-    if (displayModeConfig.mode === "peek") {
-      peekHomePosition = { ...peekHomePosition, x: nextX };
-      applyDisplayMode();
-      return;
-    }
-
-    // Clamp to the current display workArea to avoid errors when dragging to/beyond the screen boundary.
     try {
-      const [w, h] = petWindow.getSize();
-      const bounds = { x: nextX, y: nextY, width: w, height: h };
-      const display = (() => {
-        try {
-          return screen.getDisplayMatching(bounds);
-        } catch {
-          return screen.getPrimaryDisplay();
-        }
-      })();
-      const wa = display.workArea;
-      const margin = 4;
-      const clampedX = Math.round(clamp(nextX, wa.x + margin, wa.x + wa.width - w - margin));
-      const clampedY = Math.round(clamp(nextY, wa.y + margin, wa.y + wa.height - h - margin));
-      petWindow.setPosition(clampedX, clampedY);
+      const dx = Number((delta as any)?.dx ?? 0);
+      const dy = Number((delta as any)?.dy ?? 0);
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+
+      const [x, y] = petWindow.getPosition();
+      const nextX = Math.round(x + dx);
+      const nextY = Math.round(y + dy);
+
+      // In peek mode, keep the pet docked to the bottom edge; dragging only moves along X.
+      if (displayModeConfig.mode === "peek") {
+        peekHomePosition = { ...peekHomePosition, x: nextX };
+        applyDisplayMode();
+        return;
+      }
+
+      // Clamp to the current display workArea to avoid errors when dragging to/beyond the screen boundary.
+      try {
+        const [w, h] = petWindow.getSize();
+        const bounds = { x: nextX, y: nextY, width: w, height: h };
+        const display = (() => {
+          try {
+            return screen.getDisplayMatching(bounds);
+          } catch {
+            return screen.getPrimaryDisplay();
+          }
+        })();
+        const wa = display.workArea;
+        const margin = 4;
+        const clampedX = Math.round(clamp(nextX, wa.x + margin, wa.x + wa.width - w - margin));
+        const clampedY = Math.round(clamp(nextY, wa.y + margin, wa.y + wa.height - h - margin));
+        petWindow.setPosition(clampedX, clampedY);
+      } catch (err) {
+        console.warn("[pet] dragDelta setPosition failed:", err);
+        return;
+      }
+      const [nx, ny] = petWindow.getPosition();
+      normalHomePosition = { x: nx, y: ny };
+      homePosition = { x: nx, y: ny };
+      emitPetWindowState();
     } catch (err) {
-      console.warn("[pet] dragDelta setPosition failed:", err);
-      return;
+      console.warn("[pet] dragDelta failed:", err);
     }
-    const [nx, ny] = petWindow.getPosition();
-    normalHomePosition = { x: nx, y: ny };
-    homePosition = { x: nx, y: ny };
-    emitPetWindowState();
   });
 
   const broadcastChatLogSync = () => {
