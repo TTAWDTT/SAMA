@@ -16,7 +16,9 @@ export type MotionPresetId =
   | "vrma_04"
   | "vrma_05"
   | "vrma_06"
-  | "vrma_07";
+  | "vrma_07"
+  | "dance1"
+  | "dance2";
 
 export type MotionPreset =
   | {
@@ -103,6 +105,22 @@ export const MOTION_PRESETS: MotionPreset[] = [
     nameEn: "Squat",
     assetFile: "VRMA_07.vrma",
     description: "蹲下动作（来自 VRMA_MotionPack）"
+  },
+  {
+    id: "dance1",
+    kind: "vrma_asset",
+    name: "dance1",
+    nameEn: "Dance 1",
+    assetFile: "dance1.vrma",
+    description: "额外动作（默认不加入“切换动作”循环序列）"
+  },
+  {
+    id: "dance2",
+    kind: "vrma_asset",
+    name: "dance2",
+    nameEn: "Dance 2",
+    assetFile: "dance2.vrma",
+    description: "额外动作（默认不加入“切换动作”循环序列）"
   }
 ];
 
@@ -119,4 +137,3 @@ export const MOTION_PRESET_CYCLE: MotionPresetId[] = [
 export function getMotionPreset(id: MotionPresetId): MotionPreset | undefined {
   return MOTION_PRESETS.find((p) => p.id === id);
 }
-
