@@ -580,6 +580,19 @@ html, body {
   text-align: right;
 }
 
+/* Meta tags (tools/skills) shown above the bubble */
+.chatMetaTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.chatMessage.user .chatMetaTags {
+  justify-content: flex-end;
+}
+
 /* Bubble Content */
 .bubbleContent {
   padding: 10px 14px;

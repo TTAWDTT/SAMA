@@ -80,6 +80,9 @@ export function MessageRow(props: {
   const isUser = message.role === "user";
   const isError = message.status === "error";
   const hasImages = message.images && message.images.length > 0;
+  const tools = message.meta?.tools ?? [];
+  const skills = message.meta?.skills ?? [];
+  const hasMeta = tools.length > 0 || skills.length > 0;
 
   // Check if this message matches the search
   const isSearchMatch = searchQuery && message.content.toLowerCase().includes(searchQuery.toLowerCase());
@@ -132,6 +135,24 @@ export function MessageRow(props: {
       <div className="chatBubble">
         {/* Time - show above bubble only on group start */}
         {isGroupStart && <div className="chatTime">{formatTime(message.ts)}</div>}
+
+        {/* Meta tags (tools/skills) */}
+        {isUser && hasMeta && (
+          <div className="chatMetaTags">
+            {tools.map((name) => (
+              <span key={`tool:${name}`} className="selectedTag tool" title={`Tool: ${name}`}>
+                <span className="selectedTagType">T</span>
+                <span className="selectedTagName">{name}</span>
+              </span>
+            ))}
+            {skills.map((name) => (
+              <span key={`skill:${name}`} className="selectedTag skill" title={`Skill: ${name}`}>
+                <span className="selectedTagType">S</span>
+                <span className="selectedTagName">{name}</span>
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Images */}
         {hasImages && (

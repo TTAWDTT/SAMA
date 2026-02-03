@@ -1726,7 +1726,8 @@ async function bootstrap() {
       ts: parsed.data.ts,
       role: "user",
       content: parsed.data.message,
-      images: parsed.data.images
+      images: parsed.data.images,
+      meta: parsed.data.meta
     };
     appendChatLogEntry(userEntry, evt.sender);
 

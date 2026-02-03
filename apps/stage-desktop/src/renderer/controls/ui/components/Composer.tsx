@@ -86,16 +86,25 @@ export function Composer(props: {
     if (!msg && images.length === 0) return;
     if (busy) return;
 
+    const imagesToSend = images;
+    const selectedToSend = selectedItems;
+
     // Build meta from selected items
     const meta: ComposerMeta = {};
-    const tools = selectedItems.filter((i) => i.type === "tool").map((i) => i.name);
-    const skills = selectedItems.filter((i) => i.type === "skill").map((i) => i.name);
+    const tools = selectedToSend.filter((i) => i.type === "tool").map((i) => i.name);
+    const skills = selectedToSend.filter((i) => i.type === "skill").map((i) => i.name);
     if (tools.length > 0) meta.tools = tools;
     if (skills.length > 0) meta.skills = skills;
 
-    await onSend(msg, images.length > 0 ? images : undefined, Object.keys(meta).length > 0 ? meta : undefined);
+    // Clear UI immediately after "send" so attachments/tools don't linger while waiting for LLM.
     setImages([]);
     setSelectedItems([]);
+
+    await onSend(
+      msg,
+      imagesToSend.length > 0 ? imagesToSend : undefined,
+      Object.keys(meta).length > 0 ? meta : undefined
+    );
   }
 
   const handleImageSelect = () => {

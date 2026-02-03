@@ -810,13 +810,14 @@ class OpenAICompatibleProvider implements LLMProvider {
       12_000,
       0.7
     );
-    return truncateByCodepoints(sanitizeOneLine(raw), 20);
+    return smartTruncatePreferBoundary(sanitizeOneLine(raw), 20);
   }
 
   async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number) {
     const system = buildProactiveSystemPrompt();
     const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
-    const maxOutputTokens = Math.min(256, getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 256);
+    const modelOutputCap = getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 256;
+    const maxOutputTokens = Math.max(16, Math.min(256, Math.min(modelOutputCap, max * 8)));
 
     const raw = await openAICompatibleChat(
       this.#opts,
@@ -827,12 +828,13 @@ class OpenAICompatibleProvider implements LLMProvider {
           content: String(prompt ?? "")
         }
       ],
-      Math.max(32, Math.min(256, maxOutputTokens)),
+      maxOutputTokens,
       12_000,
       0.8
     );
 
-    return truncateByCodepoints(sanitizeOneLine(raw), max);
+    // Do not hard-truncate here; the caller applies length constraints with a safer strategy.
+    return sanitizeOneLine(raw);
   }
 
   async chatReply(
@@ -1101,13 +1103,14 @@ class AIStudioProvider implements LLMProvider {
           temperature: 0.7
         });
 
-    return truncateByCodepoints(sanitizeOneLine(raw), 20);
+    return smartTruncatePreferBoundary(sanitizeOneLine(raw), 20);
   }
 
   async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number) {
     const system = buildProactiveSystemPrompt();
     const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
-    const maxOutputTokens = Math.min(256, getModelLimitFromApis(this.name, this.#model)?.output ?? 256);
+    const modelOutputCap = getModelLimitFromApis(this.name, this.#model)?.output ?? 256;
+    const maxOutputTokens = Math.max(16, Math.min(256, Math.min(modelOutputCap, max * 8)));
 
     const raw = this.#baseUrl
       ? await openAICompatibleChat(
@@ -1116,7 +1119,7 @@ class AIStudioProvider implements LLMProvider {
             { role: "system", content: system },
             { role: "user", content: String(prompt ?? "") }
           ],
-          Math.max(32, Math.min(256, maxOutputTokens)),
+          maxOutputTokens,
           12_000,
           0.8
         )
@@ -1125,12 +1128,13 @@ class AIStudioProvider implements LLMProvider {
           model: this.#model,
           systemInstruction: system,
           contents: [{ role: "user", parts: [{ text: String(prompt ?? "") }] }],
-          maxOutputTokens: Math.max(32, Math.min(256, maxOutputTokens)),
+          maxOutputTokens,
           timeoutMs: 12_000,
           temperature: 0.8
         });
 
-    return truncateByCodepoints(sanitizeOneLine(raw), max);
+    // Do not hard-truncate here; the caller applies length constraints with a safer strategy.
+    return sanitizeOneLine(raw);
   }
 
   async chatReply(
@@ -1568,10 +1572,30 @@ export class LLMService {
     const fallback = () => "";
     if (!this.#provider) return fallback();
     try {
-      const raw = await this.#provider.generateProactive(ctx, prompt, maxChars);
+      const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
+      const raw = await this.#provider.generateProactive(ctx, prompt, max);
       const one = sanitizeOneLine(String(raw ?? ""));
       if (!one) return fallback();
-      return truncateByCodepoints(one, Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15))));
+      const clipped = smartTruncatePreferBoundary(one, max);
+      if (Array.from(one).length <= max) return clipped;
+
+      // Some models ignore the length constraint and we don't want to cut mid-sentence.
+      // Best-effort: ask once more for a shorter rewrite, then fall back to a safe truncate.
+      const boundaryChars = new Set(["。", "！", "？", ".", "!", "?", "；", ";", "，", ",", "）", ")", "】", "]"]);
+      const last = Array.from(clipped.trim()).slice(-1)[0] ?? "";
+      if (!boundaryChars.has(last)) {
+        try {
+          const rewritePrompt =
+            `请把下面这句话改写为一句更短的中文（≤${max}字），保持温柔俏皮、像生活助理；最好带一个轻问题；只输出改写后的这一句。\n` +
+            `原句：${one}`;
+          const rewrittenRaw = await this.#provider.generateProactive(ctx, rewritePrompt, max);
+          const rewritten = sanitizeOneLine(String(rewrittenRaw ?? ""));
+          const rewrittenClipped = smartTruncatePreferBoundary(rewritten, max);
+          if (rewrittenClipped) return rewrittenClipped;
+        } catch {}
+      }
+
+      return clipped;
     } catch (err) {
       console.warn("[llm] proactive fallback:", err);
       return fallback();

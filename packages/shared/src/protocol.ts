@@ -40,18 +40,20 @@ export type ChatRequest = {
   message: string;
   /** Optional image attachments (data URLs). */
   images?: ChatImageAttachment[];
-  meta?: {
-    /** Optional per-message tool allowlist (UI pinned). When omitted, use global config. */
-    tools?: string[];
-    /** Optional per-message skill allowlist (UI pinned). When omitted, use global config. */
-    skills?: string[];
-  };
+  meta?: ChatMeta;
 };
 export type ChatResponse = { type: "CHAT_RESPONSE"; ts: number; message: string };
 
 export type ChatImageAttachment = {
   dataUrl: string;
   name?: string;
+};
+
+export type ChatMeta = {
+  /** Optional per-message tool allowlist (UI pinned). When omitted, use global config. */
+  tools?: string[];
+  /** Optional per-message skill allowlist (UI pinned). When omitted, use global config. */
+  skills?: string[];
 };
 
 // Chat log (for UI). This is separate from the "bubble" UX.
@@ -61,6 +63,7 @@ export type ChatLogEntry = {
   role: "user" | "assistant";
   content: string;
   images?: ChatImageAttachment[];
+  meta?: ChatMeta;
 };
 
 export type ChatLogMessage =
