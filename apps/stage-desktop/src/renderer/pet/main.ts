@@ -218,6 +218,16 @@ function renderHud() {
   hud.textContent = lines.join("\n");
 }
 
+let hudRaf: number | null = null;
+function scheduleRenderHud() {
+  if (!hud) return;
+  if (hudRaf !== null) return;
+  hudRaf = window.requestAnimationFrame(() => {
+    hudRaf = null;
+    renderHud();
+  });
+}
+
 function setBootStatus(s: string) {
   if (!bootStatus) return;
   bootStatus.textContent = s;
@@ -425,6 +435,52 @@ async function boot() {
   // Start rendering immediately so the window is not fully transparent while waiting for file pick / IPC.
   setHud("render: running");
   scene.start();
+
+  const bootStartedAt = performance.now();
+  let bootDismissed = false;
+  const dismissBootOverlay = async (opts?: { minMs?: number }) => {
+    if (!bootRoot || bootDismissed) return;
+    if (bootRoot.getAttribute("data-hidden") === "1") {
+      bootDismissed = true;
+      return;
+    }
+
+    // Avoid flicker: ensure the splash stays visible for a minimum time, then wait a couple of frames
+    // so the first fully-rendered VRM frame is likely on-screen before fading out.
+    const minMs = Math.max(0, Math.floor(Number(opts?.minMs ?? 1200)));
+    const elapsed = performance.now() - bootStartedAt;
+    if (elapsed < minMs) {
+      await new Promise((r) => window.setTimeout(r, Math.round(minMs - elapsed)));
+    }
+    await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+    await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+
+    bootRoot.setAttribute("data-hidden", "1");
+    bootDismissed = true;
+  };
+
+  // Throttle drag IPC to 1 message per frame to avoid flooding the main process.
+  let pendingDragDx = 0;
+  let pendingDragDy = 0;
+  let dragRaf: number | null = null;
+  const flushDragDelta = () => {
+    dragRaf = null;
+    const dx = pendingDragDx;
+    const dy = pendingDragDy;
+    pendingDragDx = 0;
+    pendingDragDy = 0;
+    if (!dx && !dy) return;
+    const api: any = (window as any).stageDesktop;
+    try {
+      api?.sendDragDelta?.({ dx, dy });
+    } catch {}
+  };
+  const queueDragDelta = (dx: number, dy: number) => {
+    pendingDragDx += dx;
+    pendingDragDy += dy;
+    if (dragRaf !== null) return;
+    dragRaf = window.requestAnimationFrame(flushDragDelta);
+  };
 
   // ====== TTS (SpeechSynthesis) ======
   const hasSpeechSynthesis = typeof window !== "undefined" && typeof (window as any).speechSynthesis !== "undefined";
@@ -643,6 +699,8 @@ async function boot() {
     window.clearInterval(petStateTimer);
     if (persistTimer !== null) window.clearTimeout(persistTimer);
     if (anchorTimer !== null) window.clearInterval(anchorTimer);
+    if (hudRaf !== null) window.cancelAnimationFrame(hudRaf);
+    if (dragRaf !== null) window.cancelAnimationFrame(dragRaf);
     try {
       unsubPetControl?.();
     } catch {}
@@ -666,7 +724,7 @@ async function boot() {
         scene.setCameraPreset?.("full"); // Apply full body preset on console load
         renderHud();
         sendPetState();
-        if (hudState.vrmLoaded) bootRoot?.setAttribute("data-hidden", "1");
+        if (hudState.vrmLoaded) void dismissBootOverlay();
         sendPetStatus("info", hudState.vrmLoaded ? "已加载 VRM ✅" : "未选择文件（已保留占位球体）");
         sendPetControlResult(msg.requestId, true);
         return;
@@ -807,20 +865,20 @@ async function boot() {
 
   // Load initial VRM (non-blocking): read from VRM_PATH / last-picked path via main, if any.
   // Avoid blocking UI/drag handlers while a file picker is open.
-  void (async () => {
-    try {
-      setBootStatus("正在读取 VRM_PATH / 上次选择的模型…（也可点“选择 VRM…”）");
-      const vrmBytes = await pickVrmBytes();
-      await scene.loadVrmBytes(vrmBytes);
-      hudState.vrmLoaded = vrmBytes.byteLength > 0;
-      scene.setCameraPreset?.("full");
-      renderHud();
-      if (vrmBytes.byteLength) bootRoot?.setAttribute("data-hidden", "1");
-      sendPetState();
-      sendPetStatus("info", hudState.vrmLoaded ? "已加载 VRM ✅" : "未配置模型：请点“选择 VRM…”或拖拽 .vrm");
+      void (async () => {
+        try {
+          setBootStatus("正在读取 VRM_PATH / 上次选择的模型…（也可点“选择 VRM…”）");
+          const vrmBytes = await pickVrmBytes();
+          await scene.loadVrmBytes(vrmBytes);
+          hudState.vrmLoaded = vrmBytes.byteLength > 0;
+          scene.setCameraPreset?.("full");
+          renderHud();
+          sendPetState();
+          if (vrmBytes.byteLength) void dismissBootOverlay();
+          sendPetStatus("info", hudState.vrmLoaded ? "已加载 VRM ✅" : "未配置模型：请点“选择 VRM…”或拖拽 .vrm");
 
-      if (!vrmBytes.byteLength) {
-        setBootStatus("未配置 VRM：点“选择 VRM…”或拖拽 .vrm 到窗口");
+          if (!vrmBytes.byteLength) {
+            setBootStatus("未配置 VRM：点“选择 VRM…”或拖拽 .vrm 到窗口");
       }
     } catch (err) {
       setBootStatus(`VRM 加载失败：${formatErr(err)}`);
@@ -878,8 +936,8 @@ async function boot() {
         setBootStatus(`正在导入 VRM：${file.name}`);
         await scene.loadVrmBytes(bytes);
         hudState.vrmLoaded = bytes.byteLength > 0;
-        if (bytes.byteLength) bootRoot?.setAttribute("data-hidden", "1");
         sendPetState();
+        if (bytes.byteLength) void dismissBootOverlay();
         sendPetStatus("info", "已加载 VRM ✅");
       } else {
         setBootStatus(`正在导入动作（VRMA）：${file.name}`);
@@ -912,7 +970,7 @@ async function boot() {
     onDragDelta: (dx, dy) => {
       scene.notifyDragDelta(dx, dy);
       hudState.lastDrag = { dx: Math.round(dx), dy: Math.round(dy), at: Date.now() };
-      renderHud();
+      scheduleRenderHud();
 
       const api: any = (window as any).stageDesktop;
       if (!api || typeof api.sendDragDelta !== "function") {
@@ -925,7 +983,7 @@ async function boot() {
         }
         return;
       }
-      api.sendDragDelta({ dx, dy });
+      queueDragDelta(dx, dy);
     },
     onOrbitDelta: (dx, dy) => {
       scene.orbitView?.(dx, dy);
@@ -1012,8 +1070,8 @@ async function boot() {
         hudState.vrmLoaded = bytes.byteLength > 0;
         renderHud();
         setBootStatus("已加载 VRM ✅");
-        if (bytes.byteLength) bootRoot?.setAttribute("data-hidden", "1");
         sendPetState();
+        if (bytes.byteLength) void dismissBootOverlay();
         sendPetStatus("info", "已加载 VRM ✅");
       } catch (err) {
         hudState.vrmLoaded = false;
@@ -1115,11 +1173,11 @@ async function boot() {
 
       scene.notifyDragDelta(dx, dy);
       hudState.lastDrag = { dx: Math.round(dx), dy: Math.round(dy), at: Date.now() };
-      renderHud();
+      scheduleRenderHud();
 
       const api: any = (window as any).stageDesktop;
       try {
-        api?.sendDragDelta?.({ dx, dy });
+        if (api && typeof api.sendDragDelta === "function") queueDragDelta(dx, dy);
       } catch {}
     });
 

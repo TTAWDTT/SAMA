@@ -181,6 +181,72 @@ html, body {
   overflow: hidden;
 }
 
+/* ========== App Splash ========== */
+.appSplash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-secondary) 100%);
+  z-index: 2000;
+  opacity: 1;
+  transform: translateZ(0) scale(1);
+  transition: opacity 420ms cubic-bezier(0.4, 0, 0.2, 1), transform 420ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.appSplash.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateZ(0) scale(1.01);
+}
+
+.appSplashCard {
+  width: min(360px, calc(100vw - 48px));
+  padding: 20px 18px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.appSplashTitle {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.appSplashSubtitle {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.appSplashProgress {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+
+.appSplashDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background var(--transition), transform var(--transition);
+}
+
+.appSplashDot.done {
+  background: var(--accent);
+  transform: scale(1.1);
+}
+
 /* ========== Top Bar ========== */
 .topBar {
   flex-shrink: 0;

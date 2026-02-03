@@ -675,6 +675,24 @@ async function bootstrap() {
   petWindowRef = petWindow;
   const captionWindow = createCaptionWindow({ preloadPath, width: initialPetSize.width, height: initialPetSize.height });
 
+  type WindowBounds = { x: number; y: number; width: number; height: number };
+  let lastCaptionBounds: WindowBounds | null = null;
+  const setCaptionBounds = (b: WindowBounds) => {
+    if (petWindow.isDestroyed() || captionWindow.isDestroyed()) return;
+    if (!petWindow.isVisible()) return;
+    const prev = lastCaptionBounds;
+    if (prev && prev.x === b.x && prev.y === b.y && prev.width === b.width && prev.height === b.height) return;
+    try {
+      captionWindow.setBounds(b);
+      lastCaptionBounds = { ...b };
+    } catch {}
+  };
+  const syncCaptionBoundsToPet = () => {
+    try {
+      setCaptionBounds(petWindow.getBounds());
+    } catch {}
+  };
+
   const wirePreloadDiagnostics = (win: BrowserWindow, label: string) => {
     win.webContents.on("preload-error", (_evt, p, error) => {
       console.error(`[preload-error][${label}] ${p}:`, error);
@@ -693,7 +711,7 @@ async function bootstrap() {
   const initialBounds = petWindow.getBounds();
   const home = computeDefaultHome({ w: initialBounds.width, h: initialBounds.height });
   petWindow.setPosition(home.x, home.y);
-  captionWindow.setBounds(petWindow.getBounds());
+  syncCaptionBoundsToPet();
   // "homePosition" is the position RETREAT returns to. We keep separate homes per display mode
   // so switching modes doesn't lose the user's placement.
   let homePosition: Point = { ...home };
@@ -747,6 +765,7 @@ async function bootstrap() {
         const y = wa.y + wa.height - visibleH;
 
         petWindow.setPosition(Math.round(x), Math.round(y));
+        syncCaptionBoundsToPet();
         const [nx, ny] = petWindow.getPosition();
         peekHomePosition = { x: nx, y: ny };
         homePosition = { x: nx, y: ny };
@@ -763,6 +782,7 @@ async function bootstrap() {
         const x = clampX(normalHomePosition.x);
         const y = clampY(normalHomePosition.y);
         petWindow.setPosition(Math.round(x), Math.round(y));
+        syncCaptionBoundsToPet();
         const [nx, ny] = petWindow.getPosition();
         normalHomePosition = { x: nx, y: ny };
         homePosition = { ...normalHomePosition };
@@ -911,6 +931,7 @@ async function bootstrap() {
     } else {
       petWindow.showInactive();
       captionWindow.showInactive();
+      syncCaptionBoundsToPet();
     }
   };
 
@@ -931,7 +952,12 @@ async function bootstrap() {
         const [x, y] = petWindow.getPosition();
         return { x, y };
       },
-      (pos) => petWindow.setPosition(pos.x, pos.y),
+      (pos) => {
+        petWindow.setPosition(pos.x, pos.y);
+        try {
+          if (!captionWindow.isDestroyed()) captionWindow.setPosition(pos.x, pos.y);
+        } catch {}
+      },
       p,
       durationMs,
       moveCancel
@@ -1122,15 +1148,6 @@ async function bootstrap() {
   const shortcuts = new ShortcutsService({ toggleClickThrough, openChat, openControls });
   shortcuts.start();
 
-  const followTimer = setInterval(() => {
-    if (petWindow.isDestroyed() || captionWindow.isDestroyed()) return;
-    if (!petWindow.isVisible()) return;
-    try {
-      const b = petWindow.getBounds();
-      captionWindow.setBounds(b);
-    } catch {}
-  }, 50);
-
   const persistPetWindowSize = () => {
     if (petWindow.isDestroyed()) return;
     const b = petWindow.getBounds();
@@ -1190,6 +1207,7 @@ async function bootstrap() {
   // throttle resize updates
   let pendingResizeTimer: NodeJS.Timeout | null = null;
   petWindow.on("resize", () => {
+    syncCaptionBoundsToPet();
     if (pendingResizeTimer) clearTimeout(pendingResizeTimer);
     pendingResizeTimer = setTimeout(() => {
       pendingResizeTimer = null;
@@ -1202,6 +1220,7 @@ async function bootstrap() {
   // throttle move updates (needed for caption bubble visibility when peeking partially off-screen)
   let pendingMoveTimer: NodeJS.Timeout | null = null;
   petWindow.on("move", () => {
+    syncCaptionBoundsToPet();
     if (pendingMoveTimer) clearTimeout(pendingMoveTimer);
     pendingMoveTimer = setTimeout(() => {
       pendingMoveTimer = null;
@@ -1455,6 +1474,7 @@ async function bootstrap() {
         const nextW = Math.max(minW || 1, w);
         const nextH = Math.max(minH || 1, h);
         petWindow.setSize(nextW, nextH);
+        syncCaptionBoundsToPet();
         schedulePersistPetWindowSize();
         emitPetWindowState();
 
@@ -1629,6 +1649,7 @@ async function bootstrap() {
         const clampedX = Math.round(clamp(nextX, wa.x + margin, wa.x + wa.width - w - margin));
         const clampedY = Math.round(clamp(nextY, wa.y + margin, wa.y + wa.height - h - margin));
         petWindow.setPosition(clampedX, clampedY);
+        setCaptionBounds({ x: clampedX, y: clampedY, width: w, height: h });
       } catch (err) {
         console.warn("[pet] dragDelta setPosition failed:", err);
         return;
@@ -1824,7 +1845,6 @@ async function bootstrap() {
   petWindow.on("closed", () => app.quit());
 
   app.on("before-quit", () => {
-    clearInterval(followTimer);
     if (pendingPersistTimer) clearTimeout(pendingPersistTimer);
     pendingPersistTimer = null;
     try {

@@ -4,7 +4,7 @@ import { net } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-export type ChatImageAttachment = {
+type ChatImageAttachment = {
   dataUrl: string;
   name?: string;
 };

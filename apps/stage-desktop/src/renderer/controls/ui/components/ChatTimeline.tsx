@@ -103,7 +103,7 @@ export const ChatTimeline = React.memo(forwardRef<
                   onViewImage={setViewingImage}
                   selectionMode={selectionMode}
                   selected={selectedIds?.has(item.message.id)}
-                  onSelect={() => onToggleSelect?.(item.message.id)}
+                  onToggleSelect={onToggleSelect}
                 />
               )
             )}

@@ -1,5 +1,5 @@
 import type { ChatLogEntry } from "@sama/shared";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import type { StageDesktopApi } from "../api";
 import { formatTime, writeClipboard } from "../lib/utils";
 import { stripMarkdown } from "../lib/stripMarkdown";
@@ -59,7 +59,7 @@ function SpeakIcon() {
   );
 }
 
-export function MessageRow(props: {
+export const MessageRow = React.memo(function MessageRow(props: {
   api: StageDesktopApi | null;
   message: UiMessage;
   isGroupStart?: boolean;
@@ -69,9 +69,9 @@ export function MessageRow(props: {
   onViewImage?: (src: string) => void;
   selectionMode?: boolean;
   selected?: boolean;
-  onSelect?: () => void;
+  onToggleSelect?: (id: string) => void;
 }) {
-  const { api, message, isGroupStart = true, onToast, onRetry, searchQuery, onViewImage, selectionMode, selected, onSelect } = props;
+  const { api, message, isGroupStart = true, onToast, onRetry, searchQuery, onViewImage, selectionMode, selected, onToggleSelect } = props;
   const [copied, setCopied] = useState<null | "text" | "md">(null);
   const [hovered, setHovered] = useState(false);
 
@@ -109,13 +109,17 @@ export function MessageRow(props: {
     api.sendPetControl({ type: "PET_CONTROL", ts: Date.now(), action: "SPEAK_TEXT", text } as any);
   };
 
+  const handleSelect = useCallback(() => {
+    onToggleSelect?.(message.id);
+  }, [onToggleSelect, message.id]);
+
   return (
     <div
       id={`msg-${message.id}`}
       className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""} ${!isGroupStart ? "isGrouped" : ""} ${selectionMode ? "selectionMode" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={selectionMode ? onSelect : undefined}
+      onClick={selectionMode ? handleSelect : undefined}
       style={selectionMode ? { cursor: "pointer", opacity: selected ? 1 : 0.6 } : undefined}
     >
       {selectionMode && (
@@ -253,4 +257,4 @@ export function MessageRow(props: {
       </div>
     </div>
   );
-}
+});

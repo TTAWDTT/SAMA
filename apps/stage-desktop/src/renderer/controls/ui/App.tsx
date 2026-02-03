@@ -1,5 +1,5 @@
 import type { ChatLogEntry, ChatLogMessage } from "@sama/shared";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApi, type StageDesktopApi, type ToolInfo, type SkillInfo } from "./api";
 import { Toast } from "./components/Toast";
 import { TopBar } from "./components/TopBar";
@@ -66,6 +66,14 @@ export function App() {
   const api = useMemo(() => getApi(), []);
   const { toast, showToast, hideToast } = useToast();
 
+  // Boot / splash (avoid "blank then pop-in" during first sync)
+  const splashStartedAtRef = useRef(performance.now());
+  const [bootChatReady, setBootChatReady] = useState(false);
+  const [bootProviderReady, setBootProviderReady] = useState(false);
+  const appReady = bootChatReady && bootProviderReady;
+  const [splashHidden, setSplashHidden] = useState(false);
+  const [splashRemoved, setSplashRemoved] = useState(false);
+
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [devMode, setDevMode] = useState(loadDevMode);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -93,6 +101,30 @@ export function App() {
   const [availableSkills, setAvailableSkills] = useState<SkillInfo[]>([]);
 
   // ... (search code)
+
+  // Hide splash after boot completes (min duration + max timeout)
+  useEffect(() => {
+    const MAX_MS = 5200;
+    const MIN_MS = 900;
+
+    if (splashHidden) return;
+    if (!appReady) {
+      const tMax = window.setTimeout(() => setSplashHidden(true), MAX_MS);
+      return () => window.clearTimeout(tMax);
+    }
+
+    const elapsed = performance.now() - splashStartedAtRef.current;
+    const wait = Math.max(0, Math.round(MIN_MS - elapsed));
+    const t = window.setTimeout(() => setSplashHidden(true), wait);
+    return () => window.clearTimeout(t);
+  }, [appReady, splashHidden]);
+
+  useEffect(() => {
+    if (splashRemoved) return;
+    if (!splashHidden) return;
+    const t = window.setTimeout(() => setSplashRemoved(true), 460);
+    return () => window.clearTimeout(t);
+  }, [splashHidden, splashRemoved]);
 
   const handleExportChat = useCallback(() => {
     setSelectionMode(true);
@@ -393,13 +425,16 @@ export function App() {
   const refreshProvider = useCallback(async () => {
     if (!api || typeof api.getAppInfo !== "function") {
       setProvider("preload missing");
+      setBootProviderReady(true);
       return;
     }
     try {
       const info = await api.getAppInfo();
       setProvider(String(info?.llmProvider ?? "unknown") || "unknown");
+      setBootProviderReady(true);
     } catch {
       setProvider("unknown");
+      setBootProviderReady(true);
     }
   }, [api]);
 
@@ -434,6 +469,7 @@ export function App() {
   useEffect(() => {
     if (!api) {
       showToast("preload API 缺失：无法同步聊天记录", { timeoutMs: 5200 });
+      setBootChatReady(true);
       return;
     }
 
@@ -442,27 +478,35 @@ export function App() {
       try {
         const sync = await api.getChatLog?.();
         if (sync && sync.type === "CHAT_LOG_SYNC") {
-          setEntries(Array.isArray((sync as any).entries) ? ((sync as any).entries as ChatLogEntry[]) : []);
+          const list = Array.isArray((sync as any).entries) ? ((sync as any).entries as ChatLogEntry[]) : [];
+          startTransition(() => setEntries(list));
         }
-      } catch {}
+      } catch {} finally {
+        setBootChatReady(true);
+      }
     })();
 
     if (typeof api.onChatLog !== "function") return;
     const unsub = api.onChatLog((msg: ChatLogMessage) => {
       if (!msg || typeof msg !== "object") return;
       if (msg.type === "CHAT_LOG_SYNC") {
-        setEntries(Array.isArray((msg as any).entries) ? ((msg as any).entries as ChatLogEntry[]) : []);
+        const list = Array.isArray((msg as any).entries) ? ((msg as any).entries as ChatLogEntry[]) : [];
+        startTransition(() => setEntries(list));
+        setBootChatReady(true);
         return;
       }
       if (msg.type === "CHAT_LOG_APPEND") {
         const entry = (msg as any).entry as ChatLogEntry | undefined;
         if (!entry || typeof entry !== "object") return;
         if (typeof (entry as any).content !== "string") return;
-        setEntries((prev) => {
-          const next = [...prev, entry];
-          // Keep the DOM manageable (UI only; canonical log lives in main/memory).
-          return next.length > 500 ? next.slice(-420) : next;
+        startTransition(() => {
+          setEntries((prev) => {
+            const next = [...prev, entry];
+            // Keep the DOM manageable (UI only; canonical log lives in main/memory).
+            return next.length > 500 ? next.slice(-420) : next;
+          });
         });
+        setBootChatReady(true);
         if (entry.role === "assistant") {
           setIsThinking(false);
           setSendError(null);
@@ -479,6 +523,7 @@ export function App() {
 
   // App logs subscription (Dev Console)
   useEffect(() => {
+    if (!devMode) return;
     if (!api || typeof api.onAppLog !== "function") return;
 
     const logBuffer = { current: [] as AppLogItem[] };
@@ -492,9 +537,11 @@ export function App() {
       const newItems = [...logBuffer.current];
       logBuffer.current = [];
       
-      setLogs((prev) => {
-        const next = [...prev, ...newItems];
-        return next.length > 800 ? next.slice(-650) : next;
+      startTransition(() => {
+        setLogs((prev) => {
+          const next = [...prev, ...newItems];
+          return next.length > 800 ? next.slice(-650) : next;
+        });
       });
       flushTimer = null;
     };
@@ -522,12 +569,14 @@ export function App() {
         unsub?.();
       } catch {}
     };
-  }, [api]);
+  }, [api, devMode]);
 
   const uiMessages: UiMessage[] = useMemo(() => {
-    const msgs: UiMessage[] = entries.map((e) => ({ ...e, status: "sent" as const }));
-    if (sendError) {
-      msgs.push({
+    const base = entries as UiMessage[];
+    if (!sendError) return base;
+    return [
+      ...base,
+      {
         id: `err_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`,
         ts: Date.now(),
         role: "assistant",
@@ -535,9 +584,8 @@ export function App() {
         status: "error",
         errorMessage: sendError.message,
         retryText: sendError.retryText
-      });
-    }
-    return msgs;
+      }
+    ];
   }, [entries, sendError]);
 
   const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], meta?: ComposerMeta) => {
@@ -700,6 +748,22 @@ export function App() {
       <KeyboardShortcuts isOpen={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <Onboarding isOpen={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
+
+      {!splashRemoved ? (
+        <div className={`appSplash ${splashHidden ? "hidden" : ""}`}>
+          <div className="appSplashCard">
+            <div className="appSplashTitle">SAMA</div>
+            <div className="appSplashSubtitle">正在准备陪伴…</div>
+            <div className="appSplashProgress">
+              <div className={`appSplashDot ${bootProviderReady ? "done" : ""}`} />
+              <div className={`appSplashDot ${bootChatReady ? "done" : ""}`} />
+              <div className="loadingSpinner" aria-hidden="true">
+                <div className="spinnerRing" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
