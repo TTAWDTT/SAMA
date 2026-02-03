@@ -1668,7 +1668,8 @@ async function bootstrap() {
       id: `u_${parsed.data.ts}_${Math.random().toString(16).slice(2)}`,
       ts: parsed.data.ts,
       role: "user",
-      content: parsed.data.message
+      content: parsed.data.message,
+      images: parsed.data.images
     };
     appendChat(userEntry);
 

@@ -9,7 +9,7 @@ import { Composer, type ImageAttachment, type ComposerMeta } from "./components/
 import { SearchBar } from "./components/SearchBar";
 import { KeyboardShortcuts } from "./components/KeyboardShortcuts";
 import { Onboarding, hasSeenOnboarding } from "./components/Onboarding";
-import type { UiMessage, MessageImage } from "./components/MessageRow";
+import type { UiMessage } from "./components/MessageRow";
 import { useToast } from "./hooks/useToast";
 import { ActionsPanel } from "./panels/ActionsPanel";
 import { ConsolePanel, type AppLogItem } from "./panels/ConsolePanel";
@@ -524,14 +524,8 @@ export function App() {
     };
   }, [api]);
 
-  // State for pending images (user-attached images that haven't been sent yet)
-  const [pendingImages, setPendingImages] = useState<Map<string, MessageImage[]>>(new Map());
-
   const uiMessages: UiMessage[] = useMemo(() => {
-    const msgs: UiMessage[] = entries.map((e) => {
-      const images = pendingImages.get(e.id);
-      return { ...e, status: "sent" as const, images };
-    });
+    const msgs: UiMessage[] = entries.map((e) => ({ ...e, status: "sent" as const }));
     if (sendError) {
       msgs.push({
         id: `err_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`,
@@ -544,7 +538,7 @@ export function App() {
       });
     }
     return msgs;
-  }, [entries, sendError, pendingImages]);
+  }, [entries, sendError]);
 
   const sendMessage = useCallback(async (text: string, images?: ImageAttachment[], meta?: ComposerMeta) => {
     if (!api || typeof api.chatInvoke !== "function") {
@@ -565,31 +559,16 @@ export function App() {
       localStorage.removeItem(LS_DRAFT);
     } catch {}
 
-    // Construct message content - for now just describe images since backend doesn't support them
-    let content = msg;
-    if (hasImages && !msg) {
-      content = `[发送了 ${images!.length} 张图片]`;
-    } else if (hasImages) {
-      content = `${msg}\n[附带 ${images!.length} 张图片]`;
-    }
-
     try {
-      // Pass meta (tools/skills) to the backend
-      const payload = meta ? { message: content, meta } : content;
-      await api.chatInvoke(payload);
-      // Store image references for display (keyed by a temporary ID that will be replaced by actual message)
-      // Note: In a full implementation, images would be sent to the backend
-      if (hasImages) {
-        // We'll add images to the most recent user message after it's appended
-        const lastUserEntry = entries.filter((e) => e.role === "user").slice(-1)[0];
-        if (lastUserEntry) {
-          setPendingImages((prev) => {
-            const next = new Map(prev);
-            next.set(lastUserEntry.id, images!.map((img) => ({ dataUrl: img.dataUrl, name: img.name })));
-            return next;
-          });
-        }
-      }
+      const payload =
+        hasImages || meta
+          ? {
+              message: msg,
+              images: hasImages ? images!.map((img) => ({ dataUrl: img.dataUrl, name: img.name })) : undefined,
+              meta
+            }
+          : msg;
+      await api.chatInvoke(payload as any);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       showToast("请求失败", { timeoutMs: 2400 });

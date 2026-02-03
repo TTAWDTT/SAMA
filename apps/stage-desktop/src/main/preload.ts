@@ -134,7 +134,7 @@ export type StageDesktopAPI = {
   clearChatHistory: () => Promise<{ ok: boolean }>;
   clearMemoryNotes: () => Promise<{ ok: boolean }>;
   clearMemoryFacts: () => Promise<{ ok: boolean }>;
-  chatInvoke: (payload: string | { message: string; meta?: { tools?: string[]; skills?: string[] } }) => Promise<ChatResponse>;
+  chatInvoke: (payload: string | { message: string; images?: { dataUrl: string; name?: string }[]; meta?: { tools?: string[]; skills?: string[] } }) => Promise<ChatResponse>;
 
   // Tools and Skills
   getAvailableTools: () => Promise<{ tools: { name: string; title: string; description: string }[] }>;
@@ -224,10 +224,21 @@ const api: StageDesktopAPI = {
   chatInvoke: async (payload) => {
     const message = typeof payload === "string" ? payload : String(payload?.message ?? "");
     const meta = typeof payload === "string" ? undefined : (payload as any)?.meta;
+    const imagesRaw = typeof payload === "string" ? undefined : (payload as any)?.images;
+    const images = Array.isArray(imagesRaw)
+      ? imagesRaw
+          .map((img: any) => {
+            const dataUrl = String(img?.dataUrl ?? "");
+            const name = img?.name ? String(img.name) : undefined;
+            return dataUrl ? { dataUrl, name } : null;
+          })
+          .filter((x): x is { dataUrl: string; name: string | undefined } => Boolean(x))
+      : undefined;
     const req: ChatRequest = {
       type: "CHAT_REQUEST",
       ts: Date.now(),
       message,
+      images: images && images.length ? images : undefined,
       meta: meta && typeof meta === "object" ? meta : undefined
     };
     return ipcRenderer.invoke(IPC_HANDLES.chatInvoke, req);

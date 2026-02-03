@@ -4,6 +4,18 @@ import { net } from "electron";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+export type ChatImageAttachment = {
+  dataUrl: string;
+  name?: string;
+};
+
+export type ChatUserInput =
+  | string
+  | {
+      text: string;
+      images?: ChatImageAttachment[];
+    };
+
 export interface LLMProvider {
   name: string;
   generateBubble(ctx: { state: string; isNight: boolean; mood: number }): Promise<string>;
@@ -22,7 +34,7 @@ export interface LLMProvider {
       tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
-    userMsg: string
+    userMsg: ChatUserInput
   ): Promise<string>;
   /**
    * Extract durable memory notes from a single turn.
@@ -127,6 +139,33 @@ function sanitizeChatText(raw: string) {
     .replace(/\r\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim();
+}
+
+function normalizeChatUserInput(input: ChatUserInput): { text: string; images: ChatImageAttachment[] } {
+  if (typeof input === "string") return { text: input, images: [] };
+  const text = String((input as any)?.text ?? "");
+  const imagesRaw = (input as any)?.images;
+  const images = Array.isArray(imagesRaw)
+    ? imagesRaw
+        .map((img: any) => {
+          const dataUrl = String(img?.dataUrl ?? "");
+          const name = img?.name ? String(img.name) : undefined;
+          return dataUrl ? { dataUrl, name } : null;
+        })
+        .filter(Boolean)
+    : [];
+  return { text, images: images as ChatImageAttachment[] };
+}
+
+function parseImageDataUrl(dataUrl: string): { mimeType: string; dataBase64: string } | null {
+  const s = String(dataUrl ?? "");
+  const m = /^data:([^;]+);base64,(.+)$/i.exec(s);
+  if (!m) return null;
+  const mimeType = String(m[1] ?? "").trim();
+  const dataBase64 = String(m[2] ?? "").trim();
+  if (!mimeType.startsWith("image/")) return null;
+  if (!dataBase64) return null;
+  return { mimeType, dataBase64 };
 }
 
 function stripNightNagPrefix(raw: string) {
@@ -538,22 +577,62 @@ function truncateToTokenBudget(text: string, maxTokens: number): string {
   return smartTruncatePreferBoundary(s, approxChars);
 }
 
+type OpenAIChatPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+type OpenAIContent = string | OpenAIChatPart[];
+
+function openAIContentToText(content: OpenAIContent): string {
+  if (typeof content === "string") return content;
+  const parts = Array.isArray(content) ? content : [];
+  return parts.map((p) => (p && (p as any).type === "text" ? String((p as any).text ?? "") : "")).join("");
+}
+
+function replaceTextInOpenAIContent(content: OpenAIContent, nextText: string): OpenAIContent {
+  if (typeof content === "string") return nextText;
+  const parts = Array.isArray(content) ? [...content] : [];
+  const idx = parts.findIndex((p) => p && (p as any).type === "text");
+  if (idx >= 0) {
+    const prev = parts[idx] as any;
+    parts[idx] = { type: "text", text: nextText } as any;
+    // Preserve any additional keys on the previous object just in case.
+    if (prev && typeof prev === "object") parts[idx] = { ...(prev as any), type: "text", text: nextText } as any;
+    return parts;
+  }
+  return [{ type: "text", text: nextText }, ...parts];
+}
+
+function buildOpenAIUserContent(text: string, images: ChatImageAttachment[]): OpenAIContent {
+  const imgs = Array.isArray(images) ? images : [];
+  if (!imgs.length) return String(text ?? "");
+
+  const safeText = String(text ?? "").trim() || "（用户发送了图片）";
+  const parts: OpenAIChatPart[] = [{ type: "text", text: safeText }];
+  for (const img of imgs) {
+    const url = String((img as any)?.dataUrl ?? "");
+    if (!url) continue;
+    parts.push({ type: "image_url", image_url: { url } });
+  }
+  return parts;
+}
+
 function buildOpenAIMessagesWithBudget(opts: {
   system: string;
   history: { role: "user" | "assistant"; content: string }[];
-  user: string;
+  user: OpenAIContent;
   inputBudgetTokens?: number;
 }) {
   const systemRaw = String(opts.system ?? "");
   const history = Array.isArray(opts.history) ? opts.history : [];
-  const userRaw = String(opts.user ?? "");
+  let userContent: OpenAIContent = opts.user ?? "";
+  let userRaw = openAIContentToText(userContent);
 
   const budget = Math.floor(Number(opts.inputBudgetTokens ?? 0) || 0);
   if (!budget) {
     return [
       { role: "system", content: systemRaw },
       ...history.slice(-20),
-      { role: "user", content: userRaw }
+      { role: "user", content: userContent }
     ];
   }
 
@@ -568,6 +647,7 @@ function buildOpenAIMessagesWithBudget(opts: {
 
   if (sysTokens + userTokens + overhead > budget) {
     userText = truncateToTokenBudget(userText, Math.max(32, budget - sysTokens - overhead));
+    userContent = replaceTextInOpenAIContent(userContent, userText);
     userTokens = estimateTokens(userText) + 4;
   }
 
@@ -596,11 +676,12 @@ function buildOpenAIMessagesWithBudget(opts: {
   return [
     { role: "system", content: systemText },
     ...pickedHistory,
-    { role: "user", content: userText }
+    { role: "user", content: userContent }
   ];
 }
 
-type GeminiContent = { role: "user" | "model"; parts: { text: string }[] };
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
 async function geminiGenerateText(opts: {
   apiKey: string;
@@ -742,8 +823,11 @@ class OpenAICompatibleProvider implements LLMProvider {
       tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
-    userMsg: string
+    userMsg: ChatUserInput
   ) {
+    const { text, images } = normalizeChatUserInput(userMsg);
+    const userContent = buildOpenAIUserContent(text, images);
+
     const system = buildChatSystemPrompt({
       memory: ctx?.memory,
       summary: ctx?.summary,
@@ -758,7 +842,7 @@ class OpenAICompatibleProvider implements LLMProvider {
     const messages = buildOpenAIMessagesWithBudget({
       system,
       history: (ctx.history ?? []).slice(-200),
-      user: userMsg,
+      user: userContent,
       inputBudgetTokens: inputBudgetTokens || undefined
     });
 
@@ -1008,8 +1092,11 @@ class AIStudioProvider implements LLMProvider {
       tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
-    userMsg: string
+    userMsg: ChatUserInput
   ) {
+    const { text, images } = normalizeChatUserInput(userMsg);
+    const userContent = buildOpenAIUserContent(text, images);
+
     const system = buildChatSystemPrompt({
       memory: ctx?.memory,
       summary: ctx?.summary,
@@ -1025,7 +1112,7 @@ class AIStudioProvider implements LLMProvider {
       const messages = buildOpenAIMessagesWithBudget({
         system,
         history: (ctx.history ?? []).slice(-200),
-        user: userMsg,
+        user: userContent,
         inputBudgetTokens: inputBudgetTokens || undefined
       });
       const raw = await openAICompatibleChat(
@@ -1040,7 +1127,7 @@ class AIStudioProvider implements LLMProvider {
     const msgs = buildOpenAIMessagesWithBudget({
       system,
       history: (ctx.history ?? []).slice(-200),
-      user: userMsg,
+      user: userContent,
       inputBudgetTokens: inputBudgetTokens || undefined
     });
     const systemForGemini = String(msgs[0]?.content ?? system);
@@ -1048,8 +1135,29 @@ class AIStudioProvider implements LLMProvider {
       .slice(1) // drop system
       .map((m: any): GeminiContent => {
         const role = m?.role === "assistant" ? "model" : "user";
-        const content = typeof m?.content === "string" ? m.content : "";
-        return { role, parts: [{ text: content }] };
+        const content: OpenAIContent = m?.content;
+        if (typeof content === "string") return { role, parts: [{ text: content }] };
+        if (Array.isArray(content)) {
+          const parts: GeminiPart[] = [];
+          for (const p of content) {
+            if (!p || typeof p !== "object") continue;
+            if ((p as any).type === "text") {
+              const t = String((p as any).text ?? "");
+              if (t) parts.push({ text: t });
+              continue;
+            }
+            if ((p as any).type === "image_url") {
+              const url = String((p as any)?.image_url?.url ?? "");
+              const parsed = parseImageDataUrl(url);
+              if (parsed) {
+                parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.dataBase64 } });
+              }
+            }
+          }
+          if (!parts.length) parts.push({ text: "" });
+          return { role, parts };
+        }
+        return { role, parts: [{ text: "" }] };
       });
 
     const raw = await geminiGenerateText({
@@ -1417,9 +1525,13 @@ export class LLMService {
       tools?: string;
       history: { role: "user" | "assistant"; content: string }[];
     },
-    userMsg: string
+    userMsg: ChatUserInput
   ) {
     const refuse = "我不想回复你这句话";
+
+    const { text: userTextRaw, images } = normalizeChatUserInput(userMsg);
+    const userText = String(userTextRaw ?? "");
+    const hasImages = images.length > 0;
 
     const historyRaw = Array.isArray(ctx?.history) ? ctx.history : [];
 
@@ -1438,7 +1550,7 @@ export class LLMService {
       .find((m: any) => m && m.role === "assistant" && typeof m.content === "string")
       ?.content;
 
-    const fallback = () => stripNightNagPrefix(ruleBasedChatReply(ctx as any, userMsg));
+    const fallback = () => stripNightNagPrefix(ruleBasedChatReply(ctx as any, userText));
 
     const finalize = (raw: string) => {
       const normalized = stripNightNagPrefix(sanitizeChatText(String(raw ?? "")));
@@ -1457,8 +1569,13 @@ export class LLMService {
       return finalize(fallback());
     }
     try {
-      console.log(`[llm] chatReply via ${this.#provider.name}, msg length: ${userMsg.length}`);
-      const raw = await this.#provider.chatReply({ ...ctx, history }, userMsg);
+      console.log(
+        `[llm] chatReply via ${this.#provider.name}, textLen=${userText.length}, images=${hasImages ? images.length : 0}`
+      );
+      const raw = await this.#provider.chatReply(
+        { ...ctx, history },
+        hasImages ? ({ text: userText, images } satisfies Exclude<ChatUserInput, string>) : userText
+      );
       // If the provider returns an empty payload (should be rare), treat it as a refusal rather than a generic fallback.
       if (!String(raw ?? "").trim()) {
         console.warn("[llm] empty response from provider");

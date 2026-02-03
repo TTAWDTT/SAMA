@@ -48,13 +48,30 @@ export const UserInteractionSchema = z.discriminatedUnion("event", [
 export const ChatRequestSchema = z.object({
   type: z.literal("CHAT_REQUEST"),
   ts: z.number(),
-  message: z.string().min(1).max(4000),
+  message: z.string().max(4000),
+  images: z
+    .array(
+      z.object({
+        dataUrl: z
+          .string()
+          .min(32)
+          // NOTE: base64 data URLs can be large; keep a reasonable cap to avoid IPC abuse.
+          .max(12_000_000)
+          .refine((s) => s.startsWith("data:image/") && s.includes(";base64,"), "invalid image data URL"),
+        name: z.string().max(260).optional()
+      })
+    )
+    .max(4)
+    .optional(),
   meta: z
     .object({
       tools: z.array(z.string()).optional(),
       skills: z.array(z.string()).optional()
     })
     .optional()
+}).refine((d) => Boolean(d.message?.trim()) || (Array.isArray(d.images) && d.images.length > 0), {
+  message: "message must not be empty unless images are provided",
+  path: ["message"]
 });
 
 export const ChatResponseSchema = z.object({

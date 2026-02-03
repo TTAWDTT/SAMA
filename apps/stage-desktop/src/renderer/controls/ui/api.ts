@@ -50,7 +50,7 @@ export type StageDesktopApi = {
   getAppInfo?: () => Promise<{ vrmLocked: boolean; llmProvider: string }>;
   onChatLog?: (cb: (msg: ChatLogMessage) => void) => () => void;
   getChatLog?: () => Promise<ChatLogMessage>;
-  chatInvoke?: (payload: string | { message: string; meta?: { tools?: string[]; skills?: string[] } }) => Promise<any>;
+  chatInvoke?: (payload: string | { message: string; images?: { dataUrl: string; name?: string }[]; meta?: { tools?: string[]; skills?: string[] } }) => Promise<any>;
   sendUserInteraction?: (i: any) => void;
 
   // Renderer helpers (preload wrappers)

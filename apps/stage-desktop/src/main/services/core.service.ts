@@ -415,19 +415,26 @@ export class CoreService {
       tools?: string;
     },
     userMsg: string,
-    allowedTools: Set<string>
+    allowedTools: Set<string>,
+    images?: ChatRequest["images"]
   ) {
+    const hasImages = Array.isArray(images) && images.length > 0;
+
     // If tools are not configured/enabled, behave like a normal chat.
-    if (!this.#tools || !allowedTools.size) return this.#llm.chatReply(ctx, userMsg);
+    if (!this.#tools || !allowedTools.size) {
+      return this.#llm.chatReply(ctx, hasImages ? { text: userMsg, images: images! } : userMsg);
+    }
 
     const maxRounds = 3;
     const maxCallsPerRound = 6;
 
     let currentMsg = userMsg;
+    let currentImages: ChatRequest["images"] | undefined = hasImages ? images : undefined;
     let toolTranscript = "";
 
     for (let round = 0; round < maxRounds; round++) {
-      const reply = await this.#llm.chatReply(ctx, currentMsg);
+      const reply = await this.#llm.chatReply(ctx, currentImages ? { text: currentMsg, images: currentImages } : currentMsg);
+      currentImages = undefined; // Only include images on the first round.
       const parsed = parseToolCalls(reply);
       if (!parsed.hasToolCalls) return reply;
 
@@ -682,9 +689,12 @@ export class CoreService {
   }
 
   async handleChat(req: ChatRequest): Promise<ChatResponse> {
+    const hasImages = Array.isArray(req.images) && req.images.length > 0;
+    const userTextForHistory = String(req.message ?? "").trim() ? String(req.message ?? "") : hasImages ? "（用户发送了图片）" : "";
+
     // Persist user message before LLM call so it survives crashes/restarts.
     try {
-      this.#memory.logChatMessage({ ts: req.ts, role: "user", content: req.message });
+      this.#memory.logChatMessage({ ts: req.ts, role: "user", content: userTextForHistory });
     } catch {}
 
     // Agent commands (memory introspection / maintenance).
@@ -1038,10 +1048,10 @@ export class CoreService {
       this.#onAction(thinking, { proactive: false });
     }
 
-    const reply = await this.#chatWithTools(ctx, req.message, allowedTools);
+    const reply = await this.#chatWithTools(ctx, userTextForHistory, allowedTools, req.images);
     const replyTs = Date.now();
 
-    this.#chatHistory.push({ role: "user", content: req.message });
+    this.#chatHistory.push({ role: "user", content: userTextForHistory });
     this.#chatHistory.push({ role: "assistant", content: reply });
     this.#chatHistory = this.#chatHistory.slice(-40);
 
