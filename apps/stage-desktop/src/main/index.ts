@@ -1,9 +1,9 @@
 import { app, dialog, ipcMain, screen } from "electron";
-import type { BrowserWindow } from "electron";
+import type { BrowserWindow, WebContents } from "electron";
 import { BrowserWindow as ElectronBrowserWindow } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { IPC_CHANNELS, IPC_HANDLES } from "@sama/shared";
+import { DEFAULT_MOTION_PRESET_ID, IPC_CHANNELS, IPC_HANDLES, MOTION_PRESET_CYCLE, getMotionPreset } from "@sama/shared";
 import { ChatRequestSchema, ManualActionSchema, UserInteractionSchema } from "@sama/shared";
 import type {
   ActionCommand,
@@ -15,10 +15,12 @@ import type {
   PetControlMessage,
   PetControlResult,
   PetDisplayModeConfig,
+  PetFrameConfig,
   PetStateMessage,
   PetStatusMessage,
   PetWindowSize,
   PetWindowStateMessage,
+  MotionPresetId,
   UserInteraction
 } from "@sama/shared";
 import type { AppConfig, DragDelta, LLMConfig } from "./protocol/types";
@@ -165,6 +167,59 @@ function writePersistedVrmPath(statePath: string, vrmPath: string | null) {
     writeFileSync(statePath, JSON.stringify({ path: vrmPath ?? "" }, null, 2), "utf-8");
   } catch (err) {
     console.warn("[vrm] failed to persist vrm path:", err);
+  }
+}
+
+type PersistedPetUiStateV1 = {
+  version: 1;
+  frame: { enabled: boolean; size: number; radius: number; color: string };
+  motion: { defaultPresetId: MotionPresetId; cycleIdx: number };
+};
+
+const DEFAULT_PET_FRAME = { enabled: false, size: 3, radius: 12, color: "#d97757" } as const;
+const DEFAULT_PET_MOTION = { defaultPresetId: DEFAULT_MOTION_PRESET_ID, cycleIdx: 0 } as const;
+
+function sanitizeMotionPresetId(raw: unknown): MotionPresetId {
+  const s = String(raw ?? "").trim() as MotionPresetId;
+  return getMotionPreset(s) ? s : DEFAULT_MOTION_PRESET_ID;
+}
+
+function sanitizeFrameForPersistence(raw: unknown): PersistedPetUiStateV1["frame"] {
+  const src = (raw && typeof raw === "object" ? (raw as any) : {}) as any;
+  const enabled = typeof src.enabled === "boolean" ? src.enabled : DEFAULT_PET_FRAME.enabled;
+  const size = Math.max(1, Math.min(10, Math.round(Number(src.size ?? DEFAULT_PET_FRAME.size))));
+  const radius = Math.max(0, Math.min(50, Math.round(Number(src.radius ?? DEFAULT_PET_FRAME.radius))));
+  const color = typeof src.color === "string" && src.color.trim() ? src.color.trim() : DEFAULT_PET_FRAME.color;
+  return { enabled, size, radius, color };
+}
+
+function readPersistedPetUiState(statePath: string): PersistedPetUiStateV1 {
+  try {
+    const raw = readFileSync(statePath, "utf-8");
+    const parsed: any = JSON.parse(raw);
+    const frame = sanitizeFrameForPersistence(parsed?.frame);
+    const motionRaw: any = parsed?.motion ?? {};
+    const defaultPresetId = sanitizeMotionPresetId(motionRaw?.defaultPresetId);
+    const cycleIdx = Math.max(0, Math.min(10_000, Math.floor(Number(motionRaw?.cycleIdx) || 0)));
+    return { version: 1, frame, motion: { defaultPresetId, cycleIdx } };
+  } catch {
+    return { version: 1, frame: { ...DEFAULT_PET_FRAME }, motion: { ...DEFAULT_PET_MOTION } };
+  }
+}
+
+function writePersistedPetUiState(statePath: string, state: PersistedPetUiStateV1) {
+  try {
+    const stable: PersistedPetUiStateV1 = {
+      version: 1,
+      frame: sanitizeFrameForPersistence(state.frame),
+      motion: {
+        defaultPresetId: sanitizeMotionPresetId(state.motion?.defaultPresetId),
+        cycleIdx: Math.max(0, Math.min(10_000, Math.floor(Number(state.motion?.cycleIdx) || 0)))
+      }
+    };
+    writeFileSync(statePath, JSON.stringify(stable, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[pet-ui] failed to persist state:", err);
   }
 }
 
@@ -443,6 +498,8 @@ async function bootstrap() {
   }
   const petWindowStatePath = join(app.getPath("userData"), "pet-window-state.json");
   const vrmPathStatePath = join(app.getPath("userData"), "vrm-path.json");
+  const petUiStatePath = join(app.getPath("userData"), "pet-ui.json");
+  let petUiState = readPersistedPetUiState(petUiStatePath);
 
   // Optional: lock VRM to a single configured model (no runtime switching via UI/drag).
   const cfgVrmLocked = Boolean(config.vrm?.locked);
@@ -861,7 +918,7 @@ async function bootstrap() {
       const p = pendingIgnore;
       if (!p || p.cmdTs !== cmdTs) return;
       disarmPendingIgnore();
-      core.handleUserInteraction({
+      core?.handleUserInteraction({
         type: "USER_INTERACTION",
         ts: Date.now(),
         event: "IGNORED_ACTION",
@@ -1053,9 +1110,218 @@ async function bootstrap() {
     }, 80);
   });
 
+  // Persisted UI state for the pet window (frame + motion defaults).
+  const persistPetUiState = () => writePersistedPetUiState(petUiStatePath, petUiState);
+
+  const mergeFrameConfigForPersistence = (patch: PetFrameConfig) => {
+    const next = { ...(petUiState.frame ?? DEFAULT_PET_FRAME) } as any;
+    if (typeof patch.enabled === "boolean") next.enabled = patch.enabled;
+    if (typeof patch.size === "number" && Number.isFinite(patch.size)) next.size = patch.size;
+    if (typeof patch.radius === "number" && Number.isFinite(patch.radius)) next.radius = patch.radius;
+    if (typeof patch.color === "string" && patch.color.trim()) next.color = patch.color.trim();
+    petUiState.frame = sanitizeFrameForPersistence(next);
+    persistPetUiState();
+  };
+
+  const resolveBundledAsset = (rel: string): string | null => {
+    const candidates: string[] = [];
+
+    // Monorepo root: apps/stage-desktop/assets/...
+    candidates.push(resolve(process.cwd(), "apps", "stage-desktop", "assets", rel));
+    // App dir (when cwd is apps/stage-desktop): assets/...
+    candidates.push(resolve(process.cwd(), "assets", rel));
+
+    // Production (asar / resources)
+    try {
+      candidates.push(join(app.getAppPath(), "assets", rel));
+    } catch {}
+    try {
+      candidates.push(join(process.resourcesPath || "", "assets", rel));
+    } catch {}
+
+    // electron-vite dev/prod variants relative to compiled main bundle
+    try {
+      const base = dirname(import.meta.dirname || __dirname);
+      candidates.push(resolve(base, "..", "assets", rel));
+      candidates.push(resolve(base, "..", "..", "assets", rel));
+      candidates.push(resolve(base, "..", "..", "..", "assets", rel));
+      candidates.push(resolve(base, "..", "..", "..", "..", "assets", rel));
+    } catch {}
+
+    for (const p of candidates) {
+      try {
+        if (existsSync(p)) return p;
+      } catch {}
+    }
+    return null;
+  };
+
+  const motionReqMeta = new Map<string, { presetId: MotionPresetId; presetName: string }>();
+
+  const applyMotionPresetToPet = (presetId: MotionPresetId, opts?: { requestId?: string; replyTo?: WebContents }) => {
+    const preset = getMotionPreset(presetId);
+    const requestId = String(opts?.requestId ?? "").trim() || undefined;
+    const replyTo = opts?.replyTo;
+
+    const reply = (ok: boolean, message?: string) => {
+      if (!requestId || !replyTo) return;
+      try {
+        if (replyTo.isDestroyed()) return;
+        const res: PetControlResult = {
+          type: "PET_CONTROL_RESULT",
+          ts: Date.now(),
+          requestId,
+          ok,
+          ...(message ? { message } : {})
+        };
+        replyTo.send(IPC_CHANNELS.petControlResult, res);
+      } catch {}
+    };
+
+    if (!preset) {
+      reply(false, `Unknown preset: ${presetId}`);
+      return;
+    }
+
+    if (preset.kind === "idle_config") {
+      // Reset any active VRMA override and apply a more natural procedural idle.
+      petWindow.webContents.send(IPC_CHANNELS.petControl, { type: "PET_CONTROL", ts: Date.now(), action: "CLEAR_VRMA_ACTION" });
+      petWindow.webContents.send(IPC_CHANNELS.petControl, {
+        type: "PET_CONTROL",
+        ts: Date.now(),
+        action: "SET_IDLE_CONFIG",
+        config: preset.idleConfig
+      });
+      reply(true, preset.name);
+      return;
+    }
+
+    const assetRel = join("vrma", preset.assetFile).replace(/\\\\/g, "/");
+    const assetPath = resolveBundledAsset(assetRel);
+    if (!assetPath) {
+      reply(false, `VRMA preset not found: ${preset.assetFile}`);
+      return;
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(readFileSync(assetPath));
+    } catch (err) {
+      reply(false, err instanceof Error ? err.message : String(err));
+      return;
+    }
+
+    if (requestId) motionReqMeta.set(requestId, { presetId, presetName: preset.name });
+
+    petWindow.webContents.send(IPC_CHANNELS.petControl, {
+      type: "PET_CONTROL",
+      ts: Date.now(),
+      ...(requestId ? { requestId } : {}),
+      action: "LOAD_VRMA_BYTES",
+      bytes
+    });
+  };
+
+  const cycleMotionPreset = (): MotionPresetId => {
+    const list = MOTION_PRESET_CYCLE;
+    const idx = Math.max(0, Math.min(10_000, Math.floor(Number(petUiState.motion?.cycleIdx) || 0)));
+    const pickedIdx = list.length ? idx % list.length : 0;
+    const presetId = list.length ? list[pickedIdx]! : DEFAULT_MOTION_PRESET_ID;
+    const nextIdx = list.length ? (pickedIdx + 1) % list.length : 0;
+    petUiState.motion = {
+      defaultPresetId: sanitizeMotionPresetId(petUiState.motion?.defaultPresetId),
+      cycleIdx: nextIdx
+    };
+    persistPetUiState();
+    return presetId;
+  };
+
+  // Apply persisted UI state as soon as the pet renderer is ready (no need to open Controls).
+  petWindow.webContents.on("did-finish-load", () => {
+    try {
+      petWindow.webContents.send(IPC_CHANNELS.petControl, {
+        type: "PET_CONTROL",
+        ts: Date.now(),
+        action: "SET_FRAME_CONFIG",
+        config: { ...petUiState.frame, previewing: false }
+      });
+    } catch {}
+
+    try {
+      // Start in a natural idle pose by default.
+      const id = sanitizeMotionPresetId(petUiState.motion?.defaultPresetId);
+      applyMotionPresetToPet(id);
+    } catch {}
+  });
+
+  // Route pet control results back to the window that initiated the request (pet/controls/chat),
+  // while keeping backwards compatibility with the Controls window forwarding.
+  const petControlReqToSender = new Map<string, WebContents>();
+
   // IPC wiring
   ipcMain.on(IPC_CHANNELS.petControl, (_evt, payload: PetControlMessage) => {
     if (petWindow.isDestroyed()) return;
+    const reqId = String((payload as any)?.requestId ?? "").trim();
+    if (reqId) {
+      try {
+        petControlReqToSender.set(reqId, (_evt as any).sender as WebContents);
+      } catch {}
+    }
+
+    // Persist frame config so it applies on next launch without opening Controls.
+    if (payload && payload.type === "PET_CONTROL" && payload.action === "SET_FRAME_CONFIG") {
+      try {
+        mergeFrameConfigForPersistence((payload as any).config ?? {});
+      } catch {}
+      petWindow.webContents.send(IPC_CHANNELS.petControl, payload);
+      return;
+    }
+
+    // Built-in motion presets (handled in main so the pet window quick button works without Controls).
+    if (payload && payload.type === "PET_CONTROL" && payload.action === "PLAY_MOTION_PRESET") {
+      try {
+        const presetId = sanitizeMotionPresetId((payload as any).presetId) as MotionPresetId;
+        applyMotionPresetToPet(presetId, { requestId: reqId || undefined, replyTo: (_evt as any).sender as WebContents });
+      } catch (err) {
+        try {
+          const sender = (_evt as any).sender as WebContents;
+          if (reqId && sender && !sender.isDestroyed()) {
+            const res: PetControlResult = {
+              type: "PET_CONTROL_RESULT",
+              ts: Date.now(),
+              requestId: reqId,
+              ok: false,
+              message: err instanceof Error ? err.message : String(err)
+            };
+            sender.send(IPC_CHANNELS.petControlResult, res);
+          }
+        } catch {}
+      }
+      return;
+    }
+
+    if (payload && payload.type === "PET_CONTROL" && payload.action === "CYCLE_MOTION_PRESET") {
+      try {
+        const nextId = cycleMotionPreset();
+        applyMotionPresetToPet(nextId, { requestId: reqId || undefined, replyTo: (_evt as any).sender as WebContents });
+      } catch (err) {
+        try {
+          const sender = (_evt as any).sender as WebContents;
+          if (reqId && sender && !sender.isDestroyed()) {
+            const res: PetControlResult = {
+              type: "PET_CONTROL_RESULT",
+              ts: Date.now(),
+              requestId: reqId,
+              ok: false,
+              message: err instanceof Error ? err.message : String(err)
+            };
+            sender.send(IPC_CHANNELS.petControlResult, res);
+          }
+        } catch {}
+      }
+      return;
+    }
+
     if (payload && payload.type === "PET_CONTROL" && payload.action === "SET_PET_WINDOW_SIZE") {
       try {
         const cur = petWindow.getBounds();
@@ -1139,8 +1405,35 @@ async function bootstrap() {
   });
 
   ipcMain.on(IPC_CHANNELS.petControlResult, (_evt, payload: PetControlResult) => {
-    if (!controlsWindow || controlsWindow.isDestroyed()) return;
-    controlsWindow.webContents.send(IPC_CHANNELS.petControlResult, payload);
+    const reqId = String(payload?.requestId ?? "").trim();
+    const meta = reqId ? motionReqMeta.get(reqId) : null;
+    if (meta) {
+      motionReqMeta.delete(reqId);
+      if (payload.ok) {
+        (payload as any).message = meta.presetName;
+      } else {
+        const m = String(payload.message ?? "");
+        (payload as any).message = m ? `${meta.presetName}：${m}` : `${meta.presetName}：失败`;
+      }
+    }
+
+    const sender = reqId ? petControlReqToSender.get(reqId) : null;
+    if (reqId) petControlReqToSender.delete(reqId);
+
+    if (sender && !sender.isDestroyed()) {
+      try {
+        sender.send(IPC_CHANNELS.petControlResult, payload);
+      } catch {}
+    }
+
+    // Backwards compatible: also forward to Controls window if it's open (unless it was the sender already).
+    if (controlsWindow && !controlsWindow.isDestroyed()) {
+      try {
+        if (!sender || sender.id !== controlsWindow.webContents.id) {
+          controlsWindow.webContents.send(IPC_CHANNELS.petControlResult, payload);
+        }
+      } catch {}
+    }
   });
 
   ipcMain.on(IPC_CHANNELS.petStatus, (_evt, payload: PetStatusMessage) => {
@@ -1181,7 +1474,7 @@ async function bootstrap() {
     if (parsed.data.event === "CLICK_PET" || parsed.data.event === "OPEN_CHAT") {
       disarmPendingIgnore();
     }
-    core.handleUserInteraction(parsed.data);
+    core?.handleUserInteraction(parsed.data);
   });
 
   ipcMain.on(IPC_CHANNELS.dragDelta, (_evt, delta: DragDelta) => {

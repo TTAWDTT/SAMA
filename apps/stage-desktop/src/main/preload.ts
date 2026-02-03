@@ -151,6 +151,7 @@ export type StageDesktopAPI = {
   onPetWindowState: (cb: (s: PetWindowStateMessage) => void) => Unsubscribe;
 
   // Renderer helpers (safe wrappers)
+  openControlsWindow: () => Promise<void>;
   openExternal: (url: string) => Promise<boolean>;
   clipboardWrite: (text: string) => boolean;
 };

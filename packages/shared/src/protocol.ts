@@ -1,5 +1,7 @@
 // Shared protocol types (MUST match spec)
 
+import type { MotionPresetId } from "./motion-presets";
+
 export type SensorUpdate = {
   type: "SENSOR_UPDATE";
   ts: number;
@@ -141,6 +143,18 @@ export type PetDisplayModeConfig = {
 
 export type PetCameraPreset = "full" | "half" | "closeup" | "face";
 
+export type PetFrameConfig = {
+  enabled?: boolean;
+  /** Border width in px */
+  size?: number;
+  /** Border radius in px */
+  radius?: number;
+  /** Border color (CSS color string) */
+  color?: string;
+  /** UI-only: show frame while adjusting settings */
+  previewing?: boolean;
+};
+
 export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "LOAD_VRM_BYTES"; bytes: Uint8Array }
   | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "LOAD_VRMA_BYTES"; bytes: Uint8Array }
@@ -165,7 +179,10 @@ export type PetControlMessage =
   | { type: "PET_CONTROL"; ts: number; action: "NOTIFY_ACTION"; cmd: ActionCommand }
   | { type: "PET_CONTROL"; ts: number; action: "SET_DISPLAY_MODE"; config: Partial<PetDisplayModeConfig> }
   | { type: "PET_CONTROL"; ts: number; action: "SET_CAMERA_PRESET"; preset: PetCameraPreset }
-  | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "TAKE_SCREENSHOT" };
+  | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "TAKE_SCREENSHOT" }
+  | { type: "PET_CONTROL"; ts: number; action: "SET_FRAME_CONFIG"; config: PetFrameConfig }
+  | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "PLAY_MOTION_PRESET"; presetId: MotionPresetId }
+  | { type: "PET_CONTROL"; ts: number; requestId?: string; action: "CYCLE_MOTION_PRESET" };
 
 export type PetControlResult = {
   type: "PET_CONTROL_RESULT";

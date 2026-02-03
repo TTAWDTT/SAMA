@@ -794,6 +794,11 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     idle = createIdleController(vrm, idleConfigOverride);
     walk = createWalkController(vrm, walkConfigOverride);
 
+    // Apply an immediate idle tick so the avatar doesn't "flash" an awkward rest pose (e.g. T-pose) on first frame.
+    try {
+      idle.apply(1, 0, { hasAnimation: false });
+    } catch {}
+
     fitCameraToModel();
     syncAnimationForMovement(safeNowMs(), { moving: false, actionMoving: false, dragMoving: false });
   };

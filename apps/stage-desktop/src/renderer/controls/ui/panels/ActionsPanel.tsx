@@ -1,4 +1,5 @@
-import type { ActionCommand, PetDisplayModeConfig, PetStateMessage, PetWindowStateMessage } from "@sama/shared";
+import { MOTION_PRESET_CYCLE, MOTION_PRESETS, type MotionPresetId } from "@sama/shared";
+import type { ActionCommand, MotionPreset, PetDisplayModeConfig, PetStateMessage, PetWindowStateMessage } from "@sama/shared";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { StageDesktopApi } from "../api";
 import { pickFileViaFileInput } from "../lib/filePicker";
@@ -14,7 +15,6 @@ import {
   vrmaPut,
   type VrmaLibraryItem
 } from "../lib/vrmaDb";
-import { VRMA_PRESETS, loadPresetBytes, type VrmaPreset } from "../lib/vrmaPresets";
 
 const LS_PRESET_CAROUSEL = "sama.ui.vrma.presetCarousel.v1";
 const LS_FRAME_ENABLED = "sama.ui.frame.enabled.v1";
@@ -25,10 +25,10 @@ const LS_FRAME_COLOR = "sama.ui.frame.color.v1";
 function loadPresetCarouselEnabled() {
   try {
     const v = localStorage.getItem(LS_PRESET_CAROUSEL);
-    if (v === null) return true;
+    if (v === null) return false;
     return v === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -171,8 +171,8 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
 
   const [libLoading, setLibLoading] = useState(false);
   const [library, setLibrary] = useState<VrmaLibraryItem[]>([]);
-  const [presetLoading, setPresetLoading] = useState<string | null>(null);
-  const presetLoadingRef = useRef<string | null>(null);
+  const [presetLoading, setPresetLoading] = useState<MotionPresetId | null>(null);
+  const presetLoadingRef = useRef<MotionPresetId | null>(null);
 
   const pendingFrameCfg = useRef<any>({});
   const frameCfgTimer = useRef<number | null>(null);
@@ -290,13 +290,21 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     }
   }
 
-  async function playPreset(preset: VrmaPreset, opts?: { silent?: boolean }) {
+  async function playBuiltInPreset(presetId: MotionPresetId, opts?: { silent?: boolean }) {
     if (presetLoadingRef.current) return;
-    presetLoadingRef.current = preset.id;
-    setPresetLoading(preset.id);
+    presetLoadingRef.current = presetId;
+    setPresetLoading(presetId);
     try {
-      const bytes = await loadPresetBytes(preset);
-      await loadVrmaBytes(bytes);
+      const preset = MOTION_PRESETS.find((p) => p.id === presetId) as MotionPreset | undefined;
+      if (!preset) throw new Error(`Unknown preset: ${presetId}`);
+
+      const res = await sendPetControlWithResult(
+        api,
+        { type: "PET_CONTROL", ts: Date.now(), action: "PLAY_MOTION_PRESET", presetId } as any,
+        { timeoutMs: preset.kind === "vrma_asset" ? 12_000 : 2_000 }
+      );
+      if (!res.ok) throw new Error(String(res.message ?? "load failed"));
+
       setVrmaStatus(`预设：${preset.name}`);
       if (!opts?.silent) onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
     } catch (err) {
@@ -317,7 +325,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       return;
     }
     if (!api) return;
-    if (!VRMA_PRESETS.length) return;
+    if (!MOTION_PRESET_CYCLE.length) return;
 
     let cancelled = false;
     const intervalMs = 10_000;
@@ -326,10 +334,11 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       if (cancelled) return;
       presetCarouselTimer.current = window.setTimeout(async () => {
         if (cancelled) return;
-        const preset = VRMA_PRESETS[presetCarouselIdx.current % VRMA_PRESETS.length] ?? VRMA_PRESETS[0]!;
-        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % VRMA_PRESETS.length;
+        const presetId =
+          MOTION_PRESET_CYCLE[presetCarouselIdx.current % MOTION_PRESET_CYCLE.length] ?? MOTION_PRESET_CYCLE[0]!;
+        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % MOTION_PRESET_CYCLE.length;
         try {
-          await playPreset(preset, { silent: true });
+          await playBuiltInPreset(presetId, { silent: true });
         } catch {}
         schedule();
       }, intervalMs);
@@ -338,10 +347,11 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     presetCarouselTimer.current = window.setTimeout(() => {
       void (async () => {
         if (cancelled) return;
-        const preset = VRMA_PRESETS[presetCarouselIdx.current % VRMA_PRESETS.length] ?? VRMA_PRESETS[0]!;
-        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % VRMA_PRESETS.length;
+        const presetId =
+          MOTION_PRESET_CYCLE[presetCarouselIdx.current % MOTION_PRESET_CYCLE.length] ?? MOTION_PRESET_CYCLE[0]!;
+        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % MOTION_PRESET_CYCLE.length;
         try {
-          await playPreset(preset, { silent: true });
+          await playBuiltInPreset(presetId, { silent: true });
         } catch {}
         schedule();
       })();
@@ -461,14 +471,14 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
         {/* 动作展开面板 */}
         <div className={`expandPanel ${expandedPanel === "motion" ? "open" : ""}`}>
           <div className="expandPanelInner">
-            {VRMA_PRESETS.map((preset) => (
+            {MOTION_PRESETS.map((preset) => (
               <button
                 key={preset.id}
                 className={`expandItem ${presetLoading === preset.id ? "loading" : ""}`}
                 type="button"
                 disabled={!!presetLoading}
                 onClick={() => {
-                  void playPreset(preset);
+                  void playBuiltInPreset(preset.id);
                   setExpandedPanel(null);
                 }}
               >

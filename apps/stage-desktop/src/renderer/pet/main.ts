@@ -997,10 +997,114 @@ async function boot() {
   }
 
   if (btnMotion) {
-    btnMotion.addEventListener("click", () => {
-      // Toggle between idle and action states
-      scene.clearVrmAnimation();
-      showBanner("动作已重置", { timeoutMs: 1200 });
+    const pending = new Map<string, { resolve: (r: PetControlResult) => void; reject: (e: unknown) => void }>();
+    let installed = false;
+
+    const createReqId = () => `req_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
+
+    const ensureListener = () => {
+      if (installed) return;
+      const api: any = (window as any).stageDesktop;
+      if (!api || typeof api.onPetControlResult !== "function") return;
+      installed = true;
+      api.onPetControlResult((res: PetControlResult) => {
+        const p = pending.get(res.requestId);
+        if (!p) return;
+        pending.delete(res.requestId);
+        p.resolve(res);
+      });
+    };
+
+    const sendWithResult = (msg: PetControlMessage, opts?: { timeoutMs?: number }) => {
+      ensureListener();
+      const api: any = (window as any).stageDesktop;
+      if (!api || typeof api.sendPetControl !== "function") {
+        return Promise.reject(new Error("preload API missing"));
+      }
+
+      const timeoutMs = Math.max(800, Math.min(30_000, Math.floor(Number(opts?.timeoutMs ?? 12_000))));
+      const requestId = String((msg as any).requestId ?? "").trim() || createReqId();
+      (msg as any).requestId = requestId;
+
+      return new Promise<PetControlResult>((resolve, reject) => {
+        try {
+          api.sendPetControl(msg);
+        } catch (err) {
+          reject(err);
+          return;
+        }
+
+        let timer: number | null = null;
+        const done = (fn: (v: any) => void, v: any) => {
+          if (timer !== null) window.clearTimeout(timer);
+          pending.delete(requestId);
+          fn(v);
+        };
+
+        pending.set(requestId, { resolve: (r) => done(resolve, r), reject: (e) => done(reject, e) });
+        timer = window.setTimeout(() => done(reject, new Error("timeout")), timeoutMs);
+      });
+    };
+
+    const playIdleNatural = async () => {
+      try {
+        const res = await sendWithResult(
+          { type: "PET_CONTROL", ts: Date.now(), action: "PLAY_MOTION_PRESET", presetId: "idle_natural" } as any,
+          { timeoutMs: 2500 }
+        );
+        if (!res.ok) throw new Error(String(res.message ?? "failed"));
+        showBanner("自然待机", { timeoutMs: 1200 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showBanner(`重置失败：${msg}`, { timeoutMs: 2500 });
+      }
+    };
+
+    const cycleNext = async () => {
+      try {
+        const res = await sendWithResult({ type: "PET_CONTROL", ts: Date.now(), action: "CYCLE_MOTION_PRESET" } as any);
+        if (!res.ok) throw new Error(String(res.message ?? "failed"));
+        const name = String(res.message ?? "").trim();
+        showBanner(name ? `动作：${name}` : "动作已切换", { timeoutMs: 1400 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Fallback: at least reset locally so the button still "does something" even if IPC breaks.
+        try {
+          scene.clearVrmAnimation();
+        } catch {}
+        showBanner(`切换失败：${msg}`, { timeoutMs: 2600 });
+      }
+    };
+
+    // Short click: cycle presets. Long press (or right click): reset to natural idle.
+    let longPressTimer: number | null = null;
+    let longPressed = false;
+    const cancelLongPress = () => {
+      if (longPressTimer !== null) window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    };
+
+    btnMotion.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      longPressed = false;
+      cancelLongPress();
+      longPressTimer = window.setTimeout(() => {
+        longPressed = true;
+        void playIdleNatural();
+      }, 520);
+    });
+    btnMotion.addEventListener("pointerup", (e) => {
+      if (e.button !== 0) return;
+      cancelLongPress();
+      if (longPressed) return;
+      void cycleNext();
+    });
+    btnMotion.addEventListener("pointercancel", cancelLongPress);
+    btnMotion.addEventListener("pointerleave", cancelLongPress);
+    btnMotion.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      cancelLongPress();
+      void playIdleNatural();
     });
   }
 
