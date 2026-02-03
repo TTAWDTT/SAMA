@@ -1115,8 +1115,10 @@ async function bootstrap() {
   const followTimer = setInterval(() => {
     if (petWindow.isDestroyed() || captionWindow.isDestroyed()) return;
     if (!petWindow.isVisible()) return;
-    const b = petWindow.getBounds();
-    captionWindow.setBounds(b);
+    try {
+      const b = petWindow.getBounds();
+      captionWindow.setBounds(b);
+    } catch {}
   }, 50);
 
   const persistPetWindowSize = () => {
@@ -1137,7 +1139,13 @@ async function bootstrap() {
   const emitPetWindowState = () => {
     if (petWindow.isDestroyed()) return;
     const b = petWindow.getBounds();
-    const display = screen.getDisplayMatching(b);
+    const display = (() => {
+      try {
+        return screen.getDisplayMatching(b);
+      } catch {
+        return screen.getPrimaryDisplay();
+      }
+    })();
     const wa = display.workArea;
     lastPetWindowState = {
       type: "PET_WINDOW_STATE",
@@ -1318,7 +1326,7 @@ async function bootstrap() {
   };
 
   // Apply persisted UI state as soon as the pet renderer is ready (no need to open Controls).
-  petWindow.webContents.on("did-finish-load", () => {
+  const applyPersistedPetUiStateToRenderer = () => {
     try {
       petWindow.webContents.send(IPC_CHANNELS.petControl, {
         type: "PET_CONTROL",
@@ -1333,7 +1341,27 @@ async function bootstrap() {
       const id = sanitizeMotionPresetId(petUiState.motion?.defaultPresetId);
       applyMotionPresetToPet(id);
     } catch {}
-  });
+  };
+
+  petWindow.webContents.on("did-finish-load", () => applyPersistedPetUiStateToRenderer());
+  // `did-finish-load` may fire before this listener is attached (fast local loads).
+  // If the renderer is already loaded, apply immediately.
+  try {
+    if (!petWindow.webContents.isLoading()) applyPersistedPetUiStateToRenderer();
+  } catch {}
+  // Extra safety: if both checks miss (platform quirks), re-apply once shortly after boot.
+  setTimeout(() => {
+    try {
+      if (!petWindow.isDestroyed()) {
+        petWindow.webContents.send(IPC_CHANNELS.petControl, {
+          type: "PET_CONTROL",
+          ts: Date.now(),
+          action: "SET_FRAME_CONFIG",
+          config: { ...petUiState.frame, previewing: false }
+        });
+      }
+    } catch {}
+  }, 650);
 
   // Route pet control results back to the window that initiated the request (pet/controls/chat),
   // while keeping backwards compatibility with the Controls window forwarding.
@@ -1574,7 +1602,26 @@ async function bootstrap() {
       return;
     }
 
-    petWindow.setPosition(nextX, nextY);
+    // Clamp to the current display workArea to avoid errors when dragging to/beyond the screen boundary.
+    try {
+      const [w, h] = petWindow.getSize();
+      const bounds = { x: nextX, y: nextY, width: w, height: h };
+      const display = (() => {
+        try {
+          return screen.getDisplayMatching(bounds);
+        } catch {
+          return screen.getPrimaryDisplay();
+        }
+      })();
+      const wa = display.workArea;
+      const margin = 4;
+      const clampedX = Math.round(clamp(nextX, wa.x + margin, wa.x + wa.width - w - margin));
+      const clampedY = Math.round(clamp(nextY, wa.y + margin, wa.y + wa.height - h - margin));
+      petWindow.setPosition(clampedX, clampedY);
+    } catch (err) {
+      console.warn("[pet] dragDelta setPosition failed:", err);
+      return;
+    }
     const [nx, ny] = petWindow.getPosition();
     normalHomePosition = { x: nx, y: ny };
     homePosition = { x: nx, y: ny };

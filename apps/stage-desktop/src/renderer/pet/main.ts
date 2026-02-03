@@ -316,6 +316,81 @@ async function boot() {
   hudState.canSendDragDelta = !!(api && typeof api.sendDragDelta === "function");
   renderHud();
 
+  // Register pet-control listeners ASAP so we don't miss early IPC messages
+  // (e.g. persisted frame config / initial motion preset sent on window load).
+  const applyFrameConfig = (cfg: any) => {
+    const raw = cfg && typeof cfg === "object" ? cfg : {};
+    if (!hoverFrame) return;
+
+    // Only toggle enabled class when explicitly set (not undefined)
+    if (raw.enabled === true) {
+      hoverFrame.classList.add("enabled");
+    } else if (raw.enabled === false) {
+      hoverFrame.classList.remove("enabled");
+      hoverFrame.classList.remove("previewing");
+    }
+
+    // Apply style settings if frame is enabled
+    if (hoverFrame.classList.contains("enabled")) {
+      if (typeof raw.size === "number" && Number.isFinite(raw.size)) {
+        hoverFrame.style.borderWidth = `${raw.size}px`;
+      }
+      if (typeof raw.radius === "number" && Number.isFinite(raw.radius)) {
+        hoverFrame.style.borderRadius = `${raw.radius}px`;
+      }
+      if (typeof raw.color === "string") {
+        hoverFrame.style.borderColor = raw.color;
+      }
+      // Show frame while adjusting settings (previewing mode)
+      if (raw.previewing === true) {
+        hoverFrame.classList.add("previewing");
+      } else if (raw.previewing === false) {
+        hoverFrame.classList.remove("previewing");
+      }
+    }
+  };
+
+  const pendingPetControls: PetControlMessage[] = [];
+  let petControlDrain: Promise<void> = Promise.resolve();
+  let handlePetControlReady: null | ((msg: PetControlMessage) => void) = null;
+
+  const dispatchPetControl = (msg: PetControlMessage) => {
+    if (!msg || msg.type !== "PET_CONTROL") return;
+
+    // Frame config does not depend on the 3D scene; apply immediately to avoid "missing border" on boot.
+    if (msg.action === "SET_FRAME_CONFIG") {
+      applyFrameConfig((msg as any).config ?? {});
+      return;
+    }
+
+    const sink = handlePetControlReady;
+    if (sink) {
+      sink(msg);
+      return;
+    }
+
+    // Queue until the scene is ready and the full handler is installed.
+    pendingPetControls.push(msg);
+  };
+
+  const unsubPetControl = api && typeof api.onPetControl === "function"
+    ? api.onPetControl((msg: PetControlMessage) => dispatchPetControl(msg))
+    : null;
+
+  if (bc) {
+    const bcHandler = (evt: MessageEvent) => {
+      const msg: any = (evt as any).data;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "CAPTION_READY") {
+        lastCaptionReadyAt = Date.now();
+        return;
+      }
+      if (msg.type !== "PET_CONTROL") return;
+      dispatchPetControl(msg as PetControlMessage);
+    };
+    bc.addEventListener("message", bcHandler);
+  }
+
   setBootStatus("正在启动渲染…（可稍后用“选择 VRM…”或拖拽导入）");
 
   const scene = await createPetScene(canvas, new Uint8Array());
@@ -541,6 +616,9 @@ async function boot() {
     if (persistTimer !== null) window.clearTimeout(persistTimer);
     if (anchorTimer !== null) window.clearInterval(anchorTimer);
     try {
+      unsubPetControl?.();
+    } catch {}
+    try {
       bc?.close();
     } catch {}
   });
@@ -681,35 +759,7 @@ async function boot() {
       }
 
       if (msg.action === "SET_FRAME_CONFIG") {
-        const cfg: any = (msg as any).config ?? {};
-        if (hoverFrame) {
-          // Only toggle enabled class when explicitly set (not undefined)
-          if (cfg.enabled === true) {
-            hoverFrame.classList.add("enabled");
-          } else if (cfg.enabled === false) {
-            hoverFrame.classList.remove("enabled");
-            hoverFrame.classList.remove("previewing");
-          }
-
-          // Apply style settings if frame is enabled
-          if (hoverFrame.classList.contains("enabled")) {
-            if (typeof cfg.size === "number") {
-              hoverFrame.style.borderWidth = `${cfg.size}px`;
-            }
-            if (typeof cfg.radius === "number") {
-              hoverFrame.style.borderRadius = `${cfg.radius}px`;
-            }
-            if (typeof cfg.color === "string") {
-              hoverFrame.style.borderColor = cfg.color;
-            }
-            // Show frame while adjusting settings (previewing mode)
-            if (cfg.previewing === true) {
-              hoverFrame.classList.add("previewing");
-            } else if (cfg.previewing === false) {
-              hoverFrame.classList.remove("previewing");
-            }
-          }
-        }
+        applyFrameConfig((msg as any).config ?? {});
         return;
       }
     } catch (err) {
@@ -719,23 +769,13 @@ async function boot() {
     }
   };
 
-  // Apply control commands coming from the separate Controls window (via preload IPC).
-  (window as any).stageDesktop?.onPetControl?.((msg: PetControlMessage) => void handlePetControl(msg));
-
-  // Fallback: when preload IPC is missing/broken, allow Controls -> Pet commands via BroadcastChannel.
-  if (bc) {
-    const bcHandler = (evt: MessageEvent) => {
-      const msg: any = (evt as any).data;
-      if (!msg || typeof msg !== "object") return;
-      if (msg.type === "CAPTION_READY") {
-        lastCaptionReadyAt = Date.now();
-        return;
-      }
-      if (msg.type !== "PET_CONTROL") return;
-      void handlePetControl(msg as PetControlMessage);
-    };
-    bc.addEventListener("message", bcHandler);
-  }
+  // Install the full handler and drain any queued controls in-order.
+  handlePetControlReady = (msg: PetControlMessage) => {
+    petControlDrain = petControlDrain
+      .then(() => handlePetControl(msg))
+      .catch((err) => console.warn("pet control error:", err));
+  };
+  for (const msg of pendingPetControls.splice(0)) handlePetControlReady(msg);
 
   // Load initial VRM (non-blocking): read from VRM_PATH / last-picked path via main, if any.
   // Avoid blocking UI/drag handlers while a file picker is open.
