@@ -25,7 +25,7 @@ export type IdleController = {
   getConfig: () => IdleConfig;
 };
 
-export const DEFAULT_IDLE_CONFIG: IdleConfig = {
+const DEFAULT_IDLE_CONFIG: IdleConfig = {
   enabled: true,
   strength: 1,
   speed: 1,

@@ -72,9 +72,6 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.12
         version: 7.6.13
-      '@types/html2canvas':
-        specifier: ^1.0.0
-        version: 1.0.0
       '@types/react':
         specifier: ^19.2.10
         version: 19.2.10
@@ -740,10 +737,6 @@ packages:
 
   '@types/hast@3.0.4':
     resolution: {integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==}
-
-  '@types/html2canvas@1.0.0':
-    resolution: {integrity: sha512-BJpVf+FIN9UERmzhbtUgpXj6XBZpG67FMgBLLoj9HZKd9XifcCpSV+UnFcwTZfEyun4U/KmCrrVOG7829L589w==}
-    deprecated: This is a stub types definition. html2canvas provides its own type definitions, so you do not need this installed.
 
   '@types/http-cache-semantics@4.2.0':
     resolution: {integrity: sha512-L3LgimLHXtGkWikKnsPg0/VFx9OGZaC+eN1u4r+OB1XRqH3meBIAVC2zr1WdMH+RHmnRkqliQAOHNJ/E0j/e0Q==}
@@ -3474,10 +3467,6 @@ snapshots:
   '@types/hast@3.0.4':
     dependencies:
       '@types/unist': 3.0.3
-
-  '@types/html2canvas@1.0.0':
-    dependencies:
-      html2canvas: 1.4.1
 
   '@types/http-cache-semantics@4.2.0': {}
 

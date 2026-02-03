@@ -2,7 +2,7 @@
  * Tool call parser: extracts tool_calls from LLM responses
  */
 
-export type ParsedToolCall = {
+type ParsedToolCall = {
   name: string;
   arguments: Record<string, unknown>;
 };

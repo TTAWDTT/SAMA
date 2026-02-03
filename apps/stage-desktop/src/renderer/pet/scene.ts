@@ -27,13 +27,6 @@ export type MotionState = {
   animation: "NONE" | "IDLE" | "WALK" | "ACTION";
 };
 
-export type VrmAnimationSlotsStatus = {
-  hasLastLoaded: boolean;
-  hasIdle: boolean;
-  hasWalk: boolean;
-  hasAction: boolean;
-};
-
 export type CameraPreset = "full" | "half" | "closeup";
 
 export type PetScene = {
@@ -58,7 +51,12 @@ export type PetScene = {
   clearVrmAnimation: () => void;
   setVrmAnimationSlotFromLast: (slot: "idle" | "walk") => boolean;
   clearVrmAnimationSlot: (slot: "idle" | "walk") => void;
-  getVrmAnimationSlotsStatus: () => VrmAnimationSlotsStatus;
+  getVrmAnimationSlotsStatus: () => {
+    hasLastLoaded: boolean;
+    hasIdle: boolean;
+    hasWalk: boolean;
+    hasAction: boolean;
+  };
   notifyAction: (cmd: ActionCommand) => void;
   setDragging: (dragging: boolean) => void;
   notifyDragDelta: (dx: number, dy: number) => void;

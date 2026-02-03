@@ -1,5 +1,3 @@
-import { clamp } from "./utils";
-
 export type VrmaLibraryItem = {
   name: string;
   bytes: ArrayBuffer;
@@ -87,9 +85,3 @@ export async function vrmaDelete(name: string): Promise<void> {
     req.onerror = () => reject(req.error ?? new Error("indexedDB delete failed"));
   });
 }
-
-export function fmtNum(n: number, digits: number) {
-  if (!Number.isFinite(n)) return "—";
-  return n.toFixed(clamp(digits, 0, 6));
-}
-

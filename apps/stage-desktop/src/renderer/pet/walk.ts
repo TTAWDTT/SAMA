@@ -21,7 +21,7 @@ export type WalkController = {
   getConfig: () => WalkConfig;
 };
 
-export const DEFAULT_WALK_CONFIG: WalkConfig = {
+const DEFAULT_WALK_CONFIG: WalkConfig = {
   enabled: true,
   speed: 1,
   stride: 0.75,

@@ -29,7 +29,6 @@
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/html2canvas": "^1.0.0",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
     "@types/three": "0.164.1",

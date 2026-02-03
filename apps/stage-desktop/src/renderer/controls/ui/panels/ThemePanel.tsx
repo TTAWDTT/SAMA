@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 
 export type ThemeMode = "light" | "dark" | "system";
 export type AccentColor = "green" | "blue" | "purple" | "orange" | "pink" | "red";
-export type BackgroundType = "default" | "solid" | "gradient" | "image";
 
 type ThemePreset = {
   id: AccentColor;
@@ -61,7 +60,7 @@ export function loadFontSize(): number {
   return 15;
 }
 
-export function loadThemeMode(): ThemeMode {
+function loadThemeMode(): ThemeMode {
   try {
     const v = localStorage.getItem(LS_THEME_MODE);
     if (v === "light" || v === "dark" || v === "system") return v;

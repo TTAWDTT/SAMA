@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { execSync, spawn } from "node:child_process";
+import type { SkillsConfig, ToolsConfig, WebSearchConfig } from "../protocol/types";
 import { SkillService } from "./skill.service";
 import { webSearch } from "./web-search.service";
 
@@ -23,22 +24,6 @@ export type ToolName =
   | "memory_query";
 
 export type ToolCall = { name: ToolName | string; arguments?: any };
-
-export type ToolsConfig = {
-  enabled?: string[];
-  fsRoots?: string[];
-  maxReadBytes?: number;
-};
-
-export type WebSearchConfig = {
-  enabled?: boolean;
-  tavilyApiKey?: string;
-  maxResults?: number;
-};
-
-export type SkillsConfig = {
-  dir?: string;
-};
 
 export type ToolRuntimeConfig = {
   tools?: ToolsConfig;
@@ -636,4 +621,3 @@ export class ToolService {
     }
   }
 }
-

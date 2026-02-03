@@ -83,21 +83,3 @@ export function updateExpressions(vrm: VRM, current: Record<string, number>, tar
     mgr.setValue(k, next);
   }
 }
-
-export function setLookAtTarget(vrm: VRM, target: THREE.Vector3) {
-  const lookAt: any = (vrm as any).lookAt;
-  if (!lookAt) return;
-
-  // VRM 0.x/1.0 compatibility: try common shapes
-  if (lookAt.target && lookAt.target.position && typeof lookAt.target.position.copy === "function") {
-    lookAt.target.position.copy(target);
-    return;
-  }
-  if (lookAt.target && typeof lookAt.target.copy === "function") {
-    lookAt.target.copy(target);
-    return;
-  }
-  if (typeof lookAt.update === "function") {
-    lookAt.update(target);
-  }
-}

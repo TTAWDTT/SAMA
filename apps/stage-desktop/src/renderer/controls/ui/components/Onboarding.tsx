@@ -56,15 +56,9 @@ export function hasSeenOnboarding(): boolean {
   }
 }
 
-export function markOnboardingDone() {
+function markOnboardingDone() {
   try {
     localStorage.setItem(LS_ONBOARDING_DONE, "1");
-  } catch {}
-}
-
-export function resetOnboarding() {
-  try {
-    localStorage.removeItem(LS_ONBOARDING_DONE);
   } catch {}
 }
 

@@ -64,11 +64,6 @@ export const VRMA_PRESETS: VrmaPreset[] = [
   }
 ];
 
-// Helper to get preset by ID
-export function getPresetById(id: string): VrmaPreset | undefined {
-  return VRMA_PRESETS.find(p => p.id === id);
-}
-
 // Helper to load preset bytes
 export async function loadPresetBytes(preset: VrmaPreset): Promise<Uint8Array> {
   const response = await fetch(preset.url);

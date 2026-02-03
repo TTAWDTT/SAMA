@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@5.83.0/schema.json",
+  "workspaces": {
+    "apps/stage-desktop": {
+      "entry": [
+        "electron.vite.config.ts",
+        "scripts/*.cjs",
+        "src/main/index.ts",
+        "src/main/preload.ts",
+        "src/renderer/pet/main.ts",
+        "src/renderer/controls/main.tsx",
+        "src/renderer/chat/main.ts",
+        "src/renderer/caption/main.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx,js,jsx}", "scripts/**/*.{js,cjs,mjs}", "*.ts"],
+      "ignoreDependencies": ["electron-builder", "zod"]
+    },
+    "packages/shared": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

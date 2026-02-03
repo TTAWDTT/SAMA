@@ -40,12 +40,3 @@ export function loadMotionUiSettings(): MotionUiSettingsV1 {
     };
   }
 }
-
-export function saveMotionUiSettings(s: MotionUiSettingsV1) {
-  try {
-    localStorage.setItem(MOTION_UI_KEY, JSON.stringify(s));
-  } catch {
-    // ignore
-  }
-}
-
