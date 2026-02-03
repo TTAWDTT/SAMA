@@ -1179,17 +1179,26 @@ async function boot() {
         showBanner("正在打开控制台...", { timeoutMs: 1500 });
         try {
           // The API might be async (it invokes IPC), so we should handle potential rejections.
-          Promise.resolve(api.openControlsWindow()).catch((err: unknown) => {
-            const msg = err instanceof Error ? err.message : String(err);
-            console.error("Failed to open controls:", err);
-            showBanner(`打开失败: ${msg}`, { timeoutMs: 3000 });
-          });
+          Promise.resolve(api.openControlsWindow())
+            .then((res: any) => {
+              if (res && typeof res === "object" && res.ok === false) {
+                const msg = String(res.message ?? "").trim() || "unknown error";
+                showBanner(`打开失败: ${msg}`, { timeoutMs: 3200 });
+                return;
+              }
+              showBanner("控制台已打开", { timeoutMs: 1100 });
+            })
+            .catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error("Failed to open controls:", err);
+              showBanner(`打开失败: ${msg}`, { timeoutMs: 3000 });
+            });
         } catch (err) {
            const msg = err instanceof Error ? err.message : String(err);
            showBanner(`调用错误: ${msg}`, { timeoutMs: 3000 });
         }
       } else {
-        showBanner("无法打开聊天窗口 (API missing)", { timeoutMs: 1500 });
+        showBanner("无法打开控制台 (API missing)", { timeoutMs: 1500 });
       }
     });
   }

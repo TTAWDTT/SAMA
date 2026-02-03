@@ -481,12 +481,6 @@ async function bootstrap() {
   console.log(`[llm] provider=${llm.providerName}`);
 
   let core: CoreService | null = null;
-  // `ipcMain.handle("handle:controls-window-open")` can be invoked very early (pet renderer button),
-  // even before `openControls` is fully initialized. Avoid TDZ by using a re-assignable function.
-  let queuedOpenControls = false;
-  let openControls: () => void = () => {
-    queuedOpenControls = true;
-  };
 
   // electron-vite outputs preload bundle as `out/preload/preload.js` in this template,
   // but we keep this resolver defensive to avoid "preload API missing" in case of outDir mismatch.
@@ -578,10 +572,6 @@ async function bootstrap() {
   let cachedVrm: { path: string; bytes: Uint8Array } | null = null;
 
   ipcMain.handle(IPC_HANDLES.appInfoGet, async () => ({ vrmLocked, llmProvider: llm.providerName }));
-
-  ipcMain.handle("handle:controls-window-open", async () => {
-    openControls();
-  });
 
   ipcMain.handle(IPC_HANDLES.llmConfigGet, async () => {
     const effective = mergeLlmConfig(baseLlmConfig, persistedLlmConfig);
@@ -822,7 +812,7 @@ async function bootstrap() {
     });
   };
 
-  openControls = () => {
+  const openControls = () => {
     if (controlsWindow && !controlsWindow.isDestroyed()) {
       if (controlsWindow.isMinimized()) controlsWindow.restore();
       controlsWindow.show();
@@ -853,10 +843,19 @@ async function bootstrap() {
     });
   };
 
-  if (queuedOpenControls) {
-    queuedOpenControls = false;
-    openControls();
-  }
+  ipcMain.handle("handle:controls-window-open", async () => {
+    try {
+      openControls();
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[controls] open failed:", err);
+      try {
+        dialog.showErrorBox("SAMA Controls open failed", msg);
+      } catch {}
+      return { ok: false, message: msg };
+    }
+  });
 
   const setClickThrough = (enabled: boolean) => {
     clickThroughEnabled = enabled;
@@ -1722,4 +1721,10 @@ async function bootstrap() {
   openControls();
 }
 
-void bootstrap();
+void bootstrap().catch((err) => {
+  console.error("[main] bootstrap failed:", err);
+  const msg = err instanceof Error ? err.stack || err.message : String(err);
+  try {
+    dialog.showErrorBox("SAMA bootstrap failed", msg);
+  } catch {}
+});
