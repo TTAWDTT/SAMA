@@ -522,15 +522,15 @@ export class CoreService {
       base +
       detail +
       "\n\n" +
-      "请用一句中文（≤15字）温柔俏皮地说出来，最好带一个轻问题；不要说教；不要泄露隐私；不要声称你打开了链接或看到了具体内容。\n" +
-      "只输出这一句。";
+      "请像正常聊天一样，用一到两句中文温柔俏皮地说出来：最好带一个轻问题；不要说教；不要泄露隐私；不要声称你打开了链接或看到了具体内容。\n" +
+      "只输出要对用户说的话。";
 
     // Prefer LLM for style; fallback to a small rule set.
     if (this.#llm.enabled) {
       const text = await this.#llm.generateProactive(
         { state: this.#state, isNight: this.isNight || isLateNight(now), mood: this.#mood },
         prompt,
-        15
+        80
       );
       if (String(text ?? "").trim()) return String(text).trim();
     }

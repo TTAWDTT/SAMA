@@ -1572,30 +1572,11 @@ export class LLMService {
     const fallback = () => "";
     if (!this.#provider) return fallback();
     try {
-      const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
-      const raw = await this.#provider.generateProactive(ctx, prompt, max);
-      const one = sanitizeOneLine(String(raw ?? ""));
-      if (!one) return fallback();
-      const clipped = smartTruncatePreferBoundary(one, max);
-      if (Array.from(one).length <= max) return clipped;
-
-      // Some models ignore the length constraint and we don't want to cut mid-sentence.
-      // Best-effort: ask once more for a shorter rewrite, then fall back to a safe truncate.
-      const boundaryChars = new Set(["。", "！", "？", ".", "!", "?", "；", ";", "，", ",", "）", ")", "】", "]"]);
-      const last = Array.from(clipped.trim()).slice(-1)[0] ?? "";
-      if (!boundaryChars.has(last)) {
-        try {
-          const rewritePrompt =
-            `请把下面这句话改写为一句更短的中文（≤${max}字），保持温柔俏皮、像生活助理；最好带一个轻问题；只输出改写后的这一句。\n` +
-            `原句：${one}`;
-          const rewrittenRaw = await this.#provider.generateProactive(ctx, rewritePrompt, max);
-          const rewritten = sanitizeOneLine(String(rewrittenRaw ?? ""));
-          const rewrittenClipped = smartTruncatePreferBoundary(rewritten, max);
-          if (rewrittenClipped) return rewrittenClipped;
-        } catch {}
-      }
-
-      return clipped;
+      const hintRaw = Number(maxChars);
+      const hint = Number.isFinite(hintRaw) ? Math.max(0, Math.floor(hintRaw)) : 0;
+      const raw = await this.#provider.generateProactive(ctx, prompt, hint > 0 ? hint : 80);
+      const text = sanitizeChatText(String(raw ?? ""));
+      return text || fallback();
     } catch (err) {
       console.warn("[llm] proactive fallback:", err);
       return fallback();
