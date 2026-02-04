@@ -876,6 +876,30 @@ html, body {
   text-decoration: underline;
 }
 
+/* ========== Lite Code Block (`` fences) ========== */
+.codeLiteBlock {
+  display: inline-block;
+  max-width: 100%;
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-tertiary) 65%, transparent);
+  border: 1px solid var(--border-light);
+  overflow-x: auto;
+}
+
+.codeLiteBlock .codeLite {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+}
+
 /* ========== Code Block ========== */
 .codeBlock {
   margin: 16px 0;

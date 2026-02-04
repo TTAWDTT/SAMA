@@ -142,6 +142,15 @@ function sanitizeChatText(raw: string) {
     .trim();
 }
 
+function looksLikeLengthValidationError(raw: string) {
+  const s = sanitizeOneLine(String(raw ?? ""));
+  if (!s) return false;
+  const t = s.toLowerCase();
+  if (!t.includes("too long")) return false;
+  if (t.includes("char") || t.includes("character") || t.includes("max length") || t.includes("maxlength")) return true;
+  return false;
+}
+
 function normalizeChatUserInput(input: ChatUserInput): { text: string; images: ChatImageAttachment[] } {
   if (typeof input === "string") return { text: input, images: [] };
   const text = String((input as any)?.text ?? "");
@@ -815,9 +824,12 @@ class OpenAICompatibleProvider implements LLMProvider {
 
   async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number) {
     const system = buildProactiveSystemPrompt();
-    const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
     const modelOutputCap = getModelLimitFromApis(this.name, this.#opts.model)?.output ?? 256;
-    const maxOutputTokens = Math.max(16, Math.min(256, Math.min(modelOutputCap, max * 8)));
+    const hintRaw = Number(maxChars);
+    const hint = Number.isFinite(hintRaw) ? Math.max(0, Math.floor(hintRaw)) : 0;
+    // Treat maxChars as a hint only: ensure enough output room so sentences don't get cut off.
+    const hintedTokens = hint > 0 ? Math.max(128, Math.min(256, hint * 8)) : 256;
+    const maxOutputTokens = Math.max(16, Math.min(modelOutputCap, hintedTokens));
 
     const raw = await openAICompatibleChat(
       this.#opts,
@@ -833,8 +845,8 @@ class OpenAICompatibleProvider implements LLMProvider {
       0.8
     );
 
-    // Do not hard-truncate here; the caller applies length constraints with a safer strategy.
-    return sanitizeOneLine(raw);
+    // Avoid hard truncation; UI can decide how to display.
+    return sanitizeChatText(raw);
   }
 
   async chatReply(
@@ -1108,9 +1120,12 @@ class AIStudioProvider implements LLMProvider {
 
   async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number) {
     const system = buildProactiveSystemPrompt();
-    const max = Math.max(8, Math.min(40, Math.floor(Number(maxChars) || 15)));
     const modelOutputCap = getModelLimitFromApis(this.name, this.#model)?.output ?? 256;
-    const maxOutputTokens = Math.max(16, Math.min(256, Math.min(modelOutputCap, max * 8)));
+    const hintRaw = Number(maxChars);
+    const hint = Number.isFinite(hintRaw) ? Math.max(0, Math.floor(hintRaw)) : 0;
+    // Treat maxChars as a hint only: ensure enough output room so sentences don't get cut off.
+    const hintedTokens = hint > 0 ? Math.max(128, Math.min(256, hint * 8)) : 256;
+    const maxOutputTokens = Math.max(16, Math.min(modelOutputCap, hintedTokens));
 
     const raw = this.#baseUrl
       ? await openAICompatibleChat(
@@ -1133,8 +1148,8 @@ class AIStudioProvider implements LLMProvider {
           temperature: 0.8
         });
 
-    // Do not hard-truncate here; the caller applies length constraints with a safer strategy.
-    return sanitizeOneLine(raw);
+    // Avoid hard truncation; UI can decide how to display.
+    return sanitizeChatText(raw);
   }
 
   async chatReply(
@@ -1568,7 +1583,7 @@ export class LLMService {
     }
   }
 
-  async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number = 15) {
+  async generateProactive(ctx: { state: string; isNight: boolean; mood: number }, prompt: string, maxChars: number = 120) {
     const fallback = () => "";
     if (!this.#provider) return fallback();
     try {
@@ -1576,6 +1591,7 @@ export class LLMService {
       const hint = Number.isFinite(hintRaw) ? Math.max(0, Math.floor(hintRaw)) : 0;
       const raw = await this.#provider.generateProactive(ctx, prompt, hint > 0 ? hint : 80);
       const text = sanitizeChatText(String(raw ?? ""));
+      if (looksLikeLengthValidationError(text)) return fallback();
       return text || fallback();
     } catch (err) {
       console.warn("[llm] proactive fallback:", err);

@@ -518,6 +518,7 @@ export class CoreService {
       detail +
       "\n\n" +
       "请像正常聊天一样，用一到两句中文温柔俏皮地说出来：最好带一个轻问题；不要说教；不要泄露隐私；不要声称你打开了链接或看到了具体内容。\n" +
+      "不要输出任何校验/报错/约束失败文案（例如“Too long”“chars”“max length”等）。\n" +
       "只输出要对用户说的话。";
 
     // Prefer LLM for style; fallback to a small rule set.
