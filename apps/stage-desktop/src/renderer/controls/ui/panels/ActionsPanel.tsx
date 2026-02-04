@@ -1,6 +1,6 @@
 import { MOTION_PRESET_CYCLE, MOTION_PRESETS, type MotionPresetId } from "@sama/shared";
 import type { ActionCommand, MotionPreset, PetStateMessage } from "@sama/shared";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StageDesktopApi } from "../api";
 import { pickFileViaFileInput } from "../lib/filePicker";
 import { sendPetControl, sendPetControlWithResult } from "../lib/petControl";
@@ -21,6 +21,12 @@ const LS_FRAME_ENABLED = "sama.ui.frame.enabled.v1";
 const LS_FRAME_SIZE = "sama.ui.frame.size.v1";
 const LS_FRAME_RADIUS = "sama.ui.frame.radius.v1";
 const LS_FRAME_COLOR = "sama.ui.frame.color.v1";
+
+const PRESET_CAROUSEL_INTERVAL_MS = 10_000;
+
+function createReqId(prefix = "req") {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
+}
 
 function loadPresetCarouselEnabled() {
   try {
@@ -147,6 +153,15 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const { api, onToast } = props;
 
   const [presetCarousel, setPresetCarousel] = useState(loadPresetCarouselEnabled);
+  const presetCarouselEnabledRef = useRef(presetCarousel);
+  const apiRef = useRef<StageDesktopApi | null>(api);
+
+  useEffect(() => {
+    presetCarouselEnabledRef.current = presetCarousel;
+  }, [presetCarousel]);
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
 
   // Expandable panels
   const [expandedPanel, setExpandedPanel] = useState<"expression" | "motion" | null>(null);
@@ -178,6 +193,10 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   const frameCfgTimer = useRef<number | null>(null);
   const presetCarouselTimer = useRef<number | null>(null);
   const presetCarouselIdx = useRef<number>(0);
+  const presetCarouselSeq = useRef(0);
+  const presetCarouselHoldUntil = useRef(0);
+  const lastCarouselReqId = useRef<string>("");
+  const runPresetCarouselTickRef = useRef<(seq: number) => void>(() => {});
 
   useEffect(() => savePresetCarouselEnabled(presetCarousel), [presetCarousel]);
 
@@ -281,81 +300,142 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
     }
   }
 
-  async function playBuiltInPreset(presetId: MotionPresetId, opts?: { silent?: boolean }) {
-    if (presetLoadingRef.current) return;
-    presetLoadingRef.current = presetId;
-    setPresetLoading(presetId);
-    try {
-      const preset = MOTION_PRESETS.find((p) => p.id === presetId) as MotionPreset | undefined;
-      if (!preset) throw new Error(`Unknown preset: ${presetId}`);
-
-      const res = await sendPetControlWithResult(
-        api,
-        { type: "PET_CONTROL", ts: Date.now(), action: "PLAY_MOTION_PRESET", presetId } as any,
-        { timeoutMs: preset.kind === "vrma_asset" ? 12_000 : 2_000 }
-      );
-      if (!res.ok) throw new Error(String(res.message ?? "load failed"));
-
-      setVrmaStatus(`预设：${preset.name}`);
-      if (!opts?.silent) onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!opts?.silent) onToast(`加载预设动作失败：${msg}`, { timeoutMs: 5200 });
-    } finally {
-      presetLoadingRef.current = null;
-      setPresetLoading(null);
+  const clearPresetCarouselTimer = useCallback(() => {
+    if (presetCarouselTimer.current !== null) {
+      window.clearTimeout(presetCarouselTimer.current);
+      presetCarouselTimer.current = null;
     }
-  }
+  }, []);
+
+  const schedulePresetCarouselTick = useCallback(
+    (delayMs: number, seq: number) => {
+      clearPresetCarouselTimer();
+      presetCarouselTimer.current = window.setTimeout(() => {
+        try {
+          runPresetCarouselTickRef.current(seq);
+        } catch {}
+      }, Math.max(0, Math.floor(delayMs)));
+    },
+    [clearPresetCarouselTimer]
+  );
+
+  const markManualMotionChange = useCallback(
+    (presetId?: MotionPresetId) => {
+      const now = Date.now();
+      presetCarouselHoldUntil.current = Math.max(presetCarouselHoldUntil.current, now + PRESET_CAROUSEL_INTERVAL_MS);
+
+      if (presetId) {
+        const idx = MOTION_PRESET_CYCLE.indexOf(presetId);
+        if (idx >= 0 && MOTION_PRESET_CYCLE.length) {
+          presetCarouselIdx.current = (idx + 1) % MOTION_PRESET_CYCLE.length;
+        }
+      }
+
+      if (!presetCarouselEnabledRef.current) return;
+      const seq = presetCarouselSeq.current;
+      schedulePresetCarouselTick(presetCarouselHoldUntil.current - now, seq);
+    },
+    [schedulePresetCarouselTick]
+  );
+
+  const playBuiltInPreset = useCallback(
+    async (presetId: MotionPresetId, opts?: { silent?: boolean; requestId?: string }) => {
+      if (presetLoadingRef.current) return;
+      presetLoadingRef.current = presetId;
+      setPresetLoading(presetId);
+      try {
+        const preset = MOTION_PRESETS.find((p) => p.id === presetId) as MotionPreset | undefined;
+        if (!preset) throw new Error(`Unknown preset: ${presetId}`);
+
+        const api = apiRef.current;
+        const res = await sendPetControlWithResult(
+          api,
+          { type: "PET_CONTROL", ts: Date.now(), ...(opts?.requestId ? { requestId: opts.requestId } : {}), action: "PLAY_MOTION_PRESET", presetId } as any,
+          { timeoutMs: preset.kind === "vrma_asset" ? 12_000 : 2_000 }
+        );
+        if (!res.ok) throw new Error(String(res.message ?? "load failed"));
+
+        setVrmaStatus(`预设：${preset.name}`);
+        if (!opts?.silent) onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!opts?.silent) onToast(`加载预设动作失败：${msg}`, { timeoutMs: 5200 });
+      } finally {
+        presetLoadingRef.current = null;
+        setPresetLoading(null);
+      }
+    },
+    [onToast]
+  );
+
+  const runPresetCarouselTick = useCallback(
+    async (seq: number) => {
+      if (seq !== presetCarouselSeq.current) return;
+      if (!presetCarouselEnabledRef.current) return;
+      const api = apiRef.current;
+      if (!api) return;
+      if (!MOTION_PRESET_CYCLE.length) return;
+
+      const now = Date.now();
+      const holdUntil = presetCarouselHoldUntil.current;
+      if (holdUntil > now) {
+        schedulePresetCarouselTick(holdUntil - now, seq);
+        return;
+      }
+
+      const presetId =
+        MOTION_PRESET_CYCLE[presetCarouselIdx.current % MOTION_PRESET_CYCLE.length] ?? MOTION_PRESET_CYCLE[0]!;
+      presetCarouselIdx.current = (presetCarouselIdx.current + 1) % MOTION_PRESET_CYCLE.length;
+
+      const requestId = createReqId("carousel");
+      lastCarouselReqId.current = requestId;
+
+      try {
+        await playBuiltInPreset(presetId, { silent: true, requestId });
+      } catch {}
+
+      if (seq !== presetCarouselSeq.current) return;
+      schedulePresetCarouselTick(PRESET_CAROUSEL_INTERVAL_MS, seq);
+    },
+    [playBuiltInPreset, schedulePresetCarouselTick]
+  );
 
   useEffect(() => {
-    if (!presetCarousel) {
-      if (presetCarouselTimer.current !== null) {
-        window.clearTimeout(presetCarouselTimer.current);
-        presetCarouselTimer.current = null;
-      }
-      return;
-    }
+    runPresetCarouselTickRef.current = (seq: number) => {
+      void runPresetCarouselTick(seq);
+    };
+  }, [runPresetCarouselTick]);
+
+  useEffect(() => {
+    if (!api || typeof api.onPetControlResult !== "function") return;
+    return api.onPetControlResult((r) => {
+      const reqId = String((r as any)?.requestId ?? "").trim();
+      if (reqId && reqId === lastCarouselReqId.current) return;
+
+      const msg = String((r as any)?.message ?? "").trim();
+      if (!msg) return;
+      const matched = MOTION_PRESETS.find((p) => msg.startsWith(p.name));
+      if (!matched) return;
+
+      markManualMotionChange(matched.id);
+    });
+  }, [api, markManualMotionChange]);
+
+  useEffect(() => {
+    presetCarouselSeq.current += 1;
+    const seq = presetCarouselSeq.current;
+    clearPresetCarouselTimer();
+
+    if (!presetCarousel) return;
     if (!api) return;
     if (!MOTION_PRESET_CYCLE.length) return;
 
-    let cancelled = false;
-    const intervalMs = 10_000;
-
-    const schedule = () => {
-      if (cancelled) return;
-      presetCarouselTimer.current = window.setTimeout(async () => {
-        if (cancelled) return;
-        const presetId =
-          MOTION_PRESET_CYCLE[presetCarouselIdx.current % MOTION_PRESET_CYCLE.length] ?? MOTION_PRESET_CYCLE[0]!;
-        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % MOTION_PRESET_CYCLE.length;
-        try {
-          await playBuiltInPreset(presetId, { silent: true });
-        } catch {}
-        schedule();
-      }, intervalMs);
-    };
-
-    presetCarouselTimer.current = window.setTimeout(() => {
-      void (async () => {
-        if (cancelled) return;
-        const presetId =
-          MOTION_PRESET_CYCLE[presetCarouselIdx.current % MOTION_PRESET_CYCLE.length] ?? MOTION_PRESET_CYCLE[0]!;
-        presetCarouselIdx.current = (presetCarouselIdx.current + 1) % MOTION_PRESET_CYCLE.length;
-        try {
-          await playBuiltInPreset(presetId, { silent: true });
-        } catch {}
-        schedule();
-      })();
-    }, 600);
+    schedulePresetCarouselTick(600, seq);
 
     return () => {
-      cancelled = true;
-      if (presetCarouselTimer.current !== null) {
-        window.clearTimeout(presetCarouselTimer.current);
-        presetCarouselTimer.current = null;
-      }
+      clearPresetCarouselTimer();
     };
-  }, [api, presetCarousel]);
+  }, [api, presetCarousel, clearPresetCarouselTimer, schedulePresetCarouselTick]);
 
   useEffect(() => {
     void refreshLibrary();
@@ -439,6 +519,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
                 type="button"
                 disabled={!!presetLoading}
                 onClick={() => {
+                  markManualMotionChange(preset.id);
                   void playBuiltInPreset(preset.id);
                   setExpandedPanel(null);
                 }}
