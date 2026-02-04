@@ -23,9 +23,10 @@ export const ChatTimeline = React.memo(forwardRef<
     selectionMode?: boolean;
     selectedIds?: Set<string>;
     onToggleSelect?: (id: string) => void;
+    bottomRef?: React.RefObject<HTMLDivElement | null>;
   }
 >(function ChatTimeline(props, ref) {
-  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery, selectionMode, selectedIds, onToggleSelect } = props;
+  const { api, llmProvider, onOpenLlmSettings, messages, isThinking, scrollLock, onJumpToBottom, onRetry, onToast, searchQuery, selectionMode, selectedIds, onToggleSelect, bottomRef } = props;
   const showLlmHint = String(llmProvider ?? "") === "fallback";
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const largeList = messages.length >= 120;
@@ -62,6 +63,11 @@ export const ChatTimeline = React.memo(forwardRef<
     return result;
   }, [messages]);
 
+  // Keep the bottom part always rendered even when using `content-visibility` for long histories,
+  // so "jump to bottom" can land reliably without layout settling.
+  const END_ZONE_ITEMS = 44;
+  const endZoneFrom = Math.max(0, messagesWithDates.length - END_ZONE_ITEMS);
+
   return (
     <div className="timelineWrap">
       <div
@@ -96,15 +102,16 @@ export const ChatTimeline = React.memo(forwardRef<
           </div>
         ) : (
           <div className="messageList">
-            {messagesWithDates.map((item) =>
+            {messagesWithDates.map((item, idx) =>
               item.type === "date" ? (
-                <DateSeparator key={item.key} date={item.date} />
+                <DateSeparator key={item.key} date={item.date} className={largeList && idx >= endZoneFrom ? "cvEndZone" : ""} />
               ) : (
                 <MessageRow
                   key={item.message.id}
                   api={api}
                   message={item.message}
                   isGroupStart={item.isGroupStart}
+                  cvEndZone={largeList && idx >= endZoneFrom}
                   onToast={onToast}
                   onRetry={onRetry}
                   searchQuery={searchQuery}
@@ -119,6 +126,8 @@ export const ChatTimeline = React.memo(forwardRef<
         )}
 
         {isThinking && <TypingIndicator />}
+
+        <div ref={bottomRef} className="timelineBottomSentinel" aria-hidden="true" />
       </div>
 
       {scrollLock && <JumpToBottom onClick={onJumpToBottom} />}

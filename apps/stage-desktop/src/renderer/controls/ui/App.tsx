@@ -16,7 +16,6 @@ import { ConsolePanel, type AppLogItem } from "./panels/ConsolePanel";
 import { LlmPanel } from "./panels/LlmPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
 import { ThemePanel, loadAccent, loadFontSize, loadBackground, loadCustomBgImage, applyAccentColor, applyFontSize, applyBackground, type ThemeMode } from "./panels/ThemePanel";
-import { scrollToBottom } from "./lib/utils";
 import { loadMotionUiSettings } from "./lib/motionUi";
 
 type Theme = "light" | "dark";
@@ -89,8 +88,13 @@ export function App() {
   const [scrollLock, setScrollLock] = useState(false);
   const [sendError, setSendError] = useState<null | { message: string; retryText: string }>(null);
 
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const stickToBottomRef = useRef(true);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const timelineBottomRef = useRef<HTMLDivElement>(null);
+  const autoFollowRef = useRef(true);
+  const lastUserScrollAtRef = useRef(0);
+  const autoPinRafRef = useRef(0);
+  const didInitialPinRef = useRef(false);
+  const pinSeqRef = useRef(0);
 
   const [provider, setProvider] = useState<string>("unknown");
 
@@ -387,35 +391,122 @@ export function App() {
     return () => window.clearTimeout(t);
   }, [draft]);
 
-  // Scrolling heuristic:
-  // - scrollLock=true when the user scrolls up more than 120px from bottom
-  // - when unlocked, auto-follow new messages
-  useEffect(() => {
-    const el = timelineRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      const gap = el.scrollHeight - (el.scrollTop + el.clientHeight);
-      const locked = gap > 120;
-      stickToBottomRef.current = !locked;
-      setScrollLock(locked);
+  const pinToBottom = useCallback((opts?: { aggressive?: boolean }) => {
+    autoFollowRef.current = true;
+    setScrollLock(false);
+
+    const seq = ++pinSeqRef.current;
+    const aggressive = Boolean(opts?.aggressive);
+
+    const doScroll = () => {
+      if (seq !== pinSeqRef.current) return;
+      const el = timelineRef.current;
+      if (!el) return;
+
+      // Force an instant pin even if CSS sets `scroll-behavior: smooth`.
+      const prev = el.style.scrollBehavior;
+      el.style.scrollBehavior = "auto";
+      el.scrollTop = el.scrollHeight;
+      // Some layouts settle across a frame (images/markdown). Pin once more next frame.
+      requestAnimationFrame(() => {
+        if (seq !== pinSeqRef.current) return;
+        el.scrollTop = el.scrollHeight;
+        el.style.scrollBehavior = prev;
+      });
     };
-    el.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => el.removeEventListener("scroll", onScroll);
+
+    requestAnimationFrame(doScroll);
+    window.setTimeout(doScroll, 60);
+    window.setTimeout(doScroll, 180);
+    window.setTimeout(doScroll, 360);
+    if (aggressive) window.setTimeout(doScroll, 720);
   }, []);
 
+  // User scroll intent tracking (wheel/drag on scroll container).
   useEffect(() => {
-    const el = timelineRef.current;
-    if (!el) return;
-    if (stickToBottomRef.current) scrollToBottom(el);
-  }, [entries, sendError, isThinking]);
+    const root = timelineRef.current;
+    if (!root) return;
+    const mark = () => {
+      lastUserScrollAtRef.current = performance.now();
+    };
+    root.addEventListener("wheel", mark, { passive: true });
+    root.addEventListener("touchstart", mark, { passive: true });
+    root.addEventListener("pointerdown", mark, { passive: true });
+    return () => {
+      root.removeEventListener("wheel", mark);
+      root.removeEventListener("touchstart", mark);
+      root.removeEventListener("pointerdown", mark);
+    };
+  }, []);
+
+  // At-bottom detection via sentinel (more robust than scrollHeight heuristics).
+  useEffect(() => {
+    const root = timelineRef.current;
+    const target = timelineBottomRef.current;
+    if (!root || !target) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const io = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        const atBottom = Boolean(entry && entry.isIntersecting);
+        setScrollLock(!atBottom);
+        if (atBottom) return;
+
+        const lastUser = lastUserScrollAtRef.current;
+        const recentUser = lastUser > 0 && performance.now() - lastUser < 260;
+        if (recentUser) {
+          autoFollowRef.current = false;
+          if (autoPinRafRef.current) cancelAnimationFrame(autoPinRafRef.current);
+          autoPinRafRef.current = 0;
+          return;
+        }
+
+        if (autoFollowRef.current) {
+          if (autoPinRafRef.current) return;
+          autoPinRafRef.current = requestAnimationFrame(() => {
+            autoPinRafRef.current = 0;
+            const el = timelineRef.current;
+            if (!el) return;
+            const prev = el.style.scrollBehavior;
+            el.style.scrollBehavior = "auto";
+            el.scrollTop = el.scrollHeight;
+            el.style.scrollBehavior = prev;
+          });
+        }
+      },
+      { root, threshold: 0.01 }
+    );
+
+    io.observe(target);
+    return () => {
+      try {
+        io.disconnect();
+      } catch {}
+      if (autoPinRafRef.current) cancelAnimationFrame(autoPinRafRef.current);
+      autoPinRafRef.current = 0;
+    };
+  }, []);
+
+  // Initial open: always pin once history arrives.
+  useEffect(() => {
+    if (didInitialPinRef.current) return;
+    if (entries.length === 0) return;
+    didInitialPinRef.current = true;
+    pinToBottom({ aggressive: true });
+  }, [entries.length, pinToBottom]);
+
+  // New content: keep pinned when auto-follow is enabled.
+  useEffect(() => {
+    if (!autoFollowRef.current) return;
+    if (entries.length === 0) return;
+    pinToBottom();
+  }, [entries, sendError, isThinking, pinToBottom]);
 
   const jumpToBottom = useCallback(() => {
-    const el = timelineRef.current;
-    if (el) scrollToBottom(el);
-    setScrollLock(false);
-    stickToBottomRef.current = true;
-  }, []);
+    autoFollowRef.current = true;
+    pinToBottom({ aggressive: true });
+  }, [pinToBottom]);
 
   // Track "open chat" so proactive ignore logic doesn't misfire.
   useEffect(() => {
@@ -697,6 +788,7 @@ export function App() {
           isThinking={isThinking}
           scrollLock={scrollLock}
           onJumpToBottom={jumpToBottom}
+          bottomRef={timelineBottomRef}
           onRetry={handleRetry}
           onToast={showToast}
           searchQuery={searchQuery}

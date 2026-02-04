@@ -495,10 +495,20 @@ html, body {
   background: var(--chat-bg);
 }
 
+.timelineBottomSentinel {
+  height: 1px;
+  width: 100%;
+}
+
 .timeline[data-large-list="1"] .chatMessage,
 .timeline[data-large-list="1"] .dateSeparator {
   content-visibility: auto;
   contain: layout style paint;
+}
+
+.timeline[data-large-list="1"] .chatMessage.cvEndZone,
+.timeline[data-large-list="1"] .dateSeparator.cvEndZone {
+  content-visibility: visible;
 }
 
 .timeline[data-large-list="1"] .chatMessage {

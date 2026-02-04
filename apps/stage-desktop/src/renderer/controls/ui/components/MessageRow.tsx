@@ -63,6 +63,7 @@ export const MessageRow = React.memo(function MessageRow(props: {
   api: StageDesktopApi | null;
   message: UiMessage;
   isGroupStart?: boolean;
+  cvEndZone?: boolean;
   onToast?: (msg: string, o?: any) => void;
   onRetry?: (text: string) => void;
   searchQuery?: string;
@@ -71,7 +72,7 @@ export const MessageRow = React.memo(function MessageRow(props: {
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
 }) {
-  const { api, message, isGroupStart = true, onToast, onRetry, searchQuery, onViewImage, selectionMode, selected, onToggleSelect } = props;
+  const { api, message, isGroupStart = true, cvEndZone = false, onToast, onRetry, searchQuery, onViewImage, selectionMode, selected, onToggleSelect } = props;
   const [copied, setCopied] = useState<null | "text" | "md">(null);
   const [hovered, setHovered] = useState(false);
 
@@ -116,7 +117,7 @@ export const MessageRow = React.memo(function MessageRow(props: {
   return (
     <div
       id={`msg-${message.id}`}
-      className={`chatMessage ${message.role} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""} ${!isGroupStart ? "isGrouped" : ""} ${selectionMode ? "selectionMode" : ""}`}
+      className={`chatMessage ${message.role} ${cvEndZone ? "cvEndZone" : ""} ${isError ? "hasError" : ""} ${isSearchMatch ? "searchMatch" : ""} ${!isGroupStart ? "isGrouped" : ""} ${selectionMode ? "selectionMode" : ""}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={selectionMode ? handleSelect : undefined}

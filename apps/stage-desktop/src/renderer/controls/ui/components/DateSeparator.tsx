@@ -1,8 +1,8 @@
 import React, { memo } from "react";
 
-export const DateSeparator = memo(function DateSeparator(props: { date: string }) {
+export const DateSeparator = memo(function DateSeparator(props: { date: string; className?: string }) {
   return (
-    <div className="dateSeparator">
+    <div className={`dateSeparator ${props.className || ""}`.trim()}>
       <span className="dateSeparatorText">{props.date}</span>
     </div>
   );
