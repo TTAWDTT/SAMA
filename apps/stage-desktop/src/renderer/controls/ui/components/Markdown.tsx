@@ -185,8 +185,10 @@ export const Markdown = React.memo(function Markdown(props: { api: StageDesktopA
       pre: ({ children }: any) => <>{children}</>,
       // react-markdown v10 doesn't type `inline`, but it is present at runtime.
       code: (p: any) => {
-        const { inline, className, children, ...rest } = p ?? {};
-        if (inline) return <code {...rest}>{children}</code>;
+        const { node, inline, className, children, ...rest } = p ?? {};
+        const nodeType = node && typeof node === "object" ? (node as any).type : undefined;
+        const isInline = inline === true || nodeType === "inlineCode";
+        if (isInline) return <code {...rest}>{children}</code>;
         const lang = normalizeLanguage(className);
         if (lang === "sama-lite") {
           const text = extractText(children).replace(/\n$/, "");
