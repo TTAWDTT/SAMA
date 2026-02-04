@@ -44,6 +44,8 @@ const btnDragMoveEl = document.getElementById("btnDragMove");
 const btnDragMove = btnDragMoveEl instanceof HTMLButtonElement ? btnDragMoveEl : null;
 const btnMotionEl = document.getElementById("btnMotion");
 const btnMotion = btnMotionEl instanceof HTMLButtonElement ? btnMotionEl : null;
+const btnExpressionEl = document.getElementById("btnExpression");
+const btnExpression = btnExpressionEl instanceof HTMLButtonElement ? btnExpressionEl : null;
 const btnOpenChatEl = document.getElementById("btnOpenChat");
 const btnOpenChat = btnOpenChatEl instanceof HTMLButtonElement ? btnOpenChatEl : null;
 
@@ -734,6 +736,60 @@ async function boot() {
     } catch {}
   });
 
+  type Expression = ActionCommand["expression"];
+  const expressionOrder: Expression[] = [
+    "NEUTRAL",
+    "HAPPY",
+    "SHY",
+    "THINKING",
+    "EXCITED",
+    "SURPRISED",
+    "TIRED",
+    "CONFUSED",
+    "SAD",
+    "ANGRY"
+  ];
+  const expressionLabels: Record<Expression, string> = {
+    NEUTRAL: "自然",
+    HAPPY: "开心",
+    SAD: "难过",
+    SHY: "害羞",
+    TIRED: "困困",
+    ANGRY: "生气",
+    SURPRISED: "惊讶",
+    THINKING: "思考",
+    CONFUSED: "迷糊",
+    EXCITED: "兴奋"
+  };
+  const expressionIcons: Record<Expression, string> = {
+    NEUTRAL: "🙂",
+    HAPPY: "😊",
+    SAD: "😢",
+    SHY: "😳",
+    TIRED: "😴",
+    ANGRY: "😠",
+    SURPRISED: "😮",
+    THINKING: "🤔",
+    CONFUSED: "😕",
+    EXCITED: "😆"
+  };
+  let currentExpression: Expression = "NEUTRAL";
+  const applyExpression = (expr: Expression, opts?: { banner?: boolean }) => {
+    currentExpression = expr;
+    try {
+      scene.setExpression(expr);
+    } catch {}
+    if (btnExpression) {
+      btnExpression.textContent = expressionIcons[expr] ?? "🙂";
+      if (expr !== "NEUTRAL") btnExpression.dataset.active = "1";
+      else delete btnExpression.dataset.active;
+    }
+    if (opts?.banner) {
+      showBanner(`表情：${expressionLabels[expr] ?? expr}`, { timeoutMs: 1200 });
+    }
+  };
+  applyExpression(currentExpression);
+
   const handlePetControl = async (msg: PetControlMessage) => {
     if (!msg || msg.type !== "PET_CONTROL") return;
     try {
@@ -833,7 +889,7 @@ async function boot() {
 
       if (msg.action === "NOTIFY_ACTION") {
         scene.notifyAction(msg.cmd);
-        scene.setExpression(msg.cmd.expression);
+        applyExpression(msg.cmd.expression);
         if (msg.cmd.bubbleKind === "thinking") {
           if (isCaptionOverlayAlive()) hideInlineBubble();
           startCaptionAnchorTracking(msg.cmd.durationMs || 25_000);
@@ -1024,7 +1080,7 @@ async function boot() {
 
   (window as any).stageDesktop?.onActionCommand?.((cmd: ActionCommand) => {
     scene.notifyAction(cmd);
-    scene.setExpression(cmd.expression);
+    applyExpression(cmd.expression);
     if (cmd.bubbleKind === "thinking") {
       if (isCaptionOverlayAlive()) hideInlineBubble();
       startCaptionAnchorTracking(cmd.durationMs || 25_000);
@@ -1323,6 +1379,46 @@ async function boot() {
       e.preventDefault();
       cancelLongPress();
       void playIdleNatural();
+    });
+  }
+
+  if (btnExpression) {
+    const reset = () => applyExpression("NEUTRAL", { banner: true });
+    const cycleNext = () => {
+      const idx = expressionOrder.indexOf(currentExpression);
+      const next = expressionOrder[(idx >= 0 ? idx + 1 : 0) % expressionOrder.length] ?? "NEUTRAL";
+      applyExpression(next, { banner: true });
+    };
+
+    // Short click: cycle expressions. Long press (or right click): reset to neutral.
+    let longPressTimer: number | null = null;
+    let longPressed = false;
+    const cancelLongPress = () => {
+      if (longPressTimer !== null) window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    };
+
+    btnExpression.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      longPressed = false;
+      cancelLongPress();
+      longPressTimer = window.setTimeout(() => {
+        longPressed = true;
+        reset();
+      }, 520);
+    });
+    btnExpression.addEventListener("pointerup", (e) => {
+      if (e.button !== 0) return;
+      cancelLongPress();
+      if (longPressed) return;
+      cycleNext();
+    });
+    btnExpression.addEventListener("pointercancel", cancelLongPress);
+    btnExpression.addEventListener("pointerleave", cancelLongPress);
+    btnExpression.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      cancelLongPress();
+      reset();
     });
   }
 
