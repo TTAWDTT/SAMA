@@ -320,9 +320,10 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
   );
 
   const markManualMotionChange = useCallback(
-    (presetId?: MotionPresetId) => {
+    (presetId?: MotionPresetId, holdMs?: number) => {
       const now = Date.now();
-      presetCarouselHoldUntil.current = Math.max(presetCarouselHoldUntil.current, now + PRESET_CAROUSEL_INTERVAL_MS);
+      const holdFor = Math.max(PRESET_CAROUSEL_INTERVAL_MS, Math.floor(Number(holdMs) || 0));
+      presetCarouselHoldUntil.current = Math.max(presetCarouselHoldUntil.current, now + holdFor);
 
       if (presetId) {
         const idx = MOTION_PRESET_CYCLE.indexOf(presetId);
@@ -343,6 +344,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       if (presetLoadingRef.current) return;
       presetLoadingRef.current = presetId;
       setPresetLoading(presetId);
+      let durationMs: number | undefined;
       try {
         const preset = MOTION_PRESETS.find((p) => p.id === presetId) as MotionPreset | undefined;
         if (!preset) throw new Error(`Unknown preset: ${presetId}`);
@@ -355,6 +357,9 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
         );
         if (!res.ok) throw new Error(String(res.message ?? "load failed"));
 
+        const d = (res as any)?.data && typeof (res as any).data === "object" ? Number((res as any).data.durationMs) : NaN;
+        if (Number.isFinite(d) && d > 0) durationMs = Math.max(0, Math.round(d));
+
         setVrmaStatus(`预设：${preset.name}`);
         if (!opts?.silent) onToast(`已播放：${preset.name}`, { timeoutMs: 1600 });
       } catch (err) {
@@ -364,6 +369,7 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
         presetLoadingRef.current = null;
         setPresetLoading(null);
       }
+      return durationMs;
     },
     [onToast]
   );
@@ -375,6 +381,10 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       const api = apiRef.current;
       if (!api) return;
       if (!MOTION_PRESET_CYCLE.length) return;
+      if (presetLoadingRef.current) {
+        schedulePresetCarouselTick(450, seq);
+        return;
+      }
 
       const now = Date.now();
       const holdUntil = presetCarouselHoldUntil.current;
@@ -391,7 +401,10 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       lastCarouselReqId.current = requestId;
 
       try {
-        await playBuiltInPreset(presetId, { silent: true, requestId });
+        const durationMs = await playBuiltInPreset(presetId, { silent: true, requestId });
+        if (seq !== presetCarouselSeq.current) return;
+        schedulePresetCarouselTick(Math.max(PRESET_CAROUSEL_INTERVAL_MS, Math.floor(Number(durationMs) || 0)), seq);
+        return;
       } catch {}
 
       if (seq !== presetCarouselSeq.current) return;
@@ -417,7 +430,8 @@ export function ActionsPanel(props: { api: StageDesktopApi | null; onToast: (msg
       const matched = MOTION_PRESETS.find((p) => msg.startsWith(p.name));
       if (!matched) return;
 
-      markManualMotionChange(matched.id);
+      const d = (r as any)?.data && typeof (r as any).data === "object" ? Number((r as any).data.durationMs) : NaN;
+      markManualMotionChange(matched.id, Number.isFinite(d) ? d : undefined);
     });
   }, [api, markManualMotionChange]);
 

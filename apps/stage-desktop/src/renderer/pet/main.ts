@@ -245,9 +245,9 @@ function sendPetStatus(level: PetStatusMessage["level"], message: string) {
   } catch {}
 }
 
-function sendPetControlResult(requestId: string | undefined, ok: boolean, message?: string) {
+function sendPetControlResult(requestId: string | undefined, ok: boolean, message?: string, data?: Record<string, unknown>) {
   if (!requestId) return;
-  const payload: PetControlResult = { type: "PET_CONTROL_RESULT", ts: Date.now(), requestId, ok, message };
+  const payload: PetControlResult = { type: "PET_CONTROL_RESULT", ts: Date.now(), requestId, ok, message, ...(data ? { data } : {}) };
   try {
     (window as any).stageDesktop?.sendPetControlResult?.(payload);
   } catch {}
@@ -757,12 +757,13 @@ async function boot() {
 
       if (msg.action === "LOAD_VRMA_BYTES") {
         // Avoid noisy boot status updates when Controls triggers a VRMA load.
-        const ok = await scene.loadVrmAnimationBytes(msg.bytes);
+        const res = await scene.loadVrmAnimationBytes(msg.bytes);
+        const ok = res.ok;
         hudState.vrmaLoaded = ok;
         renderHud();
         sendPetState();
         sendPetStatus("info", ok ? "已加载 VRM 动作 ✅（可设为 Idle/Walk）" : "动作文件不兼容/解析失败（请换一个 .vrma）");
-        sendPetControlResult(msg.requestId, ok, ok ? undefined : "动作文件不兼容/解析失败");
+        sendPetControlResult(msg.requestId, ok, ok ? undefined : "动作文件不兼容/解析失败", res.durationMs !== undefined ? { durationMs: res.durationMs } : undefined);
         return;
       }
 
@@ -966,7 +967,8 @@ async function boot() {
         sendPetStatus("info", "已加载 VRM ✅");
       } else {
         setBootStatus(`正在导入动作（VRMA）：${file.name}`);
-        const ok = await scene.loadVrmAnimationBytes(bytes);
+        const res = await scene.loadVrmAnimationBytes(bytes);
+        const ok = res.ok;
         hudState.vrmaLoaded = ok;
         sendPetState();
         sendPetStatus("info", ok ? "已加载 VRM 动作 ✅（可设为 Idle/Walk）" : "动作文件不兼容/解析失败（请换一个 .vrma）");
@@ -1117,7 +1119,8 @@ async function boot() {
           setBootStatus("未选择动作文件（保持当前动作）");
           return;
         }
-        const ok = await scene.loadVrmAnimationBytes(bytes);
+        const res = await scene.loadVrmAnimationBytes(bytes);
+        const ok = res.ok;
         hudState.vrmaLoaded = ok;
         renderHud();
         setBootStatus(ok ? "已加载 VRM 动作 ✅" : "动作文件不兼容/解析失败（请换一个 .vrma）");

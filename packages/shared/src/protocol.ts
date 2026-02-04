@@ -187,6 +187,7 @@ export type PetControlResult = {
   requestId: string;
   ok: boolean;
   message?: string;
+  data?: Record<string, unknown>;
 };
 
 export type PetStatusMessage = {

@@ -33,7 +33,7 @@ export type PetScene = {
   start: () => void;
   setExpression: (expr: ActionCommand["expression"]) => void;
   loadVrmBytes: (bytes: Uint8Array) => Promise<void>;
-  loadVrmAnimationBytes: (bytes: Uint8Array) => Promise<boolean>;
+  loadVrmAnimationBytes: (bytes: Uint8Array) => Promise<{ ok: boolean; durationMs?: number }>;
   speak: (durationMs?: number) => void;
   refitCamera: () => void;
   setIdleConfig: (cfg: Partial<IdleConfig>) => void;
@@ -148,6 +148,24 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     closeup: { targetY: 1.4, distance: 0.6, pitch: 0.1 }
   };
 
+  const getFrameBottomPaddingPx = () => {
+    try {
+      if (typeof document === "undefined" || typeof window === "undefined") return 0;
+      const el = document.getElementById("hoverFrame");
+      if (!(el instanceof HTMLElement)) return 0;
+      const enabled = el.classList.contains("enabled") || el.classList.contains("previewing");
+      if (!enabled) return 0;
+      const cs = window.getComputedStyle(el);
+      const insetBottom = parseFloat(String((cs as any).bottom ?? ""));
+      const borderBottom = parseFloat(String((cs as any).borderBottomWidth ?? ""));
+      const inset = Number.isFinite(insetBottom) ? insetBottom : 0;
+      const border = Number.isFinite(borderBottom) ? borderBottom : 0;
+      return Math.max(0, inset + border);
+    } catch {
+      return 0;
+    }
+  };
+
   const applyCameraPreset = (preset: CameraPreset) => {
     const cfg = CAMERA_PRESETS[preset];
     if (!cfg) return;
@@ -174,10 +192,15 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
     // Apply fixed framing values for consistent look across all presets
     viewBaseDistance = cfg.distance;
 
-    // Calculate viewTarget.y so alignment point (Y=0) appears at screen bottom
+    // Calculate viewTarget.y so alignment point (Y=0) appears at the visual bottom.
+    // When the border frame is enabled, it sits inside the window (inset + borderWidth),
+    // so we lift the "floor" slightly to keep the feet resting on the frame.
     const vFovRad = THREE.MathUtils.degToRad(camera.fov);
     const halfVisibleHeight = cfg.distance * Math.tan(vFovRad / 2);
-    viewTarget.y = halfVisibleHeight;
+    const h = Math.max(1, Number(canvas?.clientHeight || canvas?.height || 1));
+    const padPx = getFrameBottomPaddingPx();
+    const padWorld = (padPx / h) * (halfVisibleHeight * 2);
+    viewTarget.y = Math.max(0.05, halfVisibleHeight - padWorld);
 
     applyView();
   };
@@ -1000,20 +1023,27 @@ export async function createPetScene(canvas: HTMLCanvasElement, vrmBytes: Uint8A
         vrmAnimationAction = null;
         const now = safeNowMs();
         syncAnimationForMovement(now, computeMovementState(now));
-        return false;
+        return { ok: false };
       }
 
+      let durationMs: number | undefined;
       try {
         vrmAnimationLastLoaded = await loadVrmAnimationFromBytes(bytes);
         vrmAnimationAction = vrmAnimationLastLoaded;
+        if (vrmAnimationLastLoaded) {
+          const clip = getClipFromVrmAnimation(vrmAnimationLastLoaded);
+          const d = clip ? Number(clip.duration) : 0;
+          if (Number.isFinite(d) && d > 0) durationMs = Math.max(0, Math.round(d * 1000));
+        }
       } catch (err) {
         console.warn("[vrma] load failed:", err);
         vrmAnimationLastLoaded = null;
         vrmAnimationAction = null;
+        durationMs = undefined;
       }
       const now = safeNowMs();
       syncAnimationForMovement(now, computeMovementState(now));
-      return !!vrmAnimationLastLoaded;
+      return { ok: !!vrmAnimationLastLoaded, ...(durationMs !== undefined ? { durationMs } : {}) };
     },
     speak: (durationMs) => {
       const ms = Math.max(120, Number(durationMs ?? 1200));
