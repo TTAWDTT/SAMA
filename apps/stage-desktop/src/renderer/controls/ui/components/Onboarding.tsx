@@ -29,7 +29,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "theme",
     title: "个性化主题",
-    description: "在 Theme 标签页可以切换深色/浅色模式，选择主题色，自定义聊天背景。",
+    description: "在 Theme 标签页可以切换深色/浅色模式，选择主题色，并调整字体大小。",
     icon: "🎨"
   },
   {

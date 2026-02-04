@@ -10,14 +10,6 @@ type ThemePreset = {
   dark: string;
 };
 
-type BackgroundPreset = {
-  id: string;
-  name: string;
-  type: "solid" | "gradient";
-  value: string;
-  darkValue?: string;
-};
-
 const ACCENT_PRESETS: ThemePreset[] = [
   { id: "orange", name: "橙色", light: "#d97757", dark: "#e8956a" },
   { id: "blue", name: "蓝色", light: "#6a9bcc", dark: "#8bb4d9" },
@@ -27,22 +19,9 @@ const ACCENT_PRESETS: ThemePreset[] = [
   { id: "red", name: "红色", light: "#ef4444", dark: "#f87171" }
 ];
 
-const BACKGROUND_PRESETS: BackgroundPreset[] = [
-  { id: "default", name: "默认", type: "solid", value: "#faf9f5", darkValue: "#141413" },
-  { id: "warm", name: "温暖", type: "solid", value: "#fef3c7", darkValue: "#1c1917" },
-  { id: "cool", name: "冷色", type: "solid", value: "#e0f2fe", darkValue: "#0c1929" },
-  { id: "mint", name: "薄荷", type: "solid", value: "#d1fae5", darkValue: "#0d1f17" },
-  { id: "lavender", name: "薰衣草", type: "solid", value: "#ede9fe", darkValue: "#1e1b2e" },
-  { id: "sunset", name: "日落", type: "gradient", value: "linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)", darkValue: "linear-gradient(135deg, #1f1c2c 0%, #3a1c71 100%)" },
-  { id: "ocean", name: "海洋", type: "gradient", value: "linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)", darkValue: "linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)" },
-  { id: "forest", name: "森林", type: "gradient", value: "linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%)", darkValue: "linear-gradient(135deg, #0f2014 0%, #162c1a 100%)" }
-];
-
 const LS_ACCENT = "sama.ui.accent.v1";
 const LS_FONT_SIZE = "sama.ui.fontSize.v1";
 const LS_THEME_MODE = "sama.ui.themeMode.v1";
-const LS_BACKGROUND = "sama.ui.background.v1";
-const LS_CUSTOM_BG_IMAGE = "sama.ui.customBgImage.v1";
 
 export function loadAccent(): AccentColor {
   try {
@@ -66,49 +45,6 @@ function loadThemeMode(): ThemeMode {
     if (v === "light" || v === "dark" || v === "system") return v;
   } catch {}
   return "light";
-}
-
-export function loadBackground(): string {
-  try {
-    return localStorage.getItem(LS_BACKGROUND) || "default";
-  } catch {}
-  return "default";
-}
-
-export function loadCustomBgImage(): string | null {
-  try {
-    return localStorage.getItem(LS_CUSTOM_BG_IMAGE);
-  } catch {}
-  return null;
-}
-
-export function applyBackground(bgId: string, isDark: boolean, customImage?: string | null) {
-  const root = document.documentElement;
-
-  // Reset any inline background styles first
-  document.querySelectorAll(".timeline, .chatShell, .timelineWrap").forEach((el) => {
-    (el as HTMLElement).style.background = "";
-  });
-
-  if (bgId === "custom" && customImage) {
-    // For custom image, we need to set both CSS variable and inline style for overlay
-    const overlayColor = isDark ? "rgba(0, 0, 0, 0.6)" : "rgba(255, 255, 255, 0.7)";
-    const bgValue = `linear-gradient(${overlayColor}, ${overlayColor}), url("${customImage}") center/cover fixed`;
-    root.style.setProperty("--chat-bg", bgValue);
-    root.style.setProperty("--chat-bg-size", "cover");
-    return;
-  }
-
-  const preset = BACKGROUND_PRESETS.find((p) => p.id === bgId);
-  if (!preset) {
-    // Fallback to default
-    const defaultValue = isDark ? "#111111" : "#ededed";
-    root.style.setProperty("--chat-bg", defaultValue);
-    return;
-  }
-
-  const value = isDark && preset.darkValue ? preset.darkValue : preset.value;
-  root.style.setProperty("--chat-bg", value);
 }
 
 export function applyAccentColor(accent: AccentColor, isDark: boolean) {
@@ -151,8 +87,6 @@ export function ThemePanel(props: ThemePanelProps) {
   const [accent, setAccent] = useState<AccentColor>(loadAccent);
   const [fontSize, setFontSize] = useState<number>(loadFontSize);
   const [themeMode, setThemeMode] = useState<ThemeMode>(loadThemeMode);
-  const [background, setBackground] = useState<string>(loadBackground);
-  const [customBgImage, setCustomBgImage] = useState<string | null>(loadCustomBgImage);
 
   // Apply accent on mount and when changed
   useEffect(() => {
@@ -169,14 +103,6 @@ export function ThemePanel(props: ThemePanelProps) {
       localStorage.setItem(LS_FONT_SIZE, String(fontSize));
     } catch {}
   }, [fontSize]);
-
-  // Apply background on mount and when changed
-  useEffect(() => {
-    applyBackground(background, theme === "dark", customBgImage);
-    try {
-      localStorage.setItem(LS_BACKGROUND, background);
-    } catch {}
-  }, [background, theme, customBgImage]);
 
   // Handle theme mode
   useEffect(() => {
@@ -206,48 +132,7 @@ export function ThemePanel(props: ThemePanelProps) {
     setAccent("green");
     setFontSize(15);
     setThemeMode("light");
-    setBackground("default");
-    setCustomBgImage(null);
-    try {
-      localStorage.removeItem(LS_CUSTOM_BG_IMAGE);
-    } catch {}
     onToast("已恢复默认主题");
-  };
-
-  const handleCustomImage = async () => {
-    // Create a file input to select image
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      // Convert to base64 data URL
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        try {
-          localStorage.setItem(LS_CUSTOM_BG_IMAGE, dataUrl);
-          setCustomBgImage(dataUrl);
-          setBackground("custom");
-          onToast("背景图片已设置");
-        } catch (err) {
-          onToast("图片太大，无法保存");
-        }
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-  };
-
-  const handleClearCustomImage = () => {
-    try {
-      localStorage.removeItem(LS_CUSTOM_BG_IMAGE);
-    } catch {}
-    setCustomBgImage(null);
-    setBackground("default");
-    onToast("已清除自定义背景");
   };
 
   return (
@@ -330,55 +215,6 @@ export function ThemePanel(props: ThemePanelProps) {
             <span className="fontSizeValue">{fontSize}px</span>
           </div>
           <div className="help">调整界面整体字体大小</div>
-        </div>
-      </div>
-
-      {/* Chat Background */}
-      <div className="card">
-        <div className="field">
-          <label className="label">聊天背景</label>
-          <div className="bgGrid">
-            {BACKGROUND_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                className={`bgBtn ${background === preset.id ? "isActive" : ""}`}
-                style={{
-                  "--bg-preview": theme === "dark" && preset.darkValue ? preset.darkValue : preset.value
-                } as React.CSSProperties}
-                onClick={() => setBackground(preset.id)}
-                title={preset.name}
-              >
-                <span className="bgSwatch" />
-                <span className="bgName">{preset.name}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              className={`bgBtn ${background === "custom" ? "isActive" : ""}`}
-              onClick={handleCustomImage}
-              title="自定义图片"
-            >
-              <span className="bgSwatch bgCustom">
-                {customBgImage ? (
-                  <img src={customBgImage} alt="" className="bgCustomImg" />
-                ) : (
-                  <span className="bgAddIcon">+</span>
-                )}
-              </span>
-              <span className="bgName">自定义</span>
-            </button>
-          </div>
-          {background === "custom" && customBgImage && (
-            <button
-              type="button"
-              className="btn btnSm btnDanger"
-              style={{ marginTop: 8 }}
-              onClick={handleClearCustomImage}
-            >
-              清除自定义背景
-            </button>
-          )}
         </div>
       </div>
 

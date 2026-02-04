@@ -15,7 +15,7 @@ import { ActionsPanel } from "./panels/ActionsPanel";
 import { ConsolePanel, type AppLogItem } from "./panels/ConsolePanel";
 import { LlmPanel } from "./panels/LlmPanel";
 import { MemoryPanel } from "./panels/MemoryPanel";
-import { ThemePanel, loadAccent, loadFontSize, loadBackground, loadCustomBgImage, applyAccentColor, applyFontSize, applyBackground, type ThemeMode } from "./panels/ThemePanel";
+import { ThemePanel, loadAccent, loadFontSize, applyAccentColor, applyFontSize, type ThemeMode } from "./panels/ThemePanel";
 import { loadMotionUiSettings } from "./lib/motionUi";
 
 type Theme = "light" | "dark";
@@ -259,20 +259,25 @@ export function App() {
   useEffect(() => {
     const accent = loadAccent();
     const fontSize = loadFontSize();
-    const background = loadBackground();
-    const customBgImage = loadCustomBgImage();
     applyAccentColor(accent, theme === "dark");
     applyFontSize(fontSize);
-    applyBackground(background, theme === "dark", customBgImage);
+
+    // Chat background customization has been removed. Clear any stale overrides and stored payloads.
+    document.documentElement.style.removeProperty("--chat-bg");
+    document.documentElement.style.removeProperty("--chat-bg-size");
+    document.querySelectorAll(".timeline, .chatShell, .timelineWrap").forEach((el) => {
+      (el as HTMLElement).style.background = "";
+    });
+    try {
+      localStorage.removeItem("sama.ui.background.v1");
+      localStorage.removeItem("sama.ui.customBgImage.v1");
+    } catch {}
   }, []);
 
-  // Re-apply accent and background when theme changes
+  // Re-apply accent when theme changes
   useEffect(() => {
     const accent = loadAccent();
-    const background = loadBackground();
-    const customBgImage = loadCustomBgImage();
     applyAccentColor(accent, theme === "dark");
-    applyBackground(background, theme === "dark", customBgImage);
   }, [theme]);
 
   // Calculate search matches (uses debounced query for performance)
