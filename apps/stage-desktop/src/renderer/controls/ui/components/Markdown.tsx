@@ -185,16 +185,26 @@ export const Markdown = React.memo(function Markdown(props: { api: StageDesktopA
       pre: ({ children }: any) => <>{children}</>,
       // react-markdown v10 doesn't type `inline`, but it is present at runtime.
       code: (p: any) => {
-        const { node, inline, className, children, ...rest } = p ?? {};
-        const nodeType = node && typeof node === "object" ? (node as any).type : undefined;
-        const isInline = inline === true || nodeType === "inlineCode";
-        if (isInline) return <code {...rest}>{children}</code>;
-        const lang = normalizeLanguage(className);
+        const { node, className, children, ...rest } = p ?? {};
+        const text = extractText(children);
+
+        // react-markdown v10 (with remark-rehype) represents both inline and block code as a <code> element.
+        // We infer "block" by either:
+        // - having a language-* class (fenced code), OR
+        // - containing newlines (indented or fenced code without a language).
+        const nodeClass = node && typeof node === "object" ? (node as any).properties?.className : undefined;
+        const nodeClassStr = Array.isArray(nodeClass) ? nodeClass.map(String).join(" ") : typeof nodeClass === "string" ? nodeClass : "";
+        const classStr = typeof className === "string" ? className : "";
+        const isBlock = /\blanguage-/.test(classStr) || /\blanguage-/.test(nodeClassStr) || text.includes("\n");
+
+        if (!isBlock) return <code {...rest}>{children}</code>;
+
+        const lang = normalizeLanguage(classStr || nodeClassStr);
         if (lang === "sama-lite") {
-          const text = extractText(children).replace(/\n$/, "");
+          const code = text.replace(/\n$/, "");
           return (
             <div className="codeLiteBlock" role="group" aria-label="code">
-              <code className="codeLite">{text}</code>
+              <code className="codeLite">{code}</code>
             </div>
           );
         }
