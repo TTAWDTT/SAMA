@@ -146,9 +146,53 @@ function looksLikeLengthValidationError(raw: string) {
   const s = sanitizeOneLine(String(raw ?? ""));
   if (!s) return false;
   const t = s.toLowerCase();
-  if (!t.includes("too long")) return false;
-  if (t.includes("char") || t.includes("character") || t.includes("max length") || t.includes("maxlength")) return true;
+
+  // Full error forms
+  if (
+    (t.includes("too long") || t.includes("max length") || t.includes("maxlength")) &&
+    /\d/.test(t) &&
+    (t.includes("char") || t.includes("character") || t.includes("length"))
+  ) {
+    return true;
+  }
+
+  // Truncated/partial fragments we saw in the wild, e.g. "摇篮曲吗？ (15 chars) -"
+  if (/\(\s*\d+\s*(?:chars?|characters?)\s*\)/i.test(s)) return true;
+  if (/\b\d+\s*(?:chars?|characters?)\s*\)\s*[-–—:：]?\s*$/i.test(s)) return true;
+
+  // CN variants (defensive)
+  if (/\d+\s*(?:字|字符)\b/.test(s) && (s.includes("最多") || s.includes("上限") || s.includes("限制") || s.includes("过长"))) {
+    return true;
+  }
+
   return false;
+}
+
+function salvageLengthValidationOutput(raw: string) {
+  const s = sanitizeOneLine(String(raw ?? ""));
+  if (!s) return "";
+
+  const idxs = [
+    s.search(/\(\s*\d+\s*(?:chars?|characters?)\s*\)/i),
+    s.search(/\b\d+\s*(?:chars?|characters?)\b/i),
+    s.toLowerCase().indexOf("too long"),
+    s.toLowerCase().indexOf("max length"),
+    s.toLowerCase().indexOf("maxlength")
+  ].filter((n) => n >= 0);
+
+  if (!idxs.length) return "";
+  const idx = Math.min(...idxs);
+  if (!Number.isFinite(idx) || idx < 0) return "";
+
+  const head = s
+    .slice(0, idx)
+    .replace(/[-–—:：\s]+$/, "")
+    .trim();
+
+  // Only salvage when the "real" message is likely present.
+  if (!head) return "";
+  if (!/[\u4e00-\u9fff]/.test(head)) return "";
+  return head;
 }
 
 function normalizeChatUserInput(input: ChatUserInput): { text: string; images: ChatImageAttachment[] } {
@@ -1591,7 +1635,11 @@ export class LLMService {
       const hint = Number.isFinite(hintRaw) ? Math.max(0, Math.floor(hintRaw)) : 0;
       const raw = await this.#provider.generateProactive(ctx, prompt, hint > 0 ? hint : 80);
       const text = sanitizeChatText(String(raw ?? ""));
-      if (looksLikeLengthValidationError(text)) return fallback();
+      if (looksLikeLengthValidationError(text)) {
+        const salvaged = salvageLengthValidationOutput(text);
+        if (salvaged) return salvaged;
+        return fallback();
+      }
       return text || fallback();
     } catch (err) {
       console.warn("[llm] proactive fallback:", err);
